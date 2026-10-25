@@ -868,6 +868,7 @@ const LANCE_MOVES = {
   // KAMEHAMEHA: hold K to charge, release to fire a beam that hits repeatedly. Full charge = huge beam.
   neutralRanged: { name: 'Kamehameha', startup: 0.22, active: 0.55, endlag: 0.3, charge: true, landLag: 0.12, beam: true,
     chargeSfx: 'kame',                                                     // Kamehameha charge sound while charging
+    chargeRate: 1.3,                                                       // charges 30% faster than other moves
     airHover: true,                                                        // in the air he floats while charging/firing (DBZ style)
     overcharge: true,                                                      // keep holding past full: up to 200% (double power + size)
     wind: pose({ armA: [-0.6, -1.6], lean: -0.25, bob: -8, legA: [0.7, 0.6], legB: [-0.7, 0.2] }),      // hand cupped back at the hip
@@ -2877,6 +2878,151 @@ truckHit(WHIP.hit); truckHit(WHIP.crit); truckHit(INF_FTHROW);
 // ---------------- Characters ----------------
 // stats: runSpeed, airSpeed, jumpVel, doubleJumpVel, weight (higher = harder to launch)
 const DEFAULT_STATS = { runSpeed: RUN_SPEED, airSpeed: AIR_SPEED, jumpVel: JUMP_VEL, doubleJumpVel: DOUBLE_JUMP_VEL, weight: 1 };
+// =====================================================================
+//  COLTEN - green stickman, brown hair spiked up at the forehead, rectangle reading glasses, and a HUGE
+//  GREATSWORD (Ganondorf, Smash Ultimate). Slow, telegraphed swings with AMAZING reach and big damage -
+//  and he needs to CHARGE them to get the most out of them. Sturdier than Lance/Colby, lighter than Aiden.
+//  "sw" in a pose = the angle of the sword blade (same as limbs: 0 = straight down, PI/2 = forward, PI = up).
+// =====================================================================
+// hitboxes along the blade: n circles from (x0,y0) (near his hand) to (x1,y1) (the tip)
+const bladeHits = (x0, y0, x1, y1, n, h, extra = {}) => Array.from({ length: n }, (_, i) => {
+  const k = n > 1 ? i / (n - 1) : 0;
+  return { x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k, r: h.r || 26, dmg: h.dmg, base: h.base, growth: h.growth, angle: h.angle, ...extra };
+});
+const COLTEN_MOVES = {
+  // PERFECT BLOCK COUNTER: a fast flat cut straight back at them
+  counter: { name: 'Warlord Riposte', startup: 0.03, active: 0.1, endlag: 0.24, lunge: 300, lungeFriction: 0.6,
+    hitboxes: bladeHits(40, -66, 150, -60, 4, { dmg: 13, base: 480, growth: 6.5, angle: 40, r: 28 }),
+    wind: pose({ lean: -0.2, bob: -8, legA: [0.75, 0.6], legB: [-0.6, 0.2], armA: [-1.2, -0.6], armB: [-0.8, -0.8], sw: -1.6 }),
+    strike: pose({ lean: 0.4, bob: -10, legA: [1.0, 0.6], legB: [-0.9, 0.1], armA: [1.55, 0], armB: [-0.6, -0.8], sw: 1.62 }),
+    fire() { sfx.slash(1.1); } },
+
+  // ---------- J on the ground ----------
+  // 2-hit: a wide horizontal slash, then a heavy rising backhand cut
+  jab: { name: 'Warlord Slash', startup: 0.1, active: 0.08, endlag: 0.2, combo: 'jab2', sweep: true,
+    hitboxes: bladeHits(40, -70, 150, -60, 4, { dmg: 5, base: 150, growth: 0.6, angle: 50 }),
+    wind: pose({ lean: -0.15, bob: -6, legA: [0.7, 0.55], legB: [-0.6, 0.2], armA: [-0.9, -0.9], armB: [-0.6, -0.9], sw: -1.3 }),
+    strike: pose({ lean: 0.3, bob: -8, legA: [0.85, 0.6], legB: [-0.75, 0.15], armA: [1.6, 0], armB: [0.4, -1.2], sw: 1.6 }),
+    fire() { sfx.slash(); } },
+  jab2: { name: 'Rising Backhand', startup: 0.09, active: 0.1, endlag: 0.3, sweep: true, lunge: 200, lungeFriction: 0.5,
+    hitboxes: bladeHits(40, -80, 130, -130, 4, { dmg: 8, base: 380, growth: 4.8, angle: 62 }),
+    wind: pose({ lean: 0.3, bob: -10, legA: [0.9, 0.7], legB: [-0.8, 0.2], armA: [1.2, 0.2], armB: [0.4, -1.2], sw: 0.9 }),
+    strike: pose({ lean: -0.2, bob: -2, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.5, 0.1], armB: [-0.5, -0.8], sw: 2.5 }),
+    fire() { sfx.slash(1.1); } },
+  // SIDE J (forward smash): DREAD CLEAVER - the sword raised all the way behind his head, then brought down in
+  // a giant diagonal arc in front of him. Slow. Charge it.
+  sideGround: { name: 'Dread Cleaver', startup: 0.24, active: 0.12, endlag: 0.42, charge: true, sweep: true, lunge: 160, lungeFriction: 0.5,
+    hitboxes: [...bladeHits(30, -150, 90, -170, 3, { dmg: 15, base: 520, growth: 7.6, angle: 38 }, { from: 0, to: 0.04 }),
+               ...bladeHits(50, -110, 155, -90, 4, { dmg: 16, base: 540, growth: 7.8, angle: 38 }, { from: 0.03, to: 0.08 }),
+               ...bladeHits(50, -60, 160, -20, 4, { dmg: 16, base: 540, growth: 7.8, angle: 38 }, { from: 0.06, to: 0.12 })],
+    wind: pose({ lean: -0.35, bob: -4, legA: [0.8, 0.6], legB: [-0.7, 0.2], armA: [3.0, -0.4], armB: [2.6, -0.5], sw: 3.7 }),
+    strike: pose({ lean: 0.55, bob: -14, legA: [1.1, 0.7], legB: [-0.95, 0.1], armA: [1.25, 0], armB: [0.9, -0.4], sw: 1.15 }),
+    fire(f) { sfx.slash(1.3); dust(f.x + f.face * 120, f.y, 10, 1.6); shake = Math.max(shake, 7); } },
+  // UP J (up smash): HEAVEN CLEAVER - a huge arc from in front of him, up over his head, and down behind
+  upGround: { name: 'Heaven Cleaver', startup: 0.2, active: 0.16, endlag: 0.4, charge: true, sweep: true,
+    hitboxes: [...bladeHits(60, -80, 150, -100, 3, { dmg: 15, base: 520, growth: 7.4, angle: 80 }, { from: 0, to: 0.06 }),
+               ...bladeHits(20, -120, 30, -200, 3, { dmg: 16, base: 540, growth: 7.6, angle: 86 }, { from: 0.04, to: 0.11 }),
+               ...bladeHits(-40, -110, -130, -90, 3, { dmg: 15, base: 520, growth: 7.4, angle: 100 }, { from: 0.09, to: 0.16 })],
+    wind: pose({ lean: 0.3, bob: -12, legA: [0.85, 0.8], legB: [-0.7, 0.3], armA: [1.3, -0.2], armB: [0.9, -0.5], sw: 1.2 }),
+    strike: pose({ lean: -0.4, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.3], armA: [-2.6, 0.1], armB: [-2.2, -0.2], sw: -2.3 }),
+    fire() { sfx.slash(1.2); } },
+  // DOWN J (down smash): GROUND REAPER - sweeps the blade along the floor in front, then behind
+  downGround: { name: 'Ground Reaper', startup: 0.18, active: 0.2, endlag: 0.4, charge: true,
+    hitboxes: [...bladeHits(40, -14, 150, -10, 4, { dmg: 14, base: 470, growth: 6.8, angle: 30 }, { from: 0, to: 0.08, group: 0 }),
+               ...bladeHits(-40, -14, -150, -10, 4, { dmg: 14, base: 470, growth: 6.8, angle: 150 }, { from: 0.1, to: 0.2, group: 1 })],
+    wind: pose({ lean: 0.1, bob: -18, legA: [1.0, 1.2], legB: [-0.8, 0.5], armA: [-0.8, -0.4], armB: [-0.6, -0.5], sw: -1.4 }),
+    strike: pose({ lean: 0.4, bob: -26, legA: [1.2, 1.4], legB: [-0.9, 0.6], armA: [1.2, 0.1], armB: [0.8, -0.3], sw: 1.5 }),
+    strike2: pose({ lean: -0.3, bob: -26, legA: [1.1, 1.3], legB: [-0.9, 0.6], armA: [-1.2, 0.1], armB: [-0.8, -0.3], sw: -1.5 }), strike2At: 0.1,
+    fire(f) { sfx.slash(1.1); dust(f.x, f.y, 12, 1.8); } },
+  // RUNNING ATTACK: CHARGING THRUST - runs the sword straight through them
+  dashAttack: { name: 'Charging Thrust', startup: 0.12, active: 0.14, endlag: 0.34, lunge: 760, lungeFriction: 0.4,
+    hitboxes: bladeHits(40, -64, 160, -64, 5, { dmg: 12, base: 420, growth: 5.6, angle: 35, r: 24 }),
+    wind: pose({ lean: -0.2, bob: -8, legA: [0.8, 0.9], legB: [-0.5, 0.3], armA: [-0.6, -1.5], armB: [-0.2, -1.4], sw: 1.57 }),
+    strike: pose({ lean: 0.5, bob: -10, legA: [1.1, 0.6], legB: [-1.0, 0.1], armA: [1.57, 0], armB: [1.3, -0.3], sw: 1.57 }),
+    fire(f) { dust(f.x - f.face * 20, f.y, 10, 1.6); sfx.slash(); } },
+
+  // ---------- J in the air ----------
+  nair: { name: 'Whirlwind Blade', startup: 0.1, active: 0.24, endlag: 0.2, landLag: 0.14, sweep: true,
+    hitboxes: [{ x: 0, y: -55, r: 110, dmg: 6, base: 160, growth: 0.5, angle: 70, from: 0, to: 0.1, group: 0 },
+               { x: 0, y: -55, r: 112, dmg: 9, base: 400, growth: 5.5, angle: 45, from: 0.12, to: 0.24, group: 1 }],
+    wind: pose({ lean: 0, legA: [0.9, 1.6], legB: [0.4, 1.4], armA: [-1.57, 0], armB: [-1.2, -0.5], sw: -1.57 }),
+    strike: pose({ lean: 0, legA: [0.9, 1.6], legB: [0.4, 1.4], armA: [1.57, 0], armB: [1.2, -0.5], sw: 1.57 }),
+    fire() { sfx.slash(); } },
+  fair: { name: 'Executioner', startup: 0.16, active: 0.14, endlag: 0.28, landLag: 0.2, sweep: true,
+    hitboxes: [...bladeHits(30, -140, 100, -160, 3, { dmg: 15, base: 470, growth: 7, angle: 40 }, { from: 0, to: 0.05 }),
+               ...bladeHits(50, -90, 150, -70, 4, { dmg: 16, base: 480, growth: 7.2, angle: 40 }, { from: 0.04, to: 0.1 }),
+               ...bladeHits(40, -30, 130, 20, 4, { dmg: 16, base: 460, growth: 7, angle: -70 }, { from: 0.08, to: 0.14 })],   // the end of the chop spikes
+    wind: pose({ lean: -0.3, legA: [0.8, 1.5], legB: [0.3, 1.2], armA: [2.9, -0.3], armB: [2.5, -0.4], sw: 3.4 }),
+    strike: pose({ lean: 0.4, legA: [0.7, 1.3], legB: [0.2, 1.0], armA: [0.9, 0], armB: [0.6, -0.3], sw: 0.7 }),
+    fire() { sfx.slash(1.2); } },
+  bair: { name: 'Backhand Cleave', startup: 0.12, active: 0.08, endlag: 0.24, landLag: 0.16,
+    hitboxes: bladeHits(-40, -66, -150, -56, 4, { dmg: 14, base: 460, growth: 7, angle: 145 }),
+    wind: pose({ lean: 0.2, legA: [0.9, 1.6], legB: [0.4, 1.3], armA: [1.4, -0.6], armB: [1.0, -0.8], sw: 1.2 }),
+    strike: pose({ lean: 0.4, legA: [0.7, 1.4], legB: [0.2, 1.1], armA: [-1.6, 0], armB: [-1.2, -0.4], sw: -1.6 }),
+    fire() { sfx.slash(); } },
+  uair: { name: 'Sky Splitter', startup: 0.1, active: 0.14, endlag: 0.22, landLag: 0.14, sweep: true,
+    hitboxes: [...bladeHits(60, -100, 120, -150, 3, { dmg: 12, base: 400, growth: 6, angle: 84 }, { from: 0, to: 0.07 }),
+               ...bladeHits(-20, -130, -100, -170, 3, { dmg: 12, base: 400, growth: 6, angle: 92 }, { from: 0.06, to: 0.14 })],
+    wind: pose({ lean: 0.2, legA: [0.9, 1.7], legB: [0.4, 1.4], armA: [1.8, 0], armB: [1.4, -0.3], sw: 1.9 }),
+    strike: pose({ lean: -0.3, legA: [0.6, 1.2], legB: [0.1, 0.9], armA: [-2.7, 0], armB: [-2.3, -0.2], sw: -2.6 }),
+    fire() { sfx.slash(); } },
+  // Down air: IMPALER - drives the sword straight down beneath him (spike)
+  dair: { name: 'Impaler', startup: 0.14, active: 0.12, endlag: 0.26, landLag: 0.22, spike: true,
+    hitboxes: bladeHits(10, -10, 10, 100, 4, { dmg: 15, base: 440, growth: 6.6, angle: -86, r: 24 }),
+    wind: pose({ lean: -0.2, legA: [1.2, 2.0], legB: [0.8, 1.8], armA: [2.8, 0.4], armB: [2.5, 0.3], sw: 3.14 }),
+    strike: pose({ lean: 0.1, legA: [0.6, 1.4], legB: [0.3, 1.2], armA: [0.2, 0], armB: [-0.1, -0.2], sw: 0 }),
+    fire() { sfx.slash(1.1); } },
+
+  // ---------- K: specials ----------
+  // NEUTRAL K: WARLOCK BLADE (Ganondorf) - a long wind-up, then a huge forward thrust wreathed in dark energy.
+  // Hold to charge: fully charged it's one of the strongest hits in the game.
+  neutralRanged: { name: 'Warlock Blade', startup: 0.3, active: 0.12, endlag: 0.46, charge: true, lunge: 320, lungeFriction: 0.5, landLag: 0.2,
+    hitboxes: bladeHits(40, -66, 175, -60, 5, { dmg: 18, base: 560, growth: 7.8, angle: 40, r: 28 }),
+    wind: pose({ lean: -0.45, bob: -10, legA: [0.9, 0.9], legB: [-0.6, 0.3], armA: [-1.4, -0.6], armB: [-1.1, -0.7], sw: 1.57 }),
+    strike: pose({ lean: 0.6, bob: -14, legA: [1.2, 0.7], legB: [-1.05, 0.1], armA: [1.57, 0], armB: [1.4, -0.2], sw: 1.57 }),
+    fire(f) {
+      for (let k = 0; k < 4; k++) burst(f.x + f.face * (60 + k * 35), f.y - 64, ['#2a0d3a', '#7a2fb0', '#c99bff'], 6, f.face > 0 ? 0 : Math.PI, 0.5, 300, { grav: 0 });
+      shake = Math.max(shake, 9); sfx.slash(1.3); sfx.beam(0.3);
+    } },
+  // SIDE K: GERUDO DASH - charges across the ground with the blade held out, cutting through whoever's there
+  sideRanged: { name: 'Gerudo Dash', startup: 0.16, active: 0.22, endlag: 0.36, lunge: 1150, lungeFriction: 0.3, landLag: 0.16,
+    hitboxes: bladeHits(40, -60, 150, -54, 4, { dmg: 12, base: 400, growth: 5.2, angle: 40 }),
+    wind: pose({ lean: -0.25, bob: -10, legA: [0.85, 0.9], legB: [-0.6, 0.3], armA: [-1.0, -0.8], armB: [-0.7, -0.9], sw: -1.4 }),
+    strike: pose({ lean: 0.55, bob: -12, legA: [1.15, 0.7], legB: [-1.0, 0.1], armA: [1.45, 0], armB: [1.1, -0.3], sw: 1.5 }),
+    fire(f) { dust(f.x - f.face * 20, f.y, 12, 1.8); sfx.slash(1.1); } },
+  // UP K: DARK ASCENSION - his recovery: he rockets upward with the sword raised, cutting on the way up
+  upRanged: { name: 'Dark Ascension', startup: 0.1, active: 0.3, endlag: 0.3, landLag: 0.2,
+    hitboxes: [...bladeHits(20, -110, 40, -210, 3, { dmg: 4, base: 220, growth: 0.5, angle: 86 }, { from: 0, to: 0.15, group: 0 }),
+               ...bladeHits(20, -110, 40, -210, 3, { dmg: 9, base: 420, growth: 5.5, angle: 80 }, { from: 0.16, to: 0.3, group: 1 })],
+    wind: pose({ bob: -14, lean: 0.3, legA: [0.9, 1.5], legB: [-0.5, 0.9], armA: [0.4, -0.6], armB: [0.2, -0.6], sw: 0.6 }),
+    strike: pose({ lean: -0.1, legA: [0.3, 0.6], legB: [-0.3, 0.9], armA: [3.05, 0], armB: [2.8, -0.2], sw: 3.14 }),
+    fire(f, mult, c, a) {
+      if (!f.upSpecialUsed) { f.upSpecialUsed = true; f.vy = -1380; f.vx = f.face * 200; f.ground = false; f.y -= 2; a.air = true; }
+      burst(f.x, f.y, ['#7a2fb0', '#ffffff'], 14, -Math.PI / 2, 0.6, 450); sfx.slash();
+    } },
+  // DOWN K: WARLORD'S QUAKE - plunges the greatsword into the ground; the floor erupts on both sides of him
+  downRanged: { name: "Warlord's Quake", startup: 0.26, active: 0.12, endlag: 0.42, charge: true, landLag: 0.2,
+    hitboxes: [{ x: 70, y: -20, r: 42, dmg: 13, base: 450, growth: 6.4, angle: 72 }, { x: 140, y: -16, r: 38, dmg: 12, base: 430, growth: 6, angle: 70 },
+               { x: -70, y: -20, r: 42, dmg: 13, base: 450, growth: 6.4, angle: 108 }, { x: -140, y: -16, r: 38, dmg: 12, base: 430, growth: 6, angle: 110 }],
+    wind: pose({ lean: -0.2, bob: -2, legA: [0.6, 0.4], legB: [-0.5, 0.2], armA: [3.0, 0.2], armB: [2.8, 0.1], sw: 3.14 }),
+    strike: pose({ lean: 0.3, bob: -22, legA: [1.0, 1.1], legB: [-0.8, 0.5], armA: [0.4, 0.1], armB: [0.3, 0], sw: 0.05 }),
+    fire(f) {
+      if (!f.ground) f.vy = Math.max(f.vy, 1500);
+      for (const d of [1, -1]) for (let k = 1; k <= 3; k++) dust(f.x + d * k * 45, f.y, 8, 2);
+      cracks.push({ x: f.x + f.face * 10, y: f.y, life: 3, max: 3, seed: Math.random() * 1000, size: 1.6 });
+      ring(f.x, f.y); shake = Math.max(shake, 12); sfx.slam(); sfx.slash(1.1);
+    } },
+};
+// Colten's ultimate: WARLORD'S JUDGMENT - 3 giant sword swings, every one a CRITICAL hit (see updateSwordUlt)
+const COLTEN_ULT_SWINGS = [
+  { wind: COLTEN_MOVES.sideGround.wind, strike: COLTEN_MOVES.sideGround.strike },
+  { wind: COLTEN_MOVES.jab2.wind, strike: COLTEN_MOVES.jab2.strike },
+  { wind: COLTEN_MOVES.upGround.wind, strike: COLTEN_MOVES.sideGround.strike },
+];
+// TRANSFORMED: a suit of glowing AURA ARMOR - ultra armor (hits below this launch strength don't flinch him)
+// and he takes a bit less knockback from the ones that do
+const AURA_ARMOR = { threshold: 900, kb: 0.85, color: '#7dffb0' };
+
 const CHARACTERS = {
   COLBY: {
     moves: COLBY_MOVES,
@@ -2923,6 +3069,21 @@ const CHARACTERS = {
     },
   },
   STICKMAN: { moves: STICKMAN_MOVES, stats: {}, look: {} },
+  COLTEN: {
+    moves: COLTEN_MOVES,
+    // Slow and heavy-handed: sturdier than Lance and Colby, not as sturdy as Aiden
+    stats: { runSpeed: 630, airSpeed: 510, jumpVel: 1170, doubleJumpVel: 1050, weight: 1.1 },
+    look: {
+      body: '#3fae49',          // green
+      foreSpikes: '#6b4423',    // brown hair, spiked up only at the forehead
+      glasses: true,            // rectangle reading glasses
+      greatsword: true,         // the huge sword (drawn in his front hand, angle from the pose's "sw")
+      auraArmor: true,          // transformed: glowing aura armor (ultra armor + less knockback)
+      transformAura: '#7dffb0',
+      // Ganondorf stance: wide and low, the greatsword held out in front, point angled down at the floor
+      idle: pose({ lean: 0.1, bob: -10, legA: [0.8, 0.6], legB: [-0.65, 0.15], armA: [0.75, -0.5], armB: [0.5, -0.7], sw: 1.0 }),
+    },
+  },
   COLBALIAS: {
     moves: COLBALIAS_MOVES,
     // The final boss: as fast as Lance on the ground, faster in the air, and sturdier than Colby
@@ -3046,6 +3207,14 @@ CHARACTERS.COLBALIAS.ult = {
   // ...but at 220% or more (counting the ult's own damage) it's a GUARANTEED KO.
   final: { dmg: 16, base: 340, growth: 3.6, angle: 30, koAt: 220 },
 };
+CHARACTERS.COLTEN.ult = {
+  name: "WARLORD'S JUDGMENT",
+  greatsword: true,                         // 3 giant swings, all CRITICAL - see updateSwordUlt
+  finalWind: COLTEN_MOVES.sideGround.wind, finalStrike: COLTEN_MOVES.sideGround.strike,
+  perSwing: 8,                              // damage per swing (x ult power), + the final launch
+  final: { dmg: 8, base: 640, growth: 8, angle: 38 },
+};
+CHARACTERS.COLTEN.transformName = 'WARLORD';
 CHARACTERS.STICKMAN.ult = {
   name: 'OVERDRIVE',
   slashes: [STICKMAN_MOVES.jab.strike, STICKMAN_MOVES.counter.strike, STICKMAN_MOVES.sideGround.strike],
@@ -3581,7 +3750,18 @@ function knock(t, h, dirSign, mult, hx, hy) {
   // ULTIMATE FINISHERS launch MUCH harder (ultimates are hard to land - landing one should be an event).
   // The launch also barely shrinks with leftover meter: a late ult still sends them flying (its damage still scales).
   const kbMult = h.ultFinal ? ULT_KB.power * (ULT_KB.minMeter + (1 - ULT_KB.minMeter) * mult) : mult;
-  const speed = (h.base + h.growth * t.damage) * kbMult * ramp / t.stats.weight;   // heavier = flies less
+  let speed = (h.base + h.growth * t.damage) * kbMult * ramp / t.stats.weight;   // heavier = flies less
+  // COLTEN'S AURA ARMOR (transformed): a bit less knockback, and ULTRA ARMOR - anything that wouldn't launch
+  // him hard doesn't even make him flinch (the damage still counts)
+  if (t.transformed && t.look && t.look.auraArmor && !h.ultFinal) {
+    speed *= AURA_ARMOR.kb;
+    if (speed < AURA_ARMOR.threshold) {
+      t.hitFlash = 0.08; shake = Math.max(shake, 4); hitstop = Math.max(hitstop, 0.05);
+      burst(hx, hy, [AURA_ARMOR.color, '#ffffff'], 10, 0, Math.PI, 340, { grav: 0 });
+      sfx.block();
+      return true;
+    }
+  }
   // X-RAY: a really big hit shows their skeleton and which bone just broke (Mortal Kombat style)
   if (h.xray || h.ultFinal) startXray(t, h.xray || 'RIBS', hx, hy, true);
   else if (!h.noStop && speed >= XRAY.speed) startXray(t, boneFromHit(t, hy), hx, hy, false);
@@ -4497,6 +4677,7 @@ function updateUlt(dt) {
   U.t += dt;
   if (U.def.wrestle) return updateWrestleUlt(U, dt);         // Aiden: Max Malicious Moonsault
   if (U.def.statue) return updateStatueUlt(U, dt);           // Colbalias: 100-Type Guanyin Bodhisattva
+  if (U.def.greatsword) return updateSwordUlt(U, dt);        // Colten: Warlord's Judgment
   U.jolt = Math.max(0, U.jolt - dt);
   v.vx = v.vy = 0; v.x = U.baseX; v.y = U.baseY;
   u.vx = u.vy = 0;
@@ -4578,6 +4759,41 @@ function updateUlt(dt) {
   }
 }
 
+// COLTEN'S ULTIMATE: WARLORD'S JUDGMENT - he plants himself in front of them and brings the greatsword down
+// THREE times, each one a CRITICAL hit (huge freeze, impact frame, "CRITICAL!"), then they're launched.
+const SWORD_ULT_TIMES = [0.34, 0.95, 1.6], SWORD_ULT_END = 2.05;
+function updateSwordUlt(U, dt) {
+  const u = U.user, v = U.target;
+  v.vx = v.vy = 0; v.x = U.baseX + (U.jolt > 0 ? (Math.random() - 0.5) * 8 : 0); v.y = U.baseY;
+  u.vx = u.vy = 0; u.x = U.baseX - U.dir * 100; u.y = U.baseY; u.face = U.dir;
+  u.anim += dt; v.anim += dt; U.jolt = Math.max(0, U.jolt - dt);
+  u.hitFlash = Math.max(0, u.hitFlash - dt); v.hitFlash = Math.max(0, v.hitFlash - dt);
+  let done = 0;
+  SWORD_ULT_TIMES.forEach((t, k) => {
+    if (U.t >= t) { done = k + 1; if (!U.events.has('s' + k)) { U.events.add('s' + k); swordUltSwing(U, k); } }
+  });
+  const last = SWORD_ULT_TIMES[done - 1] ?? -9;
+  U.userPose = done > 0 && U.t - last < 0.28 ? COLTEN_ULT_SWINGS[done - 1].strike          // just swung
+             : COLTEN_ULT_SWINGS[Math.min(done, 2)].wind;                                  // winding up the next one
+  if (Math.random() < dt * 30) bolt(u.x, u.y - 60, Math.random() * Math.PI * 2, 50, 0.08, AURA_ARMOR.color);
+  if (U.t >= SWORD_ULT_END) endUlt(U);
+}
+function swordUltSwing(U, k) {
+  const u = U.user, v = U.target, hx = v.x, hy = v.y - 55;
+  v.damage += U.def.perSwing * U.power;
+  if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + U.def.perSwing);
+  v.hitFlash = 0.1; U.jolt = 0.16;
+  slashLine(hx, hy, k === 1 ? -0.5 : k === 2 ? 0.3 : -1.0, 420, 0.4);
+  slashLine(hx, hy, k === 1 ? -0.45 : k === 2 ? 0.35 : -0.95, 320, 0.3);
+  burst(hx, hy, ['#ffffff', AURA_ARMOR.color, '#ffd23f'], 30, 0, Math.PI, 800, { grav: 0 });
+  if (gore) burst(hx, hy, BLOOD, 18, Math.random() * Math.PI * 2, 1.2, 520, { stain: true });
+  particles.push({ x: hx, y: hy, vx: 0, vy: 0, life: 0.16, max: 0.16, r: 40, type: 'impact' });
+  painTexts.push({ x: v.x, y: v.y - 150 - k * 22, t: 0.8, max: 0.8, text: 'CRITICAL!', big: true });
+  impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: hx, y: hy, ang: 0, all: true, focus: true, invert: k % 2 === 1 };
+  hitstop = Math.max(hitstop, 0.2); shake = Math.max(shake, 24); camPunch = 1;
+  dust(v.x, v.y, 10, 2);
+  sfx.slash(1.4); sfx.clash(true); sfx.hit(1);
+}
 function endUlt(U) {
   const u = U.user, v = U.target;
   v.action = null;
@@ -4611,7 +4827,7 @@ function spawnUltBeam(f) {
   const U = CHARACTERS[f.char].ult;
   projectiles.push({
     owner: f, kind: 'beam', ult: true, x: f.x + f.face * 30, y: f.y - 62, dir: f.face, len: 0, grow: 7000,
-    maxLen: 2600, w: 84, life: U.beamTime, max: U.beamTime, tickT: 0, mult: f.ultPower || 1, color: kiColor(f),
+    maxLen: 2730, w: 88, life: U.beamTime,                                              // (+5% size) max: U.beamTime, tickT: 0, mult: f.ultPower || 1, color: kiColor(f),
     hit: new Set(), trail: [],
     tick:  { dmg: 2.0, base: 110, growth: 0, angle: 15, noStop: true },
     final: { dmg: 12, base: 520, growth: 6, angle: 35, ultFinal: true, lanceKO: true },   // ~28% total; KOs (see updateBeam)
@@ -4689,7 +4905,7 @@ function spawnBeam(f, mult, c, over = 0) {
   }
   projectiles.push({
     owner: f, kind: 'beam', x: f.x + f.face * 30, y: f.y - 62, dir: f.face, len: 0, grow: 3400 * big,
-    maxLen: (640 + 160 * c) * big, w: (18 + 28 * c) * big, life: 0.5, max: 0.5,
+    maxLen: (640 + 160 * c) * big * 1.05, w: (18 + 28 * c) * big * 1.05, life: 0.5, max: 0.5,   // (+5% size)
     tickT: 0, mult: mult * powerOf(f), color: over >= 1 ? '#ffffff' : kiColor(f), over, hit: new Set(), trail: [],
     tick:  { dmg: 1.9, base: 85, growth: 0, angle: 20, noStop: true },
     final: { dmg: 5, base: 350, growth: 5, angle: 33 },
@@ -5235,7 +5451,7 @@ function stepAction(f, inp, dt) {
       if (m.charge && btnHeld) a.phase = 'charge';
       else beginActive(f, a);
     } else if (a.phase === 'charge') {
-      a.charge += dt;
+      a.charge += dt * (m.chargeRate || 1);            // (some moves charge faster)
       if (Math.random() < dt * 14) {   // crackling lightning while charging
         bolt(f.x + (Math.random() - 0.5) * 40, f.y - 10 - Math.random() * 70, Math.random() * Math.PI * 2,
              20 + 40 * (a.charge / MAX_CHARGE), 0.08, Math.random() < 0.5 ? '#ffffff' : f.energy);
@@ -6712,6 +6928,7 @@ function lerpPose(a, b, k, wrap = false) {
            legA: L(a.legA, b.legA), legB: L(a.legB, b.legB), armA: L(a.armA, b.armA), armB: L(a.armB, b.armB) };
   if (a.sc && b.sc) out.sc = lerpSc(a.sc, b.sc, k, wrap);
   else if (a.sc || b.sc) out.sc = b.sc || a.sc;
+  if (a.sw !== undefined || b.sw !== undefined) out.sw = lerpAng(a.sw ?? b.sw, b.sw ?? a.sw, k, wrap);   // Colten's greatsword angle
   // Four-armed fighters: the lower pair of arms (poses without them get a default that follows the upper arms)
   if (a.armC || b.armC) out.armC = L(a.armC || lowerArm(a.armA), b.armC || lowerArm(b.armA));
   if (a.armD || b.armD) out.armD = L(a.armD || lowerArm(a.armB), b.armD || lowerArm(b.armB));
@@ -7453,6 +7670,30 @@ function drawFigure(fig, opts = {}) {
       ctx.beginPath(); ctx.moveTo(head.x + f * 1, head.y - 8); ctx.lineTo(head.x + f * 11, head.y - 5); ctx.stroke();
     }
   }
+  // COLTEN: brown hair spiked up only at the forehead (a short cap of hair, spikes at the front)
+  if (look.foreSpikes) {
+    const hc = opts.tint || (sketch ? main : look.foreSpikes);
+    ctx.fillStyle = hc;
+    ctx.beginPath(); ctx.arc(head.x - f * 1, head.y - 2, 12.5, Math.PI * 1.05, Math.PI * 1.95); ctx.closePath(); ctx.fill();   // hair cap
+    const spikes = [[0.15, 9, 0.35], [0.45, 12, 0.15], [0.75, 10, -0.05]];    // [how far forward on the head, length, lean]
+    for (const [k, len, tilt] of spikes) {
+      const ang = -Math.PI / 2 + f * (0.25 + k * 1.0);                     // around the front-top of the head
+      const bx = head.x + Math.cos(ang) * 11, by = head.y + Math.sin(ang) * 11;
+      const dir = ang - f * tilt;
+      ctx.beginPath();
+      ctx.moveTo(bx + Math.cos(ang + Math.PI / 2) * 4, by + Math.sin(ang + Math.PI / 2) * 4);
+      ctx.lineTo(bx + Math.cos(dir) * len, by + Math.sin(dir) * len);
+      ctx.lineTo(bx - Math.cos(ang + Math.PI / 2) * 4, by - Math.sin(ang + Math.PI / 2) * 4);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  // COLTEN: rectangle reading glasses
+  if (look.glasses && !opts.tint) {
+    ctx.strokeStyle = sketch ? main : '#141414'; ctx.lineWidth = 1.8;
+    ctx.strokeRect(head.x + f * 2 - (f > 0 ? 0 : 10), head.y - 4, 10, 5.5);                        // lens frame
+    ctx.fillStyle = 'rgba(210,235,255,0.35)'; ctx.fillRect(head.x + f * 2 - (f > 0 ? 0 : 10), head.y - 4, 10, 5.5);
+    ctx.beginPath(); ctx.moveTo(head.x + f * 2, head.y - 2.5); ctx.lineTo(head.x - f * 10, head.y - 3.5); ctx.stroke();   // arm back to the ear
+  }
   if (opts.eye) {                                         // glowing eye when powered up
     ctx.fillStyle = opts.eye;
     ctx.fillRect(head.x + (f > 0 ? 2 : -9), head.y - 3, 7, 4);
@@ -7480,6 +7721,74 @@ function drawFigure(fig, opts = {}) {
   else if (S && S.hands === 2) ikArm(shoulder, S.g);
   else if (MUS) muscleLimb(shoulder, pz.armA, AL, AL2, f, ARM_W, main, EDGE);
   else limb(shoulder, pz.armA, 16, 15, f);
+  if (look.greatsword && !grip) drawGreatsword(shoulder, pz, f, opts);      // Colten's greatsword, in his front hand
+  if (look.auraArmor && fig.transformed && !opts.tint && !sketch) drawAuraArmor(hip, shoulder, head, f);
+  ctx.restore();
+}
+// COLTEN'S GREATSWORD: a long, broad blade held in his front hand. Its angle comes from the pose ("sw");
+// poses without one just hold it in line with his forearm.
+function drawGreatsword(shoulder, pz, f, opts) {
+  const [th, bend] = pz.armA;
+  const mid = { x: shoulder.x + Math.sin(th) * 16 * f, y: shoulder.y + Math.cos(th) * 16 };
+  const a2 = th - bend;
+  const hand = { x: mid.x + Math.sin(a2) * 15 * f, y: mid.y + Math.cos(a2) * 15 };
+  const ang = pz.sw !== undefined ? pz.sw : a2;
+  const ux = Math.sin(ang) * f, uy = Math.cos(ang);                // along the blade
+  const nx = -uy, ny = ux;                                         // across it
+  const P = (along, across) => ({ x: hand.x + ux * along + nx * across, y: hand.y + uy * along + ny * across });
+  const outline = opts.outline || 0;
+  ctx.save();
+  if (opts.tint) {                                                  // outline / silhouette pass: one solid shape
+    ctx.fillStyle = opts.tint;
+    const pts = [P(-14, 3 + outline / 2), P(118 + outline / 2, 0), P(-14, -3 - outline / 2)];
+    ctx.beginPath(); ctx.moveTo(P(8, 9 + outline / 2).x, P(8, 9 + outline / 2).y);
+    for (const p of [P(102, 6 + outline / 2), P(124 + outline, 0), P(102, -6 - outline / 2), P(8, -9 - outline / 2)]) ctx.lineTo(p.x, p.y);
+    ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 5 + outline; ctx.strokeStyle = opts.tint;
+    ctx.beginPath(); ctx.moveTo(P(-14, 0).x, P(-14, 0).y); ctx.lineTo(P(8, 0).x, P(8, 0).y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(P(6, -13).x, P(6, -13).y); ctx.lineTo(P(6, 13).x, P(6, 13).y); ctx.stroke();
+    ctx.restore(); return;
+  }
+  // grip + pommel
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#3a2614'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(P(-14, 0).x, P(-14, 0).y); ctx.lineTo(P(6, 0).x, P(6, 0).y); ctx.stroke();
+  ctx.fillStyle = '#b08d3a'; ctx.beginPath(); ctx.arc(P(-15, 0).x, P(-15, 0).y, 3.5, 0, Math.PI * 2); ctx.fill();
+  // crossguard
+  ctx.strokeStyle = '#b08d3a'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(P(6, -14).x, P(6, -14).y); ctx.lineTo(P(6, 14).x, P(6, 14).y); ctx.stroke();
+  // the broad blade, tapering to a point
+  const blade = [P(8, 9), P(102, 6), P(124, 0), P(102, -6), P(8, -9)];
+  ctx.fillStyle = '#4a4f5c';
+  ctx.beginPath(); blade.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#c9d2de';                                       // bright cutting edge
+  ctx.beginPath(); [P(8, 9), P(102, 6), P(124, 0), P(102, 3), P(8, 5)].forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#2c2f37'; ctx.lineWidth = 1.5;                // fuller down the middle
+  ctx.beginPath(); ctx.moveTo(P(12, -1).x, P(12, -1).y); ctx.lineTo(P(92, -1).x, P(92, -1).y); ctx.stroke();
+  ctx.restore();
+}
+// COLTEN TRANSFORMED: a suit of glowing, see-through AURA ARMOR - helmet, pauldrons, breastplate and greaves
+function drawAuraArmor(hip, shoulder, head, f) {
+  const c = AURA_ARMOR.color, pulse = 0.55 + 0.2 * Math.sin(time * 9);
+  const ux = (shoulder.x - hip.x) / TORSO, uy = (shoulder.y - hip.y) / TORSO, px = -uy, py = ux;
+  ctx.save();
+  ctx.globalAlpha *= pulse;
+  ctx.fillStyle = c; ctx.strokeStyle = '#eafff2'; ctx.lineWidth = 2;
+  // breastplate
+  ctx.beginPath();
+  ctx.moveTo(shoulder.x + px * 12, shoulder.y + py * 12); ctx.lineTo(shoulder.x - px * 12, shoulder.y - py * 12);
+  ctx.lineTo(hip.x - px * 8 + ux * 6, hip.y - py * 8 + uy * 6); ctx.lineTo(hip.x + px * 8 + ux * 6, hip.y + py * 8 + uy * 6);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // pauldrons
+  for (const s of [1, -1]) {
+    ctx.beginPath(); ctx.ellipse(shoulder.x + px * 13 * s, shoulder.y + py * 13 * s - 2, 8, 6, Math.atan2(uy, ux), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  // helmet: a crested dome over the head
+  ctx.beginPath(); ctx.arc(head.x, head.y - 1, 15, Math.PI * 1.02, Math.PI * 1.98); ctx.lineTo(head.x + 15, head.y + 3); ctx.lineTo(head.x - 15, head.y + 3); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(head.x - f * 4, head.y - 15); ctx.lineTo(head.x + f * 2, head.y - 27); ctx.lineTo(head.x + f * 6, head.y - 14); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // glow
+  ctx.globalAlpha *= 0.4; ctx.lineWidth = 7; ctx.strokeStyle = c;
+  ctx.beginPath(); ctx.arc(head.x, head.y - 1, 17, Math.PI * 1.02, Math.PI * 1.98); ctx.stroke();
   ctx.restore();
 }
 
@@ -8646,9 +8955,10 @@ addEventListener('pointerdown', unlockAudio);
 
 // ---------------- CHARACTER SELECT ----------------
 // 8 roster slots (fill these in as new characters are made). null = "coming soon".
-const ROSTER = ['COLBY', 'LANCE', 'STICKMAN', 'AIDEN', 'COLBALIAS', null, null, null];
+const ROSTER = ['COLBY', 'LANCE', 'STICKMAN', 'AIDEN', 'COLBALIAS', 'COLTEN', null, null];
 const CHAR_INFO = {
   COLBALIAS: { title: 'THE FINAL BOSS', a: '#5a0000', b: '#0a0000' },
+  COLTEN:   { title: 'THE WARLORD',  a: '#2f7d36', b: '#0c1a0d' },
   AIDEN:  { title: 'THE HEEL',     a: '#b8410f', b: '#1c0b05' },
   COLBY:    { title: 'THE REAPER',   a: '#7e1c1c', b: '#1a0b0b' },
   LANCE:    { title: 'LAST STAND',   a: '#1f5fa8', b: '#0b1626' },
