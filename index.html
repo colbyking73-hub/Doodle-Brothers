@@ -758,7 +758,8 @@ const COLBY_MOVES = {
 
 // =====================================================================
 //  LANCE - one-armed ki fighter (Future Gohan style)
-//  Only has ONE arm (armA). J = martial arts. K = ki: charged Kamehameha beam, Ki Storm barrage.
+//  Only has ONE arm (armA). J = martial arts. K = ki: charged Kamehameha beam, Destructo Disc boomerang.
+//  Passive: ki hits MARK the opponent; his next Z vanish teleports right behind them.
 //  Special: FLY DASH - double-tap a direction to rocket at the opponent (strong, but punishable on a miss).
 // =====================================================================
 const LANCE_MOVES = {
@@ -850,16 +851,15 @@ const LANCE_MOVES = {
     wind: pose({ armA: [-0.6, -1.6], lean: -0.25, bob: -8, legA: [0.7, 0.6], legB: [-0.7, 0.2] }),      // hand cupped back at the hip
     strike: pose({ armA: [1.57, 0], lean: 0.2, bob: -8, legA: [0.75, 0.6], legB: [-0.75, 0.2] }),      // thrust forward
     fire(f, mult, c, a) { spawnBeam(f, mult, c, a ? a.over || 0 : 0); } },
-  // KI STORM: hold K (with a direction) to keep firing small ki blasts. Little damage each, keeps them flinching.
-  sideRanged: { name: 'Ki Storm', startup: 0.08, active: 0.2, endlag: 0.25, rapid: true, rate: 0.06, maxHold: 1.5, landLag: 0.1,
-    wind: pose({ armA: [-0.4, -1.4], lean: -0.1, legA: [0.5, 0.4], legB: [-0.5, 0.2] }),
-    strike: pose({ armA: [1.57, 0], lean: 0.15, legA: [0.55, 0.4], legB: [-0.55, 0.2] }),
-    fire(f, mult) {
-      const a = (Math.random() - 0.5) * 0.26;
-      spawnShot(f, { x: 34, y: -64 + (Math.random() - 0.5) * 10, vx: Math.cos(a) * 1150, vy: Math.sin(a) * 1150, r: 6,
-                     dmg: 0.5, base: 70, growth: 0.4, angle: 30, life: 0.5, noStop: true }, mult);
-      sfx.blast();
-    } },
+  // DESTRUCTO DISC (Krillin's Kienzan): K + direction. He raises his hand, a spinning PURPLE disc of ki forms
+  // above it, and he whips it forward. It flies out, slows, and comes back like a BOOMERANG - cutting anyone
+  // on the way out AND on the way back. If it comes back into HIM, it nicks him too. One disc at a time.
+  // (See DISC / spawnDisc / updateDisc.)
+  sideRanged: { name: 'Destructo Disc', startup: 0.06, active: 0.34, endlag: 0.22, landLag: 0.12,
+    wind: pose({ armA: [2.5, 0.3], lean: -0.05, legA: [0.5, 0.4], legB: [-0.5, 0.2] }),
+    strike: pose({ armA: [3.08, 0.02], lean: -0.15, bob: -2, legA: [0.55, 0.4], legB: [-0.55, 0.2] }),      // hand straight up, the disc forming
+    strike2: pose({ armA: [1.35, -0.15], lean: 0.35, bob: -4, legA: [0.85, 0.6], legB: [-0.75, 0.2] }), strike2At: 0.24,   // whips it forward
+    fire(f, mult) { spawnDisc(f, mult); } },
   // Up: RISING AXE KICK - his recovery. The axe kick turned upside down: he launches upward into a flip and
   // drives his heel UP through anyone above/beside him. On hit they get carried up with him (first hit
   // launches them at about his own rising speed), then the finishing kick pops them a little higher with
@@ -912,6 +912,177 @@ function toggleKaioken(f) {
   } else {
     burst(f.x, f.y - 45, ['#8f8f98', '#ffffff'], 14, 0, Math.PI, 300, { grav: 0 });
     sfx.block();
+  }
+}
+
+// ---------------- DESTRUCTO DISC (Lance, side K) ----------------
+// hold: forms above his raised hand (lost if he's hit first) -> out: flies straight, then slows ->
+// back: turns round and speeds back toward him (cutting everyone again on the return) -> past him: flies off.
+const DISC = {
+  hold: 0.24, speed: 1150, straight: 0.28, decel: 2900, maxSpeed: 1300, life: 2.6, r: 22,
+  color: '#b04dff', glow: '#e2b8ff',                                  // PURPLE
+  hit:  { dmg: 8, base: 300, growth: 4.5, angle: 38 },               // each pass (out and back)
+  self: { dmg: 3, base: 170, growth: 1.0, angle: 70 },               // caught by his own disc coming back
+};
+function spawnDisc(f, mult) {
+  if (projectiles.some(s => s.kind === 'disc' && s.owner === f)) {   // one at a time: a little fizzle
+    burst(f.x + f.face * 6, f.y - 120, [DISC.color, '#ffffff'], 6, 0, Math.PI, 150, { grav: 0 });
+    return;
+  }
+  projectiles.push({ owner: f, kind: 'disc', phase: 'hold', t: 0, x: f.x + f.face * 6, y: f.y - 122, vx: 0, vy: 0,
+                     dir: f.face, r: DISC.r, size: 0.25, spin: 0, mult: mult * powerOf(f), color: DISC.color,
+                     hit: new Set(), trail: [], life: DISC.life });
+  sfx.beam(0.25);
+}
+function updateDisc(s, dt) {
+  const o = s.owner;
+  s.t += dt; s.spin += dt * 38;
+  if (s.phase === 'hold') {
+    const a = o && o.action;
+    if (!o || o.respawnTimer > 0 || !a || a.type !== 'attack' || a.move !== o.moveset.sideRanged) {   // hit before he threw it
+      burst(s.x, s.y, [DISC.color, '#ffffff'], 10, 0, Math.PI, 260, { grav: 0 });
+      return true;
+    }
+    s.dir = o.face; s.x = o.x + o.face * 6; s.y = o.y - 122;
+    s.size = Math.min(1, 0.25 + 0.75 * s.t / DISC.hold);
+    if (Math.random() < dt * 40) {                                    // ki spiralling into it
+      const ang = Math.random() * Math.PI * 2;
+      particles.push({ x: s.x + Math.cos(ang) * 40, y: s.y + Math.sin(ang) * 16, vx: -Math.cos(ang) * 220, vy: -Math.sin(ang) * 90,
+                       life: 0.16, max: 0.16, size: 1, color: Math.random() < 0.4 ? '#ffffff' : DISC.color, type: 'bit', grav: 0 });
+    }
+    if (s.t >= DISC.hold) {                                           // THROW
+      s.phase = 'out'; s.t = 0; s.size = 1;
+      s.x = o.x + s.dir * 34; s.y = o.y - 82; s.vx = s.dir * DISC.speed; s.vy = 0;
+      sfx.whoosh(true);
+    }
+    return false;
+  }
+  s.life -= dt;
+  if (s.phase === 'out') {
+    if (s.t > DISC.straight) s.vx -= s.dir * DISC.decel * dt;         // slows down...
+    if (Math.sign(s.vx) === -s.dir) { s.phase = 'back'; s.hit = new Set(); }   // ...and turns round: can cut them again
+  } else {
+    s.vx = clamp(s.vx - s.dir * DISC.decel * dt, -DISC.maxSpeed, DISC.maxSpeed);   // speeds back toward him
+    if (o && !s.passed) {
+      s.vy = clamp((o.y - 60 - s.y) * 3.2, -650, 650);                // curves toward his height
+      if (Math.sign(o.x - s.x) === s.dir) s.passed = true;            // it's gone past him: flies on straight
+    } else s.vy *= 0.95;
+  }
+  s.x += s.vx * dt; s.y += s.vy * dt;
+  s.trail.push({ x: s.x, y: s.y }); if (s.trail.length > 8) s.trail.shift();
+  const dirSign = Math.sign(s.vx) || s.dir;
+  for (const t of fighters) {                                         // cuts straight through people
+    if (t === o || (o && allies(o, t)) || s.hit.has(t) || t.respawnTimer > 0) continue;
+    if (!circleHitsFighter(s.x, s.y, s.r * 0.9, t)) continue;
+    if (applyHit(t, DISC.hit, dirSign, s.mult, s.x, s.y)) {
+      s.hit.add(t);
+      markKi(o, t);
+      slashLine(s.x, s.y, s.vy * 0.001 + (dirSign > 0 ? 0 : Math.PI), 120, 0.14);
+      burst(s.x, s.y, [DISC.color, DISC.glow, '#ffffff'], 12, dirSign > 0 ? 0 : Math.PI, 0.6, 420, { grav: 0 });
+    }
+  }
+  // coming back into Lance himself: it nicks him (dodge it, jump it or shield it)
+  if (s.phase === 'back' && !s.passed && o && o.respawnTimer <= 0 && circleHitsFighter(s.x, s.y, s.r * 0.8, o)) {
+    if (applyHit(o, DISC.self, dirSign, 1, s.x, s.y)) {
+      painTexts.push({ x: o.x, y: o.y - 130, t: 0.7, max: 0.7, text: 'OUCH!', big: false });
+      burst(s.x, s.y, [DISC.color, '#ffffff'], 16, 0, Math.PI, 380, { grav: 0 });
+      return true;
+    }
+  }
+  return s.life <= 0 || s.x < BLAST.left || s.x > BLAST.right || s.y < BLAST.top || s.y > BLAST.bottom;
+}
+function drawDisc(s) {
+  const k = s.size || 1, rx = s.r * 1.35 * k, ry = s.r * 0.42 * k;
+  ctx.save();
+  // motion trail
+  s.trail.forEach((p, i) => {
+    const u = (i + 1) / s.trail.length;
+    ctx.globalAlpha = u * 0.35; ctx.fillStyle = DISC.color;
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, rx * u, ry * u, 0, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+  ctx.translate(s.x, s.y);
+  // glow
+  ctx.fillStyle = 'rgba(176,77,255,0.28)';
+  ctx.beginPath(); ctx.ellipse(0, 0, rx * 1.5, ry * 2.1, 0, 0, Math.PI * 2); ctx.fill();
+  // the disc, seen nearly edge-on, with a sawtooth rim that spins
+  ctx.fillStyle = DISC.color;
+  ctx.beginPath();
+  const teeth = 16;
+  for (let i = 0; i <= teeth * 2; i++) {
+    const ang = s.spin + (i / (teeth * 2)) * Math.PI * 2;
+    const rr = i % 2 ? 1 : 1.16;
+    const x = Math.cos(ang) * rx * rr, y = Math.sin(ang) * ry * rr;
+    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = DISC.glow;
+  ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.62, ry * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.28, ry * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// ---------------- KI MARK + INSTANT TRANSMISSION (Lance's passive) ----------------
+// Hit someone with his ki (Destructo Disc or Kamehameha) = they're MARKED for a few seconds (purple target
+// over them). While they're marked, his next Z vanish (air dodge) teleports him right BEHIND them, wherever
+// they are on the map, ready to start a combo. Using it spends the mark.
+const KI_MARK = { dur: 6, color: '#b04dff' };
+function markKi(by, t) {
+  if (!by || !by.look || !by.look.kiMark || !t || t === by) return;
+  const fresh = !by.kiMark || by.kiMark.t !== t;
+  by.kiMark = { t, time: KI_MARK.dur };
+  if (fresh) painTexts.push({ x: t.x, y: t.y - 150, t: 0.6, max: 0.6, text: 'MARKED', big: false });
+}
+function kiMarkTarget(f) {
+  const m = f.kiMark;
+  if (!m) return null;
+  const t = m.t;
+  if (m.time <= 0 || !t || t.respawnTimer > 0 || !fighters.includes(t)) { f.kiMark = null; return null; }
+  return t;
+}
+function kiTeleport(f, t) {
+  f.kiMark = null;
+  const from = { x: f.x, y: f.y - 45 };
+  ghosts.push({ fig: figureOf(f), life: 0.35, max: 0.35, color: KI_MARK.color });
+  burst(from.x, from.y, [KI_MARK.color, '#ffffff'], 12, 0, Math.PI, 360, { grav: 0 });
+  const behind = -(t.face || 1);                                     // appears behind them
+  f.x = t.x + behind * 54; f.y = t.y;
+  f.ground = t.ground; f.onPlatform = t.ground ? t.onPlatform : null;
+  f.vx = t.vx * 0.5; f.vy = t.ground ? 0 : Math.min(-120, t.vy * 0.5);
+  f.face = Math.sign(t.x - f.x) || 1;
+  f.action = null; f.invuln = Math.max(f.invuln, 0.12);
+  if (!t.ground) { f.airDodges = Math.max(0, f.airDodges - 1); f.canCutJump = false; }
+  const to = { x: f.x, y: f.y - 45 };
+  for (let i = 0; i <= 10; i++) {                                     // streak across the map
+    const u = i / 10;
+    particles.push({ x: lerp(from.x, to.x, u), y: lerp(from.y, to.y, u), vx: 0, vy: 0, life: 0.1 + u * 0.08, max: 0.18,
+                     size: 2, color: i % 2 ? '#ffffff' : KI_MARK.color, type: 'bit', grav: 0 });
+  }
+  burst(to.x, to.y, [KI_MARK.color, '#ffffff'], 18, 0, Math.PI, 420, { grav: 0 });
+  ring(to.x, to.y);
+  painTexts.push({ x: t.x, y: t.y - 150, t: 0.7, max: 0.7, text: 'INSTANT TRANSMISSION!', big: false });
+  hitstop = Math.max(hitstop, 0.05); shake = Math.max(shake, 6);
+  sfx.vanish(1.3);
+}
+// the purple target over a marked fighter
+function drawKiMarks() {
+  for (const f of fighters) {
+    const t = f.kiMark && f.kiMark.t;
+    if (!t || t.respawnTimer > 0 || f.kiMark.time <= 0) continue;
+    const x = t.x, y = t.y - hurtH(t) - 26, fade = Math.min(1, f.kiMark.time / 0.8);
+    const blink = f.kiMark.time < 1.5 && Math.floor(f.kiMark.time * 8) % 2;
+    ctx.save();
+    ctx.globalAlpha = (blink ? 0.35 : 0.9) * fade;
+    ctx.strokeStyle = KI_MARK.color; ctx.lineWidth = 3;
+    const r = 13, rot = time * 3;
+    for (let k = 0; k < 4; k++) {                                     // four spinning brackets
+      const a0 = rot + k * Math.PI / 2;
+      ctx.beginPath(); ctx.arc(x, y, r, a0, a0 + 0.9); ctx.stroke();
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -2551,6 +2722,7 @@ const CHARACTERS = {
       trackDash: true,        // physical attacks start with a tiny dash toward a nearby opponent
       transformAura: '#ffd23f',  // Super Saiyan: golden aura
       ssjHair: '#ffe066',        // ...and spiky golden hair standing straight up
+      kiMark: true,              // passive: ki hits MARK them -> his next Z vanish teleports behind them
       tail: '#6b4423',           // brown Saiyan tail
       tailSsj: '#ffd23f',        // ...that turns gold and glows when he goes Super Saiyan
       // Last-stand stance (Future Gohan vs the androids): very wide and low, front knee bent deep,
@@ -4326,7 +4498,7 @@ function updateBeam(s, dt) {
       if (t === o || allies(o, t) || t.respawnTimer > 0) continue;
       if (t.x + t.w / 2 < x0 || t.x - t.w / 2 > x1) continue;
       if (t.y < s.y - s.w / 2 || t.y - hurtH(t) > s.y + s.w / 2) continue;   // (crouching can duck a thin beam)
-      applyHit(t, last ? s.final : s.tick, s.dir, s.mult, t.x - s.dir * 10, s.y);
+      if (applyHit(t, last ? s.final : s.tick, s.dir, s.mult, t.x - s.dir * 10, s.y)) markKi(o, t);   // Lance's ki marks them
     }
   }
   return s.life <= 0;
@@ -4355,6 +4527,7 @@ function updateProjectiles(dt) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const s = projectiles[i];
     if (s.kind === 'beam') { if (updateBeam(s, dt)) projectiles.splice(i, 1); continue; }
+    if (s.kind === 'disc') { if (updateDisc(s, dt)) projectiles.splice(i, 1); continue; }   // Lance's Destructo Disc
     if (s.grav) s.vy += s.grav * dt;
     s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
     s.trail.push({ x: s.x, y: s.y }); if (s.trail.length > 6) s.trail.shift();
@@ -4384,6 +4557,7 @@ function updateProjectiles(dt) {
     for (let j = i - 1; j >= 0; j--) {
       const a = projectiles[i], b = projectiles[j];
       if (!a || !b || a.owner === b.owner || !a.owner || !b.owner) continue;
+      if (a.phase === 'hold' || b.phase === 'hold') continue;          // (a disc still forming in his hand)
       if (Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r) {
         const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
         burst(mx, my, [a.color, b.color, '#ffffff'], 20, 0, Math.PI, 500, { grav: 150 });
@@ -4424,6 +4598,9 @@ function startDodge(f, dir, down, up) {
       f.vx = 0;
     }
   } else {
+    // Lance with someone KI-MARKED: this Z vanish is an INSTANT TRANSMISSION to right behind them
+    const mark = f.look && f.look.kiMark ? kiMarkTarget(f) : null;
+    if (mark) { kiTeleport(f, mark); return; }
     let dx = dir, dy = (down ? 1 : 0) - (up ? 1 : 0);
     const len = Math.hypot(dx, dy) || 1;
     dx /= len; dy /= len;
@@ -5072,6 +5249,7 @@ function updateFighter(f, inp, dt) {
   if (f.look && f.look.spd) noteStickCircle(f, inp);
   f.ultBuf   = inp.ultTap   ? BUFFER : Math.max(0, (f.ultBuf || 0) - dt);
   f.flyCD = Math.max(0, (f.flyCD || 0) - dt);
+  if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
   syncKame(f);
   const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam'].includes(f.action.type);
@@ -5480,7 +5658,8 @@ function aiDecide(f, o, ai, L) {
 
   // 1) DEFEND against an incoming attack or projectile
   const meleeThreat = oa && oa.type === 'attack' && oa.phase !== 'end' && oa.move.hitboxes && adx < 140 && Math.abs(dy) < 130;
-  const shotThreat = projectiles.some(s => s.owner !== f && Math.hypot(s.x - f.x, s.y - (f.y - 40)) < 230 &&
+  const shotThreat = projectiles.some(s => (s.owner !== f || (s.kind === 'disc' && s.phase === 'back' && !s.passed)) &&   // (incl. his own disc coming back)
+    Math.hypot(s.x - f.x, s.y - (f.y - 40)) < 230 &&
     ((f.x - s.x) * s.vx + (f.y - 40 - s.y) * s.vy) > 0);
   if ((meleeThreat || shotThreat) && Math.random() < L.defend) {
     // A HIGH attack (every hitbox up at head height)? Sometimes just duck under it
@@ -5492,6 +5671,13 @@ function aiDecide(f, o, ai, L) {
       else { ai.tapBlock = true; ai.dir = safeDir(f, -toward); }         // roll away
     } else if (canAirDodge(f)) { ai.tapBlock = true; ai.dir = -toward; } // air dodge
     return;
+  }
+
+  // LANCE: someone's KI-MARKED and not right next to him = INSTANT TRANSMISSION to them (hop first if on the ground)
+  const marked = f.look && f.look.kiMark ? kiMarkTarget(f) : null;
+  if (marked && Math.hypot(marked.x - f.x, marked.y - f.y) > 170 && Math.random() < 0.3) {
+    if (f.ground) { ai.tapJump = true; return; }
+    if (canAirDodge(f)) { ai.tapBlock = true; return; }
   }
 
   // COLBALIAS: full D-E-M-O-N meter and they're close = HELLWAVE (freeze them), then go in for the kill
@@ -7506,11 +7692,11 @@ function drawProjectiles() {
     ctx.fillStyle = '#f0a818';
     for (let k = 0; k < 6; k++) ctx.fillRect(snap(x - cannon.side * k * 3) - (cannon.side < 0 ? 0 : PIX), snap(cannon.y - 15 + k * 3), PIX, snap(30 - k * 6));
   }
-  for (const s of projectiles) if (s.kind === 'beam') drawBeam(s);
+  for (const s of projectiles) if (s.kind === 'beam') drawBeam(s); else if (s.kind === 'disc') drawDisc(s);
   if (sketch) {                          // pen-drawn energy balls with a scribbled fill
     ctx.lineCap = 'round';
     for (const s of projectiles) {
-      if (s.kind === 'beam') continue;
+      if (s.kind === 'beam' || s.kind === 'disc') continue;
       const ink = s.owner ? inkOf(s.owner) : '#7a4b00';
       ctx.strokeStyle = ink;
       if (s.kind === 'wave') {
@@ -7533,7 +7719,7 @@ function drawProjectiles() {
     return;
   }
   for (const s of projectiles) {
-    if (s.kind === 'beam') continue;
+    if (s.kind === 'beam' || s.kind === 'disc') continue;
     s.trail.forEach((t, i) => {
       const k = i / s.trail.length;
       ctx.fillStyle = s.color; ctx.globalAlpha = k * 0.5;
@@ -8075,6 +8261,7 @@ function render() {
       if (ult && ult.statue) drawGuanyinFront(ult);    // the statue's palms flying in + the Zero Hand beam
     }
     drawProjectiles();
+    drawKiMarks();                                    // Lance's purple ki mark over whoever he's marked
     drawThrownScythes();
     drawAuraWaves();                                  // Lance's Tenma Kiai blast
     drawParticles();
