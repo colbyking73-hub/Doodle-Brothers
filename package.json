@@ -3,7 +3,8 @@
   "productName": "Stickman Brawl",
   "version": "0.1.0",
   "description": "A Smash-style stickman platform fighter with online play",
-  "author": "Colby King",
+  "author": "colbyking73-hub",
+  "repository": { "type": "git", "url": "https://github.com/colbyking73-hub/Doodle-Brothers.git" },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -42,6 +43,6 @@
       "shortcutName": "Stickman Brawl",
       "artifactName": "Stickman-Brawl-Setup-${version}.${ext}"
     },
-    "publish": [{ "provider": "github", "releaseType": "release" }]
+    "publish": [{ "provider": "github", "owner": "colbyking73-hub", "repo": "Doodle-Brothers", "releaseType": "release" }]
   }
 }
