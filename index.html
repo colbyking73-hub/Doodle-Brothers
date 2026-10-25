@@ -16,6 +16,8 @@
 <script src="sounds/netero-99-hands-sfx.js"></script>
 <script src="sounds/netero-hits-sfx.js"></script>
 <script src="sounds/clone-poof-sfx.js"></script>
+<!-- Sword slash, used for Colby's neutral scythe swings -->
+<script src="sounds/slash-sfx.js"></script>
 <!-- Online play: PeerJS (WebRTC peer-to-peer connections) -->
 <script src="lib/peerjs.min.js"></script>
 <style>
@@ -224,7 +226,8 @@ const SHIELD_BREAK_STUN = 1.4;
 const COMBO_GRACE  = 0.35;  // after a combo hit ends, pressing again this soon continues the combo
 const PARRY_WINDOW = 0.15;  // block this close to a hit landing = PERFECT block + counter
 const PARRY_STUN   = 0.5;   // how long the attacker staggers after being perfect-blocked
-const CLASH_WINDOW = 0.15;  // both attacks (same button) started this close together = CLASH
+const CLASH_WINDOW = 0.06;  // both attacks (same button) started this close together = CLASH. Any earlier and
+                            // whoever pressed first just hits (interrupts) the other - clashes happen, but not every time
 // A clash is a string of MINI CLASHES: they trade a quick burst of blows at one spot, ZIP somewhere else on the
 // map, trade blows there, zip again... and the last stop is back where it started.
 const CLASH_STOPS  = 6;     // spots: the start + 4 random places around the map + back home
@@ -670,8 +673,9 @@ const COLBY_MOVES = {
   // 3-HIT SCYTHE COMBO: keep pressing K.  Horizontal Slash -> Reaping Pull -> Diagonal Cleave (finisher)
   // It flows as one motion: each hit starts exactly where the last one ended, and he steps forward each time.
   // 1) Horizontal Slash: from the shoulders, the scythe sweeps flat around in front of him at chest height.
-  neutralRanged: { name: 'Horizontal Slash', startup: 0.12, active: 0.12, endlag: 0.24, landLag: 0.12,
-    sweep: true, combo: 'scythe2', lunge: 380, lungeFriction: 0.6,
+  // (snappier: faster to come out and to recover. Every swing plays the sword slash sound.)
+  neutralRanged: { name: 'Horizontal Slash', startup: 0.08, active: 0.1, endlag: 0.16, landLag: 0.1,
+    sweep: true, combo: 'scythe2', lunge: 380, lungeFriction: 0.6, fire() { sfx.slash(); },
     hitboxes: [{ x: 22, y: -60, r: 28, dmg: 6, base: 150, growth: 0.5, angle: 55 },   // point-blank (the shaft)
                { x: 60, y: -60, r: 32, dmg: 6, base: 150, growth: 0.5, angle: 55 },
                { x: 108, y: -56, r: 32, dmg: 6, base: 150, growth: 0.5, angle: 55 }],
@@ -682,8 +686,8 @@ const COLBY_MOVES = {
 
   // 2) Reaping Pull: the scythe comes back the other way at waist height, the hooked blade pulling
   //    through like a real reaping cut. His feet switch as he steps through.
-  scythe2: { name: 'Reaping Pull', startup: 0.06, active: 0.12, endlag: 0.24, landLag: 0.12,
-    sweep: true, combo: 'scythe3', lunge: 340, lungeFriction: 0.6,
+  scythe2: { name: 'Reaping Pull', startup: 0.045, active: 0.1, endlag: 0.16, landLag: 0.1,
+    sweep: true, combo: 'scythe3', lunge: 340, lungeFriction: 0.6, fire() { sfx.slash(); },
     hitboxes: [{ x: 20, y: -46, r: 28, dmg: 6, base: 120, growth: 0.3, angle: 40 },   // point-blank
                { x: 55, y: -42, r: 32, dmg: 6, base: 120, growth: 0.3, angle: 40 },
                { x: 102, y: -40, r: 32, dmg: 6, base: 120, growth: 0.3, angle: 40 }],
@@ -694,8 +698,8 @@ const COLBY_MOVES = {
 
   // 3) Diagonal Cleave: lifts the scythe up behind him and brings it down diagonally across his body.
   //    Hold K on this press to charge it.
-  scythe3: { name: 'Diagonal Cleave', startup: 0.1, active: 0.14, endlag: 0.34, charge: true, landLag: 0.14,
-    sweep: true, lunge: 650, lungeFriction: 0.6,
+  scythe3: { name: 'Diagonal Cleave', startup: 0.08, active: 0.12, endlag: 0.26, charge: true, landLag: 0.12,
+    sweep: true, lunge: 650, lungeFriction: 0.6, fire() { sfx.slash(1.15); },
     hitboxes: [{ x: 40, y: -125, r: 32, dmg: 14, base: 420, growth: 6.5, angle: 45, from: 0, to: 0.05 },
                { x: 95, y: -85, r: 34, dmg: 14, base: 420, growth: 6.5, angle: 45, from: 0.03, to: 0.1 },
                { x: 110, y: -30, r: 34, dmg: 14, base: 420, growth: 6.5, angle: 45, from: 0.07, to: 0.14 },
@@ -1032,6 +1036,38 @@ function drawDisc(s) {
   ctx.fillStyle = '#ffffff';
   ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.28, ry * 0.32, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
+}
+
+// ---------------- BLEED (Colby's scythe) ----------------
+// Every scythe hit adds a stack of bleed. Each stack does 1% every 2 seconds and wears off 5 seconds after
+// it was added. Up to 10 stacks (a new hit at 10 refreshes the oldest one).
+const BLEED = { max: 10, dur: 5, perSec: 0.5, color: '#c0141c' };
+function addBleed(t) {
+  if (!t.bleed) t.bleed = [];
+  if (t.bleed.length >= BLEED.max) t.bleed.shift();
+  t.bleed.push(BLEED.dur);
+}
+function updateBleed(f, dt) {
+  if (!f.bleed || !f.bleed.length) return;
+  f.damage += BLEED.perSec * f.bleed.length * dt;
+  for (let i = 0; i < f.bleed.length; i++) f.bleed[i] -= dt;
+  f.bleed = f.bleed.filter(s => s > 0);
+  if (gore && Math.random() < dt * (2 + f.bleed.length)) {        // dripping
+    burst(f.x + (Math.random() - 0.5) * 16, f.y - 30 - Math.random() * 40, BLOOD, 1, -Math.PI / 2, 0.5, 90, { stain: true });
+  }
+}
+// red drop + stack count over a bleeding fighter
+function drawBleed() {
+  for (const f of fighters) {
+    if (!f.bleed || !f.bleed.length || f.respawnTimer > 0) continue;
+    const x = f.x - 18, y = f.y - hurtH(f) - 16;
+    ctx.save();
+    ctx.fillStyle = BLEED.color;
+    ctx.beginPath(); ctx.moveTo(x, y - 9); ctx.quadraticCurveTo(x + 6, y - 1, x, y + 3); ctx.quadraticCurveTo(x - 6, y - 1, x, y - 9); ctx.fill();
+    ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#ff5a5a'; ctx.textAlign = 'left';
+    ctx.fillText('x' + f.bleed.length, x + 6, y + 2);
+    ctx.restore();
+  }
 }
 
 // ---------------- KI MARK + INSTANT TRANSMISSION (Lance's passive) ----------------
@@ -2705,6 +2741,7 @@ const CHARACTERS = {
       body: '#c4271f',        // red
       longHair: '#f2f2f2',    // long white hair, swept back
       timeStop: true,         // builds a TIME meter by landing hits (bare-handed down K = Time Stop)
+      bleed: true,            // scythe hits stack BLEED on them (see BLEED)
       scythe3d: true,
       // Stance from Colby's sketch: wide bowed legs, scythe resting across his shoulders behind his
       // head. Front hand reaches up to grip the shaft above his front shoulder, the shaft rises
@@ -2904,7 +2941,7 @@ function resetFighter(f, atSpawn) {
     halo: atSpawn ? 2 : 0, invuln: atSpawn ? 2 : 0, trailT: 0,
     damage: 0, respawnTimer: 0, dodgedFlash: 0, blockedFlash: 0, hitFlash: 0,
     shieldAge: 99, prevShield: false, parryFlash: 0, running: false,
-    comboTimer: 0, chainStep: 0, comboKey: null, revenge: 0, revengeT: 0,
+    comboTimer: 0, chainStep: 0, comboKey: null, revenge: 0, revengeT: 0, bleed: null,
   });
 }
 
@@ -3094,6 +3131,24 @@ function playPerfectShield() {
 // ---- Samus's charge-shot sound (sounds/samus-charge.mp3 via sounds/samus-charge-sfx.js) ----
 // Loops while Colbalias charges his Hellfire Shot; fades out the instant he stops charging (fired,
 // cancelled, hit, or fully charged).
+// ---- Sword slash (sounds/sword-slash.mp3 via sounds/slash-sfx.js): Colby's neutral scythe swings ----
+// One swoosh in the file, loudest ~0.25s in: play from 0.12s so it lands right as the swing comes out.
+let slashBuf = null;
+const SLASH_CLIP = [0.12, 0.55];
+function loadSlashSfx() {
+  if (!window.SLASH_SFX_B64 || slashBuf || !actx) return;
+  const bin = atob(window.SLASH_SFX_B64), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  actx.decodeAudioData(bytes.buffer).then(b => { slashBuf = b; }).catch(() => {});
+}
+function playSlash(vol = 1) {
+  if (!soundOn || !actx || !slashBuf) return false;
+  const [start, dur] = SLASH_CLIP, t = actx.currentTime, s = actx.createBufferSource(), g = actx.createGain();
+  s.buffer = slashBuf; s.playbackRate.value = 0.95 + realRandom() * 0.1;
+  g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t + dur * 0.7); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  s.connect(g).connect(actx.destination); s.start(t, start, dur + 0.02);
+  return true;
+}
 let samusBuf = null;
 function loadSamusSfx() {
   if (!window.SAMUS_SFX_B64 || samusBuf || !actx) return;
@@ -3206,6 +3261,7 @@ function unlockAudio() {
     loadShieldSfx();
     loadSamusSfx();
     loadNeteroSfx();
+    loadSlashSfx();
   }
   if (actx.state === 'suspended') actx.resume();
 }
@@ -3285,6 +3341,8 @@ const sfx = {
     noise('lowpass', 600, 0.8, 0.55, 0.35 * power, 0, 2600);
     tone('sawtooth', 110, 70, 0.55, 0.12 * power); tone('sine', 220, 160, 0.5, 0.2 * power);
   },
+  // Sword slash (Colby's neutral scythe swings)
+  slash(vol = 1) { if (!playSlash(vol)) this.whoosh(true); },
   // Z vanish: a sharp rising "zip"
   vanish(vol) {
     if (!soundOn || !actx) return;
@@ -5267,6 +5325,7 @@ function updateFighter(f, inp, dt) {
   f.flyCD = Math.max(0, (f.flyCD || 0) - dt);
   if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
   if (f.kaioken) f.damage += KAIOKEN.drain * dt;                  // Kaioken strain: 1% per second
+  updateBleed(f, dt);                                             // scythe wounds
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
   syncKame(f);
   const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam'].includes(f.action.type);
@@ -6071,6 +6130,8 @@ function update(dt) {
             t.action.dur += h.holdStun ?? a.move.holdStun ?? 0;
             burst(hx, hy, ['#ffffff', '#ffd23f'], 6, 0, Math.PI, 260, { grav: 0 });
           }
+          // BLEED: a clean scythe hit (Colby, scythe in hand) opens a wound - one more stack of bleed
+          if (f.look && f.look.bleed && !f.noScythe && a.move.strike && a.move.strike.sc && t.damage > d0 && !t.shielding) addBleed(t);
           // FIRE: hits burst into flames (Aiden)
           if (f.look && f.look.fireHits && t.damage > d0) {
             burst(hx, hy, FIRE, 8 + Math.round(h.dmg), Math.PI / 2, 1.4, 380, { grav: -300 });
@@ -8294,6 +8355,7 @@ function render() {
     }
     drawProjectiles();
     drawKiMarks();                                    // Lance's purple ki mark over whoever he's marked
+    drawBleed();                                      // bleed stacks from Colby's scythe
     drawThrownScythes();
     drawAuraWaves();                                  // Lance's Tenma Kiai blast
     drawParticles();
