@@ -1,5 +1,5 @@
 // =====================================================================
-//  STICKMAN BRAWL - ONLINE PLAY
+//  DOODLE BROTHERS - ONLINE PLAY
 //
 //  Peer-to-peer: one player HOSTS (gets a 5-letter code), the other JOINS with that code. The two games
 //  connect straight to each other (WebRTC, through PeerJS's free matchmaking server).

@@ -1,8 +1,8 @@
 {
   "name": "stickman-brawl",
-  "productName": "Stickman Brawl",
-  "version": "0.1.0",
-  "description": "A Smash-style stickman platform fighter with online play",
+  "productName": "Doodle Brothers",
+  "version": "0.1.1",
+  "description": "Doodle Brothers - a Smash-style stickman platform fighter with online play",
   "author": "colbyking73-hub",
   "repository": { "type": "git", "url": "https://github.com/colbyking73-hub/Doodle-Brothers.git" },
   "main": "main.js",
@@ -20,7 +20,7 @@
   },
   "build": {
     "appId": "com.colbyking.stickmanbrawl",
-    "productName": "Stickman Brawl",
+    "productName": "Doodle Brothers",
     "files": [
       "main.js",
       "preload.js",
@@ -40,8 +40,8 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Stickman Brawl",
-      "artifactName": "Stickman-Brawl-Setup-${version}.${ext}"
+      "shortcutName": "Doodle Brothers",
+      "artifactName": "Doodle-Brothers-Setup-${version}.${ext}"
     },
     "publish": [{ "provider": "github", "owner": "colbyking73-hub", "repo": "Doodle-Brothers", "releaseType": "release" }]
   }

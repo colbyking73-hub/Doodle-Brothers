@@ -1,4 +1,4 @@
-# Publishes a new version of Stickman Brawl.
+# Publishes a new version of Doodle Brothers.
 #   .\release.ps1            -> 0.1.0 becomes 0.1.1 (small update)
 #   .\release.ps1 minor      -> 0.1.0 becomes 0.2.0 (bigger update)
 # It bumps the version, commits everything, and pushes a version tag to GitHub. GitHub then builds the

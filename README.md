@@ -1,10 +1,10 @@
-# Stickman Brawl
+# Doodle Brothers
 
 A Smash-style stickman platform fighter. Fight a friend on the same keyboard/controllers, against the CPU, or **online**.
 
 ## Download
 
-1. Go to the **Releases** page (right side of this repository) and download `Stickman-Brawl-Setup-x.y.z.exe` from the newest release.
+1. Go to the **Releases** page (right side of this repository) and download `Doodle-Brothers-Setup-x.y.z.exe` from the newest release.
 2. Run it. Windows may show "Windows protected your PC" because the game isn't code-signed. Click **More info**, then **Run anyway**.
 3. The game installs and opens. It has a desktop shortcut.
 

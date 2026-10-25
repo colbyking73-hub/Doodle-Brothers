@@ -1,4 +1,4 @@
-// Stickman Brawl - desktop app (Electron)
+// Doodle Brothers - desktop app (Electron)
 // Opens the game in its own window and keeps it up to date: every time it starts it checks GitHub
 // Releases for a newer version, downloads it in the background, and offers to restart into it.
 const { app, BrowserWindow, dialog, Menu } = require('electron');
@@ -14,7 +14,7 @@ function createWindow() {
     useContentSize: true,
     resizable: true,
     backgroundColor: '#0e0c0c',
-    title: 'Stickman Brawl',
+    title: 'Doodle Brothers',
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -43,7 +43,7 @@ function setupUpdates() {
       defaultId: 0,
       cancelId: 1,
       title: 'Update ready',
-      message: `Stickman Brawl ${info.version} is ready.`,
+      message: `Doodle Brothers ${info.version} is ready.`,
       detail: 'Restart to play the new version. (If you pick Later, it installs the next time you close the game.)\n\nOnline matches need both players on the same version.',
     });
     if (response === 0) autoUpdater.quitAndInstall();
