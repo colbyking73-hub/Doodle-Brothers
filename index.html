@@ -838,9 +838,17 @@ const LANCE_MOVES = {
     hitboxes: [{ x: 8, y: -106, r: 26, dmg: 9, base: 350, growth: 5, angle: 86 }],
     wind: pose({ armA: [0.4, -1.8], lean: 0.1, legA: [0.9, 1.8], legB: [0.4, 1.5] }),
     strike: pose({ armA: [3.05, 0], lean: -0.15, legA: [0.5, 1.2], legB: [0.1, 0.9] }) },
-  // Down air: the FRONT FLIP AXE KICK in the air - he hangs in the air while it's out, so he can spike
-  // people off the ledge and still get back
-  dair: makeAxeKick(true),
+  // Down air: METEOR FIST (Mario's forward air) - he winds his fist up behind his back, then swings it over
+  // the top and straight DOWN in front of him. The middle of the swing SPIKES; the start and end of the
+  // swing just knock them away.
+  dair: { name: 'Meteor Fist', startup: 0.16, active: 0.12, endlag: 0.24, landLag: 0.2, spike: true, impactOnHit: true,
+    hitboxes: [{ x: 30, y: -66, r: 22, dmg: 9, base: 320, growth: 5, angle: 60, from: 0, to: 0.03, group: 0 },        // early: over the top
+               { x: 36, y: -34, r: 28, dmg: 14, base: 460, growth: 7.2, angle: -80, from: 0.03, to: 0.08, group: 0 },  // SWEET SPOT: spike
+               { x: 24, y: -6, r: 22, dmg: 8, base: 300, growth: 4.5, angle: 45, from: 0.08, to: 0.12, group: 0 }],    // late
+    wind: pose({ armA: [-2.4, -0.5], lean: -0.25, legA: [0.8, 1.5], legB: [0.3, 1.2] }),              // fist cocked up behind his back
+    strike: pose({ armA: [1.5, 0.05], lean: 0.35, legA: [0.75, 1.4], legB: [0.25, 1.1] }),             // swings over the top...
+    strike2: pose({ armA: [0.35, 0.02], lean: 0.5, legA: [0.7, 1.3], legB: [0.2, 1.0] }), strike2At: 0.04,   // ...and straight DOWN
+    fire(f) { sfx.whoosh(true); } },
 
   // ---------- K: KI ----------
   // KAMEHAMEHA: hold K to charge, release to fire a beam that hits repeatedly. Full charge = huge beam.
@@ -879,12 +887,13 @@ const LANCE_MOVES = {
       }
     } },
   // Down (on the ground): KAIOKEN - see KAIOKEN below. Toggles it on/off.
-  downRanged: { name: 'Kaioken', startup: 0.3, active: 0.05, endlag: 0.24,
+  // (instant now, and works in the air too - so down K in the air is Kaioken, not Ki Burst)
+  downRanged: { name: 'Kaioken', startup: 0.02, active: 0.03, endlag: 0.06,
     wind: pose({ bob: -14, lean: 0.3, armA: [-0.8, -2.1], legA: [0.95, 1.1], legB: [-0.9, 0.3] }),     // crouched, straining
     strike: pose({ bob: -6, lean: -0.25, armA: [-0.6, -2.0], legA: [1.0, 0.8], legB: [-1.0, 0.2] }),    // roars, power bursts out
     fire(f) { toggleKaioken(f); } },
-  // Down in the AIR: Ki Burst - aura explosion all around him
-  dairR: { name: 'Ki Burst', startup: 0.18, active: 0.1, endlag: 0.3, charge: true, landLag: 0.14,
+  // (retired: down K in the air is Kaioken now)
+  kiBurst: { name: 'Ki Burst', startup: 0.18, active: 0.1, endlag: 0.3, charge: true, landLag: 0.14,
     hitboxes: [{ x: 0, y: -45, r: 80, dmg: 9, base: 380, growth: 5, angle: 70 }],
     wind: pose({ bob: -12, armA: [0.3, -2.0], lean: 0.3, legA: [0.75, 1.5], legB: [0.55, 1.3] }),
     strike: pose({ armA: [2.4, 0], lean: -0.1, legA: [0.6, 0], legB: [-0.6, 0] }),
@@ -897,8 +906,9 @@ const LANCE_MOVES = {
 
 // ---------------- KAIOKEN (Lance, down-K on the ground) ----------------
 // A power-up he switches on and off. Stacks with his Super Saiyan transformation.
-// While it's on: his hits do 5% more damage, but every hit he TAKES does 7% more. Red aura. Ends if he's KO'd.
-const KAIOKEN = { dealt: 1.05, taken: 1.07, color: '#ff2a1f' };
+// While it's on: his hits do 5% more damage, but it strains his body: he takes 1% damage every second.
+// Switching it on/off is instant, on the ground or in the air. Red aura. Ends if he's KO'd.
+const KAIOKEN = { dealt: 1.05, taken: 1, drain: 1, color: '#ff2a1f' };
 function toggleKaioken(f) {
   f.kaioken = !f.kaioken;
   if (f.kaioken) {
@@ -906,7 +916,7 @@ function toggleKaioken(f) {
     ring(f.x, f.y - 45); ring(f.x, f.y - 20);
     burst(f.x, f.y - 45, [KAIOKEN.color, '#ff8a3c', '#ffffff'], 46, 0, Math.PI, 760, { grav: 0 });
     for (let k = 0; k < 5; k++) bolt(f.x, f.y - 50, Math.random() * Math.PI * 2, 80, 0.12, KAIOKEN.color);
-    shake = Math.max(shake, 14); hitstop = Math.max(hitstop, 0.12);
+    shake = Math.max(shake, 14); hitstop = Math.max(hitstop, 0.04);
     impactFrame = 0.06; impactAt = { x: f.x, y: f.y - 50, ang: 0, all: false, focus: true };
     sfx.parry(); sfx.beam(0.5);
   } else {
@@ -953,6 +963,7 @@ function updateDisc(s, dt) {
     if (s.t >= DISC.hold) {                                           // THROW
       s.phase = 'out'; s.t = 0; s.size = 1;
       s.x = o.x + s.dir * 34; s.y = o.y - 82; s.vx = s.dir * DISC.speed; s.vy = 0;
+      s.ox = s.x; s.oy = s.y;                                         // where it was thrown from: it comes back HERE
       sfx.whoosh(true);
     }
     return false;
@@ -962,10 +973,10 @@ function updateDisc(s, dt) {
     if (s.t > DISC.straight) s.vx -= s.dir * DISC.decel * dt;         // slows down...
     if (Math.sign(s.vx) === -s.dir) { s.phase = 'back'; s.hit = new Set(); }   // ...and turns round: can cut them again
   } else {
-    s.vx = clamp(s.vx - s.dir * DISC.decel * dt, -DISC.maxSpeed, DISC.maxSpeed);   // speeds back toward him
-    if (o && !s.passed) {
-      s.vy = clamp((o.y - 60 - s.y) * 3.2, -650, 650);                // curves toward his height
-      if (Math.sign(o.x - s.x) === s.dir) s.passed = true;            // it's gone past him: flies on straight
+    s.vx = clamp(s.vx - s.dir * DISC.decel * dt, -DISC.maxSpeed, DISC.maxSpeed);   // speeds back the way it came
+    if (!s.passed) {
+      s.vy = clamp((s.oy - s.y) * 3.2, -650, 650);                    // back along its path, to the spot it was thrown from
+      if (Math.sign(s.ox - s.x) === s.dir) s.passed = true;           // gone past that spot: flies on straight
     } else s.vy *= 0.95;
   }
   s.x += s.vx * dt; s.y += s.vy * dt;
@@ -981,8 +992,8 @@ function updateDisc(s, dt) {
       burst(s.x, s.y, [DISC.color, DISC.glow, '#ffffff'], 12, dirSign > 0 ? 0 : Math.PI, 0.6, 420, { grav: 0 });
     }
   }
-  // coming back into Lance himself: it nicks him (dodge it, jump it or shield it)
-  if (s.phase === 'back' && !s.passed && o && o.respawnTimer <= 0 && circleHitsFighter(s.x, s.y, s.r * 0.8, o)) {
+  // coming back into Lance himself (if he's still in its way): it nicks him (dodge it, jump it or shield it)
+  if (s.phase === 'back' && o && o.respawnTimer <= 0 && circleHitsFighter(s.x, s.y, s.r * 0.8, o)) {
     if (applyHit(o, DISC.self, dirSign, 1, s.x, s.y)) {
       painTexts.push({ x: o.x, y: o.y - 130, t: 0.7, max: 0.7, text: 'OUCH!', big: false });
       burst(s.x, s.y, [DISC.color, '#ffffff'], 16, 0, Math.PI, 380, { grav: 0 });
@@ -2823,7 +2834,8 @@ CHARACTERS.COLBY.ult = {
 CHARACTERS.LANCE.ult = {
   name: 'FINAL KAMEHAMEHA',
   beamUlt: true,             // no grab/flurry - see stepUltBeam
-  windTime: 1.0,             // charge-up (Kamehameha charge sound, can't be interrupted)
+  windTime: 1.15,            // charge-up (Kamehameha charge sound, can't be interrupted) - slow, so it KOs if it lands:
+                             // anyone above 0% when it hits them is finished; at 0% they survive - unless he's in KAIOKEN
   beamTime: 1.0,             // how long the beam lasts
   chargeSfx: 'kame',
 };
@@ -4400,7 +4412,7 @@ function spawnUltBeam(f) {
     maxLen: 2600, w: 84, life: U.beamTime, max: U.beamTime, tickT: 0, mult: f.ultPower || 1, color: kiColor(f),
     hit: new Set(), trail: [],
     tick:  { dmg: 2.0, base: 110, growth: 0, angle: 15, noStop: true },
-    final: { dmg: 12, base: 520, growth: 6, angle: 35, ultFinal: true },   // ~28% total at full power, strong launch
+    final: { dmg: 12, base: 520, growth: 6, angle: 35, ultFinal: true, lanceKO: true },   // ~28% total; KOs (see updateBeam)
   });
   impactFrame = 0.15; impactAt = { x: f.x + f.face * 40, y: f.y - 62, ang: 0, all: true, focus: true, invert: true };
   hitstop = Math.max(hitstop, 0.15);
@@ -4498,7 +4510,11 @@ function updateBeam(s, dt) {
       if (t === o || allies(o, t) || t.respawnTimer > 0) continue;
       if (t.x + t.w / 2 < x0 || t.x - t.w / 2 > x1) continue;
       if (t.y < s.y - s.w / 2 || t.y - hurtH(t) > s.y + s.w / 2) continue;   // (crouching can duck a thin beam)
-      if (applyHit(t, last ? s.final : s.tick, s.dir, s.mult, t.x - s.dir * 10, s.y)) markKi(o, t);   // Lance's ki marks them
+      // LANCE'S ULT: a guaranteed KO if they had any damage when it caught them (or always, in Kaioken)
+      if (s.final.lanceKO && !(s.startDmg || (s.startDmg = new Map())).has(t)) s.startDmg.set(t, t.damage);
+      let h = last ? s.final : s.tick;
+      if (last && s.final.lanceKO && (s.startDmg.get(t) > 0 || o.kaioken)) h = { ...s.final, koAt: 0.001 };
+      if (applyHit(t, h, s.dir, s.mult, t.x - s.dir * 10, s.y)) markKi(o, t);   // Lance's ki marks them
     }
   }
   return s.life <= 0;
@@ -5250,6 +5266,7 @@ function updateFighter(f, inp, dt) {
   f.ultBuf   = inp.ultTap   ? BUFFER : Math.max(0, (f.ultBuf || 0) - dt);
   f.flyCD = Math.max(0, (f.flyCD || 0) - dt);
   if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
+  if (f.kaioken) f.damage += KAIOKEN.drain * dt;                  // Kaioken strain: 1% per second
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
   syncKame(f);
   const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam'].includes(f.action.type);
@@ -6920,12 +6937,27 @@ function drawFigure(fig, opts = {}) {
         ctx.beginPath(); ctx.moveTo(pts[i - 1].x, pts[i - 1].y); ctx.lineTo(pts[i].x, pts[i].y); ctx.stroke();
       }
     } else {
-      // even thickness, one smooth stroke; a darker edge + a soft fur highlight along the top
-      if (!opts.tint && !sketch) { ctx.strokeStyle = shade(ssj ? '#c98a00' : col.startsWith('#') ? col : '#6b4423', 0.7); stroke(6.5); }
-      ctx.strokeStyle = col; stroke(4.5);
+      // FURRY (not shiny): a matte base, then little tufts of fur sticking out all along both sides,
+      // slanted back toward his body like brushed fur, in a few shades of brown (gold in Super Saiyan)
+      const baseHex = ssj ? '#c98a00' : (col.startsWith('#') ? col : '#6b4423');
+      if (!opts.tint && !sketch) { ctx.strokeStyle = shade(baseHex, 0.72); stroke(7); }   // dark under-fur edge
+      ctx.strokeStyle = col; stroke(5);
       if (!opts.tint && !sketch) {
-        ctx.strokeStyle = ssj ? '#fff6c2' : 'rgba(255,220,180,0.35)'; ctx.lineWidth = 1.3;
-        ctx.beginPath(); pts.forEach((p, i) => { const q = { x: p.x, y: p.y - 1.2 }; i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }); ctx.stroke();
+        const shades = [shade(baseHex, 1.22), col, shade(baseHex, 0.82)];
+        ctx.lineWidth = 1.5;
+        for (let i = 1; i < pts.length; i++) {
+          const p0 = pts[i - 1], p1 = pts[i];
+          const dx = p1.x - p0.x, dy = p1.y - p0.y, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+          for (let k = 0; k < 3; k++) {
+            const side = k === 1 ? 1 : -1, mid = k === 2 ? 0.5 : 0;            // tufts on both edges (+ one more on the outer edge)
+            const len = 3.4 + ((i * 7 + k * 3) % 5) * 0.55;                       // uneven fur lengths (fixed per spot, so it doesn't flicker)
+            const bx = lerp(p0.x, p1.x, 1 - mid) + nx * side * 2.2, by = lerp(p0.y, p1.y, 1 - mid) + ny * side * 2.2;
+            ctx.strokeStyle = shades[(i + k) % 3];
+            ctx.beginPath(); ctx.moveTo(bx, by);
+            ctx.lineTo(bx + nx * side * len - ux * len * 0.9, by + ny * side * len - uy * len * 0.9);
+            ctx.stroke();
+          }
+        }
       }
     }
     if (look.tailSpade) {                                      // the arrowhead spade on the end of a demon tail
