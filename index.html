@@ -18,6 +18,8 @@
 <script src="sounds/clone-poof-sfx.js"></script>
 <!-- Sword slash, used for Colby's neutral scythe swings -->
 <script src="sounds/slash-sfx.js"></script>
+<!-- "RKO! OUTTA NOWHERE!" - Aiden's RKO throw -->
+<script src="sounds/rko-sfx.js"></script>
 <!-- Online play: PeerJS (WebRTC peer-to-peer connections) -->
 <script src="lib/peerjs.min.js"></script>
 <style>
@@ -116,7 +118,7 @@ const ACTION_LABEL = { left: 'MOVE LEFT', right: 'MOVE RIGHT', up: 'UP', down: '
 const DEFAULT_BINDINGS = {
   keys: { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'],
           jump: ['KeyW', 'ArrowUp', 'Space'], attack: ['KeyJ'], special: ['KeyK'], shield: ['ShiftLeft', 'ShiftRight', 'KeyL'],
-          grab: ['KeyU'], ult: ['KeyI'] },
+          grab: ['KeyU'], ult: ['KeyI'], taunt: ['KeyY'] },   // taunt: Y = up taunt, Y + left/right = side, Y + down = down
   // Xbox button numbers (standard gamepad layout). The left stick always moves too.
   //   A = physical, B = ranged, X/Y = jump, RT/LT = block/dodge, RB = grab, LB = transform/ultimate
   pad:  { left: [14], right: [15], up: [12], down: [13], jump: [2, 3], attack: [0], special: [1], shield: [7, 6],
@@ -159,6 +161,9 @@ function padRaw(i) {
     left: any('left') || ax < -0.5, right: any('right') || ax > 0.5,
     up: any('up') || ay < -0.55, down: any('down') || ay > 0.55,
     jump: any('jump'), attack: any('attack'), special: any('special'), shield: any('shield'), grab: any('grab'), ult: any('ult'),
+    // IN A FIGHT the left stick moves and the D-PAD TAUNTS (menus still use both for moving the cursor)
+    sl: ax < -0.5, sr: ax > 0.5, su: ay < -0.55, sd: ay > 0.55,
+    du: !!B[12], dd: !!B[13], dl: !!B[14], dr: !!B[15],
     buttons: B, ax, ay, rx: gp.axes[2] || 0, ry: gp.axes[3] || 0,
   };
 }
@@ -819,8 +824,17 @@ const LANCE_MOVES = {
     hitboxes: [{ x: 16, y: -104, r: 25, dmg: 10, base: 380, growth: 5.5, angle: 86 }],
     wind: pose({ bob: -10, armA: [0.3, -2.2], legA: [0.75, 1.5], legB: [0.55, 1.3], lean: 0.3 }),
     strike: pose({ armA: [3.0, 0], lean: -0.1, legA: [0.2, 0.3], legB: [-0.2, 0.6] }) },
-  // Down: FRONT FLIP AXE KICK - a spike (see makeAxeKick). Same move as his down air.
-  downGround: makeAxeKick(false),
+  // Down (on the ground): LEG SWEEP - drops low and whips his leg round along the floor, in front then behind.
+  // Fast, and it pops them up just off the ground, so he can follow straight up with a combo.
+  // (The spike stays in the air: down air is still his Meteor Fist.)
+  downGround: { name: 'Leg Sweep', startup: 0.06, active: 0.12, endlag: 0.16,
+    hitboxes: [{ x: 46, y: -10, r: 24, dmg: 5, base: 240, growth: 2.4, angle: 78, from: 0, to: 0.06, group: 0 },
+               { x: 20, y: -10, r: 22, dmg: 5, base: 240, growth: 2.4, angle: 78, from: 0, to: 0.06, group: 0 },
+               { x: -44, y: -10, r: 24, dmg: 5, base: 240, growth: 2.4, angle: 102, from: 0.06, to: 0.12, group: 1 }],
+    wind: pose({ bob: -30, lean: 0.25, legA: [1.0, 1.6], legB: [-0.6, 1.4], armA: [0.2, -0.6] }),            // drops into a crouch, hand on the floor
+    strike: pose({ bob: -36, lean: 0.35, legA: [1.6, 0.05], legB: [-0.5, 1.6], armA: [0.1, -0.4] }),          // front leg swept out flat along the floor
+    strike2: pose({ bob: -36, lean: -0.1, legA: [-1.6, 0.05], legB: [0.5, 1.6], armA: [0.1, -0.4] }), strike2At: 0.06,   // ...and round behind him
+    fire(f) { dust(f.x + f.face * 40, f.y, 8, 1.4); dust(f.x - f.face * 40, f.y, 6, 1.2); sfx.whoosh(false); } },
 
   // RUNNING ATTACK (press J while running): Running High Kick - carries the run into a leaping kick
   // with his leg snapped straight up to head height. (His one real kick - fast and far-reaching.)
@@ -1050,6 +1064,49 @@ function drawDisc(s) {
   ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.28, ry * 0.32, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
+
+// ---------------- TAUNTS (everyone) ----------------
+// Controller: D-PAD up / left or right / down. Keyboard: Y (up), Y + left/right (side), Y + down (down).
+// Only on the ground, and you're wide open while you do it.
+const TAUNT = { dur: 0.95 };
+const TAUNT_LINES = { 1: 'COME ON!', 2: 'TOO SLOW!', 3: 'BORING...' };
+function startTaunt(f, kind) {
+  f.action = { type: 'taunt', t: 0, dur: TAUNT.dur, kind };
+  f.running = false; f.vx *= 0.3;
+  const lines = CHARACTERS[f.char].taunts || TAUNT_LINES;
+  painTexts.push({ x: f.x, y: f.y - 140, t: 0.8, max: 0.8, text: lines[kind] || TAUNT_LINES[kind], big: false });
+}
+function finishTaunt(f, a) {
+  // AIDEN'S HYPE: a finished taunt pumps up his HYPE meter
+  if (f.look && f.look.hype) {
+    f.hype = Math.min(100, (f.hype || 0) + HYPE.perTaunt);
+    burst(f.x, f.y - 50, FIRE, 18, Math.PI / 2, 1.2, 420, { grav: -250 });
+    painTexts.push({ x: f.x, y: f.y - 150, t: 0.6, max: 0.6, text: f.hype >= 100 ? 'MAX HYPE!' : 'HYPE!', big: f.hype >= 100 });
+    sfx.parry();
+  }
+}
+function tauntPose(p, a) {
+  const w = Math.sin(p.anim * 9);
+  const own = CHARACTERS[p.char] && CHARACTERS[p.char].tauntPoses;   // character-specific taunts (Aiden = King)
+  if (own && own[a.kind]) return own[a.kind](p, a, w);
+  if (a.kind === 1)            // FLEX: double biceps, arms up
+    return pose({ bob: -4 + w * 2, lean: -0.15, legA: [0.6, 0.4], legB: [-0.55, 0.1], armA: [1.57, -1.57], armB: [-1.57, 1.57],
+                  armC: [1.2, -1.2], armD: [-1.2, 1.2] });
+  if (a.kind === 2)            // BECKON: "come here", hand waving them in, other hand on the hip
+    return pose({ bob: -2, lean: -0.2, legA: [0.5, 0.3], legB: [-0.5, 0.1], armA: [1.45, -0.9 - w * 0.5], armB: [-0.45, -1.6],
+                  armC: [0.6, -1.4], armD: [-0.5, -1.4] });
+  return pose({ bob: -22, lean: 0.05, legA: [1.0, 1.4], legB: [-0.9, 1.0], armA: [1.1, 0.7 + w * 0.15], armB: [-1.1, -0.7 - w * 0.15],   // SHRUG: squatting, palms up
+                armC: [0.8, 0.5], armD: [-0.8, -0.5] });
+}
+
+// ---------------- HYPE (Aiden's passive) ----------------
+// Aiden's base level is WEAKER: at 0 hype his hits do 80% and he's 18% lighter (gets launched further).
+// Taunting fills the HYPE meter; it slowly drains. At FULL hype he's back to his old full strength: full
+// damage and full weight (hard to launch). In between it scales smoothly.
+const HYPE = { perTaunt: 34, drain: 3.5, minPower: 0.8, minWeight: 0.82, color: '#ff8a1a' };
+const hypeK = f => clamp((f.hype || 0) / 100, 0, 1);
+const hypePower = f => (f.look && f.look.hype ? lerp(HYPE.minPower, 1, hypeK(f)) : 1);
+const hypeWeight = f => (f.look && f.look.hype ? lerp(HYPE.minWeight, 1, hypeK(f)) : 1);
 
 // ---------------- BLEED (Colby's scythe) ----------------
 // Every scythe hit (any scythe move, and the thrown scythe) adds a stack of bleed. Each stack does 0.5% every
@@ -1500,28 +1557,49 @@ const AIDEN_MOVES = {
   counter: STICKMAN_MOVES.counter,
 
   // ---------- J on the ground ----------
-  // Tap J: a 4-HIT STRING where EACH OF HIS FOUR ARMS throws its own hit, one at a time, while the
-  // other three stay up in his guard:
-  //   1. UPPER CHOP      - front top arm chops down
-  //   2. LOWER HOOK      - front bottom arm digs a hook into the gut (drags them in close)
-  //   3. UPPER HAMMER    - back top arm swings over the top in an overhand hammer fist (holds them there)
-  //   4. LOWER UPPERCUT  - back bottom arm rips a flaming uppercut that launches them (combo into the air)
-  jab: { name: 'Upper Chop', startup: 0.06, active: 0.06, endlag: 0.15, combo: 'jab2', pullIn: 46, holdStun: 0.06,
+  // Tap J: BRYAN FURY'S STRING (Tekken 8), fast and reliable - every hit drags them back in front of him and
+  // holds them a moment, and every hit has a point-blank hitbox too, so the whole string connects:
+  //   1. SNAKE BITE     - a low, coiled lunging strike that snaps out like a snake
+  //   2. ROUNDHOUSE     - front leg whips a high roundhouse
+  //   3. ROUNDHOUSE     - spins through and the back leg whips a second one
+  //   4. MACH BREAKER   - he LEAPS forward fist-first, Superman punch, and blasts them away
+  jab: { name: 'Snake Bite', startup: 0.04, active: 0.06, endlag: 0.12, combo: 'jab2', lunge: 260, lungeFriction: 0.5, pullIn: 50, holdStun: 0.08,
+    hitboxes: [{ x: 58, y: -62, r: 26, dmg: 3, base: 80, growth: 0.2, angle: 60 }, { x: 24, y: -62, r: 24, dmg: 3, base: 80, growth: 0.2, angle: 60 }],
+    wind: pose({ lean: 0.35, bob: -16, legA: [0.95, 1.0], legB: [-0.75, 0.3], armA: [-0.5, -1.9], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [0.35, -0.9] }),   // coiled low, arm drawn back
+    strike: pose({ lean: 0.6, bob: -18, legA: [1.1, 0.9], legB: [-0.95, 0.15], armA: [1.6, 0], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [0.35, -0.9] }),    // ...STRIKES out
+    fire(f) { burst(f.x + f.face * 56, f.y - 62, FIRE, 4, f.face > 0 ? 0 : Math.PI, 0.6, 200, { grav: -150 }); sfx.whoosh(false); } },
+  jab2: { name: 'Roundhouse', startup: 0.045, active: 0.06, endlag: 0.12, combo: 'jab3', lunge: 140, lungeFriction: 0.5, pullIn: 52, holdStun: 0.1,
+    hitboxes: [{ x: 56, y: -78, r: 27, dmg: 4, base: 80, growth: 0.2, angle: 62 }, { x: 24, y: -70, r: 24, dmg: 4, base: 80, growth: 0.2, angle: 62 }],
+    wind: pose({ bob: 2, lean: -0.2, legA: [1.6, 2.0], legB: [0.05, 0.15], armA: [1.35, -1.55], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [0.35, -0.9] }),
+    strike: pose({ bob: 2, lean: -0.6, legA: [2.15, 0.05], legB: [-0.1, 0.15], armA: [1.1, -1.7], armB: [-0.8, -1.0], armC: [0.75, -0.7], armD: [-0.5, -0.8] }),
+    fire(f) { sfx.whoosh(false); } },
+  jab3: { name: 'Spinning Roundhouse', startup: 0.045, active: 0.06, endlag: 0.12, combo: 'jab4', lunge: 140, lungeFriction: 0.5, pullIn: 54, holdStun: 0.12,
+    hitboxes: [{ x: 56, y: -80, r: 27, dmg: 4, base: 80, growth: 0.2, angle: 64 }, { x: 24, y: -72, r: 24, dmg: 4, base: 80, growth: 0.2, angle: 64 }],
+    wind: pose({ bob: 3, lean: -0.15, spin: -0.4, legB: [1.6, 2.0], legA: [0.1, 0.2], armA: [1.6, -0.3], armB: [-1.6, 0.3] }),
+    strike: pose({ bob: 2, lean: -0.65, legB: [2.25, 0.05], legA: [-0.15, 0.1], armA: [-1.4, -0.4], armB: [1.2, -0.6], armC: [-0.6, -0.6], armD: [0.6, -0.8] }),
+    fire(f) { burst(f.x + f.face * 50, f.y - 80, FIRE, 5, Math.PI / 2, 0.8, 200, { grav: -200 }); sfx.whoosh(true); } },
+  jab4: { name: 'Mach Breaker', startup: 0.07, active: 0.12, endlag: 0.3, lunge: 700, lungeFriction: 0.4, hop: 240, landLag: 0.14, impactOnHit: true,
+    hitboxes: [{ x: 54, y: -70, r: 30, dmg: 8, base: 460, growth: 5.8, angle: 36 }, { x: 22, y: -66, r: 26, dmg: 8, base: 460, growth: 5.8, angle: 36 }],
+    wind: pose({ lean: 0.1, bob: -16, legA: [1.3, 1.7], legB: [-0.5, 0.5], armA: [-1.3, -0.6], armB: [0.4, -1.6], armC: [-0.9, -0.6], armD: [0.3, -1.0] }),   // crouched, fist cocked way back
+    strike: pose({ lean: 0.75, legA: [-0.5, 0.3], legB: [-1.0, 0.4], armA: [1.6, 0], armB: [-1.3, -0.3], armC: [1.4, -0.2], armD: [-1.2, -0.4] }),          // flying Superman punch
+    fire(f) { burst(f.x - f.face * 20, f.y - 50, FIRE, 18, f.face > 0 ? Math.PI : 0, 0.5, 600, { grav: -100 }); shake = Math.max(shake, 8); sfx.whoosh(true); } },
+  // (the old four-arm string, kept for reference)
+  oldJab: { name: 'Upper Chop', startup: 0.06, active: 0.06, endlag: 0.15, combo: 'jab2', pullIn: 46, holdStun: 0.06,
     hitboxes: [{ x: 42, y: -70, r: 22, dmg: 4, base: 80, growth: 0.3, angle: 50 }],
     wind: pose({ lean: -0.05, bob: -8, legA: [0.65, 0.5], legB: [-0.5, 0.15], armA: [2.8, 0.55], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [0.35, -0.9] }),
     strike: pose({ lean: 0.3, bob: -9, legA: [0.75, 0.6], legB: [-0.6, 0.1], armA: [1.35, 0], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [0.35, -0.9] }),
     fire(f) { burst(f.x + f.face * 44, f.y - 72, FIRE, 4, Math.PI / 2, 0.8, 160, { grav: -200 }); } },
-  jab2: { name: 'Lower Hook', startup: 0.05, active: 0.06, endlag: 0.15, combo: 'jab3', pullIn: 44, holdStun: 0.08,
+  oldJab2: { name: 'Lower Hook', startup: 0.05, active: 0.06, endlag: 0.15, combo: 'jab3', pullIn: 44, holdStun: 0.08,
     hitboxes: [{ x: 46, y: -46, r: 24, dmg: 3, base: 80, growth: 0.3, angle: 50 }],
     wind: pose({ lean: 0.05, bob: -9, legA: [0.7, 0.6], legB: [-0.55, 0.15], armA: [1.35, -1.55], armB: [1.0, -1.7], armC: [-0.7, -1.3], armD: [0.35, -0.9] }),
     strike: pose({ lean: 0.38, bob: -11, legA: [0.8, 0.6], legB: [-0.65, 0.1], armA: [1.35, -1.55], armB: [1.0, -1.7], armC: [1.65, -0.35], armD: [0.35, -0.9] }),
     fire(f) { burst(f.x + f.face * 44, f.y - 46, FIRE, 4, Math.PI / 2, 0.8, 160, { grav: -200 }); } },
-  jab3: { name: 'Upper Hammer', startup: 0.06, active: 0.07, endlag: 0.16, combo: 'jab4', pullIn: 46, holdStun: 0.1,
+  oldJab3: { name: 'Upper Hammer', startup: 0.06, active: 0.07, endlag: 0.16, combo: 'jab4', pullIn: 46, holdStun: 0.1,
     hitboxes: [{ x: 44, y: -66, r: 25, dmg: 4, base: 80, growth: 0.3, angle: 60 }],
     wind: pose({ lean: -0.15, bob: -8, legA: [0.7, 0.6], legB: [-0.55, 0.15], armA: [1.35, -1.55], armB: [3.0, 0.5], armC: [0.75, -0.7], armD: [0.35, -0.9] }),       // back arm raised high
     strike: pose({ lean: 0.42, bob: -12, legA: [0.85, 0.7], legB: [-0.7, 0.1], armA: [1.1, -1.7], armB: [1.45, 0.1], armC: [0.75, -0.7], armD: [0.35, -0.9] }),        // ...brought over the top
     fire(f) { burst(f.x + f.face * 44, f.y - 66, FIRE, 5, Math.PI / 2, 0.8, 180, { grav: -200 }); } },
-  jab4: { name: 'Lower Uppercut', startup: 0.08, active: 0.08, endlag: 0.26,
+  oldJab4: { name: 'Lower Uppercut', startup: 0.08, active: 0.08, endlag: 0.26,
     hitboxes: [{ x: 34, y: -66, r: 26, dmg: 7, base: 340, growth: 4, angle: 82 },
                { x: 26, y: -40, r: 20, dmg: 7, base: 340, growth: 4, angle: 82 }],
     wind: pose({ lean: 0.25, bob: -16, legA: [0.9, 1.2], legB: [-0.7, 0.5], armA: [1.35, -1.55], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [-0.7, -0.9] }),     // back low fist dropped down by his hip
@@ -1586,11 +1664,26 @@ const AIDEN_MOVES = {
     wind: pose({ legA: [0.9, 2.0], legB: [0.5, 1.7], armA: [0.6, -1.6], armB: [0.3, -1.6] }),
     strike: pose({ lean: -0.4, legA: [2.9, 0], legB: [0.6, 1.5], armA: [-1.2, 0], armB: [-1.6, 0], armC: [-0.9, 0.2], armD: [-1.3, 0.2] }) },
   // STOMP (down air): both feet driven straight down - SPIKES
-  dair: { name: 'Stomp', startup: 0.13, active: 0.1, endlag: 0.24, landLag: 0.18, spike: true,
-    hitboxes: [{ x: 4, y: 6, r: 27, dmg: 12, base: 380, growth: 6, angle: -85 }],
-    wind: pose({ legA: [1.3, 2.3], legB: [1.0, 2.1], armA: [2.5, 0], armB: [-2.5, 0], armC: [2.0, 0.3], armD: [-2.0, -0.3], bob: 8 }),
-    strike: pose({ legA: [0.08, 0], legB: [-0.05, 0], armA: [2.7, 0.3], armB: [-2.7, -0.3], armC: [2.2, 0.3], armD: [-2.2, -0.3], bob: -6 }),
-    fire(f) { burst(f.x, f.y + 4, FIRE, 10, -Math.PI / 2, 0.6, 400, { grav: 0 }); } },
+  // Down air: INFERNO STOMP (Ganondorf's down air) - knees pulled all the way up, then BOTH feet driven
+  // straight down. The first instant is the SWEET SPOT: a brutal spike (fire impact frame, a column of
+  // flame, the screen rocks). Late = a weaker spike.
+  dair: { name: 'Inferno Stomp', startup: 0.15, active: 0.12, endlag: 0.26, landLag: 0.2, spike: true,
+    hitboxes: [{ x: 6, y: 8, r: 30, dmg: 13, base: 520, growth: 7.6, angle: -88, from: 0, to: 0.05, group: 0, sweet: true },
+               { x: 6, y: -14, r: 26, dmg: 13, base: 520, growth: 7.6, angle: -88, from: 0, to: 0.05, group: 0, sweet: true },
+               { x: 6, y: 8, r: 28, dmg: 9, base: 380, growth: 5.4, angle: -80, from: 0.05, to: 0.12, group: 0 }],
+    wind: pose({ lean: -0.1, legA: [1.6, 2.6], legB: [1.3, 2.5], armA: [1.8, -0.4], armB: [-1.8, 0.4], armC: [1.4, -0.3], armD: [-1.4, 0.3], bob: 12 }),   // knees right up to his chest
+    strike: pose({ lean: 0.05, legA: [0.1, 0], legB: [-0.04, 0], armA: [2.8, 0.3], armB: [-2.8, -0.3], armC: [2.3, 0.3], armD: [-2.3, -0.3], bob: -8 }),  // both feet DRIVEN down, arms flung up
+    fire(f) { burst(f.x, f.y + 6, FIRE, 14, -Math.PI / 2, 0.6, 480, { grav: 0 }); sfx.whoosh(true); },
+    onHit(f, t, a, h, clean) {
+      if (!h.sweet || !clean) return;
+      // SWEET SPOT: it should FEEL like a meteor
+      painTexts.push({ x: t.x, y: t.y - 120, t: 0.7, max: 0.7, text: 'METEOR!', big: true });
+      impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: t.x, y: t.y - 40, ang: -Math.PI / 2, all: false, focus: true, fire: true };
+      hitstop = Math.max(hitstop, 0.22); shake = Math.max(shake, 26); camPunch = 1;
+      for (let k = 0; k < 6; k++) burst(t.x + (Math.random() - 0.5) * 30, t.y - 20 + k * 22, FIRE, 8, -Math.PI / 2, 0.5, 600 + k * 60, { grav: 0 });   // flame column driven down
+      ring(t.x, t.y - 30);
+      sfx.clash(true); sfx.slam();
+    } },
 
   // ---------- K: INCINEROAR'S SPECIALS ----------
   // DARKEST LARIAT: spins on the spot with all four arms out like a whirlwind. Steer it left/right.
@@ -1862,7 +1955,7 @@ function stepElbowDrop(f, a, dt) {
         a.released = true; f.vx = 0;
         v.action = null; v.drawZ = 0; v.y = a.gy0; v.x = a.vx0;
         painfulSlam(v, v.x, a.gy0, 2, true);
-        knock(v, THROWS.elbowDrop, F, f.revenge > 0 ? powerOf(f) : 1, v.x, a.gy0 - 20);
+        knock(v, THROWS.elbowDrop, F, f.revenge > 0 ? powerOf(f) : hypePower(f), v.x, a.gy0 - 20);
         if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += THROW_HITSTUN_BONUS + 0.08;
         burst(v.x, f.y - 10, FIRE, 26, Math.PI / 2, 1.1, 500, { grav: -250 });
         if (f.revenge > 0) consumeRevenge(f, v.x, f.y - 30);
@@ -1917,7 +2010,7 @@ function stepPiledriver(f, a, dt) {
     v.drawZ = 0; v.x = f.x + F * 8; v.y = f.y;
     painfulSlam(v, v.x, f.y, 2, true);
     v.action = null;
-    knock(v, THROWS.piledriver, F, f.revenge > 0 ? powerOf(f) : 1, v.x, f.y - 20);
+    knock(v, THROWS.piledriver, F, f.revenge > 0 ? powerOf(f) : hypePower(f), v.x, f.y - 20);
     if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += THROW_HITSTUN_BONUS;
     burst(v.x, f.y - 10, FIRE, 28, Math.PI / 2, 1.1, 520, { grav: -250 });
     cracks.push({ x: v.x, y: f.y, life: 4, max: 4, seed: Math.random() * 1000, size: 1.6 });
@@ -1961,35 +2054,91 @@ function trySPD(f) {
   f.action = { type: 'grab', t: GRAB.startup + GRAB.active, dur: GRAB.startup + GRAB.active + GRAB.whiffLag + 0.25, started: time };
   return true;
 }
-// ---------------- FORWARD THROW: RKO (Bryan Fury, Tekken 7/8) ----------------
-// Out of nowhere: he springs up, hooks their head in a front facelock and falls back to the mat, ripping
-// them down FACE-FIRST into the floor in front of him.
+// ---------------- FORWARD THROW: RKO (Randy Orton / Bryan Fury) ----------------
+// 1. He hauls them up onto his SHOULDERS (lying across them)...
+// 2. ...and HEAVES them straight up into the air, spinning.
+// 3. He JUMPS up after them and catches them round the NECK at the top ("OUTTA NOWHERE!")...
+// 4. ...and falls back to the mat, ripping them down FACE-FIRST into the floor: RKO!
+const RKO = { lift: 0.26, toss: 0.3, jumpAt: 0.42, apex: 0.56, catchAt: 0.74, jump: 1250, high: 330 };
 function stepRKO(f, a, dt) {
   const v = a.victim, F = a.face0, T = a.t;
   if (a.released) { f.vx = approach(f.vx, 0, FRICTION * dt); return; }
   v.vx = v.vy = 0;
-  if (!a.vx0) { a.vx0 = f.x + F * 42; a.gy0 = f.y; }
-  if (T < 0.1) {                                               // hooks the head
-    v.x = a.vx0; v.y = a.gy0; a.vspin = 0;
-    a.pose = pose({ lean: 0.3, bob: -8, legA: [0.9, 1.0], legB: [-0.7, 0.4], grip: gripOn(f, v, -6) });
+  if (!a.vx0) { a.vx0 = f.x + F * 42; a.gy0 = f.y; playBuffer(rkoBuf, 0.9); }   // "RKO! OUTTA NOWHERE!"
+  const shoulder = { x: f.x - F * 4, y: a.gy0 - 60 };          // where they lie across his shoulders (their hip on his shoulders)
+  if (T < RKO.lift) {                                          // 1. UP ONTO HIS SHOULDERS
+    const u = easeOut(T / RKO.lift);
+    v.x = lerp(a.vx0, shoulder.x, u); v.y = lerp(a.gy0, shoulder.y, u) - Math.sin(u * Math.PI) * 30;
+    a.vspin = F * (Math.PI / 2) * u;                           // tipped over sideways
+    a.pose = pose({ lean: lerp(0.35, -0.05, u), bob: lerp(-14, -6, u), legA: [0.75, 0.7], legB: [-0.6, 0.3],
+                    armA: [lerp(1.2, 2.6, u), 0.5], armB: [lerp(1.0, 2.4, u), 0.4], armC: [lerp(1.0, 2.2, u), 0.6], armD: [lerp(0.8, 2.0, u), 0.5] });
+    f.vx = 0;
     return;
   }
-  if (!a.jumped) { a.jumped = true; f.vy = -560; f.vx = F * 70; f.ground = false; f.y -= 2; sfx.whoosh(true); }   // a quick, snappy spring
-  // in the air: twisting back, arm locked round their neck - they're yanked down with him from the top of the jump
-  const k = clamp((T - 0.16) / 0.24, 0, 1);
-  v.x = a.vx0; a.vspin = -F * 1.5 * k * k; v.y = a.gy0 + 38 * k * k;
-  a.pose = pose({ lean: lerp(0.2, -0.9, k), bob: -2, legA: [1.3, 0.6], legB: [0.9, 0.4], grip: [ (v.x - f.x) * F + 6, (a.gy0 - f.y) - 70 + 40 * k ] });
-  if ((f.ground && T > 0.22) || T >= a.rel) {                 // FACE-FIRST into the mat
+  if (T < RKO.jumpAt) {                                        // 2. HEAVED UP into the air (he pushes off with all four arms)
+    const u = clamp((T - RKO.lift) / (RKO.apex - RKO.lift), 0, 1);
+    v.x = lerp(shoulder.x, f.x + F * 20, u); v.y = lerp(shoulder.y, a.gy0 - RKO.high, easeOut(u));
+    a.vspin = F * (Math.PI / 2 + (T - RKO.lift) * 14);         // spinning as they go up
+    a.pose = pose({ lean: -0.1, bob: -16 + 20 * clamp((T - RKO.lift) / 0.08, 0, 1), legA: [0.5, 0.4], legB: [-0.45, 0.3],
+                    armA: [3.05, 0], armB: [2.9, 0.05], armC: [2.7, 0.1], armD: [2.6, 0.1] });   // arms thrown straight up
+    if (!a.tossed) { a.tossed = true; burst(shoulder.x, shoulder.y, FIRE, 12, Math.PI / 2, 0.8, 380, { grav: -200 }); dust(f.x, f.y, 10, 1.6); sfx.whoosh(true); }
+    f.vx = 0;
+    return;
+  }
+  if (!a.jumped) { a.jumped = true; f.vy = -RKO.jump; f.vx = F * 60; f.ground = false; f.y -= 2; dust(f.x, f.y, 12, 1.8); sfx.whoosh(true); }   // 3. JUMPS after them
+  // THE RKO SHAPE (like the photo): he flies in nearly FLAT, body stretched out, one arm hooked round their head
+  // from the side - and they're dragged forward and down FACE-FIRST. Their head sits just past his shoulder;
+  // their body pivots round their hip as they're pulled over.
+  const rkoTilt = k => 0.4 + 1.55 * k;                         // how far they're bent forward (0 = upright, past PI/2 = head below hips)
+  const victimFeetFor = (tilt) => {
+    const head = { x: f.x + F * 52, y: f.y - 60 };             // just past his shoulder, a little below it (his body is near-horizontal)
+    const hip = { x: head.x - F * 48 * Math.sin(tilt), y: head.y + 48 * Math.cos(tilt) };
+    return { x: hip.x, y: hip.y + 44 };
+  };
+  const neck = victimFeetFor(rkoTilt(0));                      // where their feet hang when he locks on
+  if (T < RKO.catchAt) {
+    if (T < RKO.apex) {                                        // still going up
+      const u = (T - RKO.lift) / (RKO.apex - RKO.lift);
+      v.x = lerp(shoulder.x, f.x + F * 20, u); v.y = lerp(shoulder.y, a.gy0 - RKO.high, easeOut(u));
+    } else {                                                   // ...falling down into his arms
+      const u = (T - RKO.apex) / (RKO.catchAt - RKO.apex);
+      v.x = lerp(f.x + F * 20, neck.x, u); v.y = lerp(a.gy0 - RKO.high, neck.y, u * u);
+    }
+    const st = clamp((T - RKO.apex) / (RKO.catchAt - RKO.apex), 0, 1);
+    a.vspin = F * (Math.PI / 2 + (T - RKO.lift) * 14) * (1 - st) + F * rkoTilt(0) * st;   // straightens out, ending bent toward him
+    const lay = clamp((T - RKO.jumpAt) / (RKO.catchAt - RKO.jumpAt), 0, 1);      // stretching out flat as he flies in
+    a.pose = pose({ lean: lerp(0.2, 1.1, lay), bob: 0, legA: [lerp(0.9, -1.2, lay), lerp(1.2, 0.15, lay)], legB: [lerp(0.5, -1.5, lay), lerp(1.0, 0.2, lay)],
+                    armA: [lerp(2.4, 1.9, lay), 0.6], armB: [2.2, 0.4], armC: [1.8, 0.3], armD: [1.6, 0.3] });   // reaching for their head
+    return;
+  }
+  if (!a.caught) {                                             // CAUGHT round the neck
+    a.caught = true;
+    painTexts.push({ x: v.x, y: v.y - 150, t: 0.7, max: 0.7, text: 'OUTTA NOWHERE!', big: true });
+    hitstop = Math.max(hitstop, 0.1); shake = Math.max(shake, 8); sfx.grab();
+  }
+  // 4. flying FLAT with his arm hooked round their head, he drags them forward and down - face-first
+  const k = clamp((T - RKO.catchAt) / 0.32, 0, 1);
+  const tilt = rkoTilt(k), vf = victimFeetFor(tilt);
+  v.x = vf.x; v.y = vf.y; a.vspin = F * tilt; v.drawZ = 0.5;   // bent FORWARD (face toward the floor), in front of him
+  f.vx = F * 220;                                             // still flying forward
+  a.pose = pose({ lean: lerp(1.15, 1.45, k), bob: 0,          // body stretched out flat
+                  legA: [-1.25, 0.15], legB: [-1.55, 0.2],    // legs trailing out behind him
+                  grip: [56, -74],                            // front arms hooked round their head
+                  armB: [2.4, 0.3], armD: [1.9, 0.3] });
+  if ((f.ground && T > RKO.catchAt + 0.05) || T >= a.rel) {   // FACE-FIRST into the mat
     a.released = true;
+    a.gy0 = f.y; a.vx0 = f.x + F * 42;
     v.action = null; v.drawZ = 0; v.x = a.vx0; v.y = a.gy0;
+    impactFrame = Math.max(impactFrame, 0.1); impactAt = { x: v.x, y: a.gy0 - 20, ang: Math.PI / 2, all: false, focus: true, fire: true };
+    hitstop = Math.max(hitstop, 0.18); shake = Math.max(shake, 20);
     painfulSlam(v, v.x, a.gy0, 1, true);
-    knock(v, THROWS.rko, F, f.revenge > 0 ? powerOf(f) : 1, v.x, a.gy0 - 15);
+    knock(v, THROWS.rko, F, f.revenge > 0 ? powerOf(f) : hypePower(f), v.x, a.gy0 - 15);
     if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += THROW_HITSTUN_BONUS;
     burst(v.x, a.gy0 - 10, FIRE, 20, Math.PI / 2, 1.0, 460, { grav: -250 });
     if (f.revenge > 0) consumeRevenge(f, v.x, a.gy0 - 30);
     painTexts.push({ x: v.x, y: a.gy0 - 140, t: 0.8, max: 0.8, text: 'RKO!', big: true });
-    a.dur = a.t + 0.32;
-    a.pose = { ...pose({ lean: -0.2, bob: -34, legA: [1.5, 0.3], legB: [1.2, 0.5], armA: [1.6, -0.6], armB: [1.3, -0.6] }), spin: -F * 1.1 };   // sat back on the mat
+    a.dur = a.t + 0.4;
+    a.pose = pose({ lean: 1.2, bob: -44, legA: [-1.3, 0.1], legB: [-1.55, 0.15], armA: [1.9, 0.2], armB: [2.3, 0.2], armC: [1.5, 0.2], armD: [1.8, 0.2] });   // flat on the mat beside them
   }
 }
 
@@ -2291,7 +2440,9 @@ function demonGaze(f) {
     f.upSpecialUsed = true; f.vy = -1150; f.vx *= 0.5;
     hellBurst(f.x, f.y - 30, 12, 380);
   }
-  const t = fighters.filter(o => o !== f && !allies(f, o) && o.respawnTimer <= 0 && !o.minion)
+  // the CLOSEST BEING to him - an opponent OR one of his own clones (swap with a clone to recover, sacrificing
+  // it, or to throw it into the opponent's face)
+  const t = fighters.filter(o => o !== f && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0))
                     .sort((p, q) => Math.hypot(p.x - f.x, p.y - f.y) - Math.hypot(q.x - f.x, q.y - f.y))[0];
   const ex = f.x + f.face * 6, ey = f.y - 100;                  // his eyes
   burst(ex, ey, [GAZE.color, '#ffffff'], 8, 0, Math.PI, 200, { grav: 0 });
@@ -2473,7 +2624,7 @@ function stepHellwave(f, a) {
 // ...but several at once slowly overwhelm you.
 // ONE clone at a time: HALF as strong as Colbalias (its power, below), JUST AS FAST (his stats, no extra
 // startup), a QUARTER as durable (bursts after 25% damage), and takes 1.5x knockback (lighter).
-const CLONE = { max: 1, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5 };
+const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5 };   // up to TWO clones at once
 const cloneStats = () => { const s = { ...DEFAULT_STATS, ...CHARACTERS.COLBALIAS.stats }; s.weight = (s.weight || 1) / CLONE.kbTaken; return s; };
 // While COLBALIAS IS TRANSFORMED his clones turn vicious: faster on their feet, faster attacks, and their
 // hits do more damage and knockback
@@ -2481,7 +2632,7 @@ const CLONE_RAGE = { move: 1.3, attackSpeed: 1.3, power: 1.35 };
 // INVERSE NINJA LAW: the more clones he has out, the weaker EACH one is. A lone clone is a real threat;
 // three at once are disposable mooks you juggle and swat away while you fight him.
 //   [clones out] -> power = damage/knockback they deal, hp = how much % they can take before they burst
-const NINJA_LAW = { 1: { power: 0.5, hp: 25 }, 2: { power: 0.85, hp: 32 }, 3: { power: 0.6, hp: 20 } };   // (only 1 clone now)
+const NINJA_LAW = { 1: { power: 0.5, hp: 25 }, 2: { power: 0.5, hp: 25 }, 3: { power: 0.5, hp: 25 } };   // each clone: half strength, bursts at 25%
 function cloneCount(owner) { return fighters.filter(c => c.minion && c.owner === owner && !c.dead && !(c.poofT > 0)).length; }
 function ninjaLaw(owner) { return NINJA_LAW[clamp(cloneCount(owner), 1, 3)]; }
 // Blown away: the clone is knocked back hard by one mighty blow, then bursts into a puff of smoke
@@ -2499,9 +2650,14 @@ function smashClone(hero, c) {
   painTexts.push({ x: c.x, y: c.y - 120, t: 0.45, max: 0.45, text: 'POOF!', big: false });
   sfx.hit(0.8);
 }
-const REAL_FIGHTERS = 2;                                 // fighters[0..1] are the players; anything after is a clone
+let REAL_FIGHTERS = 2;                                   // fighters[0..N-1] are the players (2-4); anything after is a clone
 const teamOf = f => (f && f.owner) || f;
-const allies = (a, b) => !!a && !!b && teamOf(a) === teamOf(b);
+// on the same side: the same fighter (or his clones), or - in a TEAMS match - the same team
+const allies = (a, b) => {
+  if (!a || !b) return false;
+  const A = teamOf(a), B = teamOf(b);
+  return A === B || (matchTeams && A.team !== undefined && A.team === B.team);
+};
 function nearestFoe(f) {
   let best = null, bd = Infinity;
   for (const t of fighters) {
@@ -2554,8 +2710,8 @@ function summonShadowClone(f) {
 function minionInput(f) {
   const inp = aiInput(f, 'FERAL');
   inp.blockTap = inp.blockHeld = false; inp.dirTap = false;
-  inp.grabTap = false; inp.ultTap = false; inp.flyTap = 0;
-  if (inp.down) inp.spcTap = inp.spcHeld = false;          // (K = missiles / recovery only)
+  inp.grabTap = false; inp.ultTap = false; inp.flyTap = 0; inp.taunt = 0;
+  if (inp.down) inp.spcTap = inp.spcHeld = false;         // (K = missiles / recovery only)
   return inp;
 }
 function killMinion(c, quiet) {
@@ -2891,7 +3047,9 @@ const bladeHits = (x0, y0, x1, y1, n, h, extra = {}) => Array.from({ length: n }
   const k = n > 1 ? i / (n - 1) : 0;
   return { x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k, r: h.r || 26, dmg: h.dmg, base: h.base, growth: h.growth, angle: h.angle, ...extra };
 });
-const COLTEN_MOVES = {
+// (His original Ganondorf-style sword set: no longer his moveset - he's Colby's ECHO now, see COLTEN_MOVES
+// below - but his ultimate still uses these swings.)
+const COLTEN_GANON = {
   // PERFECT BLOCK COUNTER: a fast flat cut straight back at them
   counter: { name: 'Warlord Riposte', startup: 0.03, active: 0.1, endlag: 0.24, lunge: 300, lungeFriction: 0.6,
     hitboxes: bladeHits(40, -66, 150, -60, 4, { dmg: 13, base: 480, growth: 6.5, angle: 40, r: 28 }),
@@ -3017,10 +3175,41 @@ const COLTEN_MOVES = {
 };
 // Colten's ultimate: WARLORD'S JUDGMENT - 3 giant sword swings, every one a CRITICAL hit (see updateSwordUlt)
 const COLTEN_ULT_SWINGS = [
-  { wind: COLTEN_MOVES.sideGround.wind, strike: COLTEN_MOVES.sideGround.strike },
-  { wind: COLTEN_MOVES.jab2.wind, strike: COLTEN_MOVES.jab2.strike },
-  { wind: COLTEN_MOVES.upGround.wind, strike: COLTEN_MOVES.sideGround.strike },
+  { wind: COLTEN_GANON.sideGround.wind, strike: COLTEN_GANON.sideGround.strike },
+  { wind: COLTEN_GANON.jab2.wind, strike: COLTEN_GANON.jab2.strike },
+  { wind: COLTEN_GANON.upGround.wind, strike: COLTEN_GANON.sideGround.strike },
 ];
+
+// ---------------- COLTEN = COLBY'S ECHO FIGHTER ----------------
+// Same moveset as Colby (taekwondo kicks on J, weapon moves on K, side K throws the weapon, bare-handed
+// punch/kick string while it's thrown) - but every WEAPON move is done with his GREATSWORD: more reach,
+// more damage, slower. His kicks hit a little harder and are a touch slower (he's the heavier rival).
+const COLTEN_ECHO = { reach: 1.15, dmg: 1.25, slow: 1.15, kickDmg: 1.1, kickSlow: 1.08 };
+// a scythe pose -> the same pose with the greatsword: the front hand goes where the scythe grip was, and the
+// blade points where the scythe shaft pointed (pitch: 0 = forward, PI/2 = up; yaw: turned round his body)
+function scToSword(p) {
+  if (!p || !p.sc) return p;
+  const s = p.sc, q = { ...p };
+  q.armA = [Math.atan2(s.gx || 0, s.gy || 1), 0.15];
+  q.sw = Math.atan2(Math.cos(s.pitch || 0) * Math.cos(s.yaw || 0), -Math.sin(s.pitch || 0));
+  delete q.sc;
+  return q;
+}
+function buildEcho(src) {
+  const usesWeapon = m => !!m && !!((m.strike && m.strike.sc) || (m.wind && m.wind.sc) || m.spinScythe || m.throwScythe);
+  const out = {};
+  for (const [k, m] of Object.entries(src)) {
+    if (!m || typeof m !== 'object') { out[k] = m; continue; }
+    const w = usesWeapon(m);
+    const R = w ? COLTEN_ECHO.reach : 1, D = w ? COLTEN_ECHO.dmg : COLTEN_ECHO.kickDmg, S = w ? COLTEN_ECHO.slow : COLTEN_ECHO.kickSlow;
+    const e = { ...m, startup: m.startup * S, endlag: m.endlag * S, spinScythe: false };
+    if (m.hitboxes) e.hitboxes = m.hitboxes.map(h => ({ ...h, x: h.x * R, r: h.r * (w ? 1.05 : 1), dmg: Math.round(h.dmg * D * 10) / 10, base: h.base * (w ? 1.06 : 1) }));
+    if (w) for (const pk of ['wind', 'strike', 'strike2', 'strike3']) if (m[pk]) e[pk] = scToSword(m[pk]);
+    out[k] = e;
+  }
+  return out;
+}
+const COLTEN_MOVES = buildEcho(COLBY_MOVES);
 // TRANSFORMED: a suit of glowing AURA ARMOR - ultra armor (hits below this launch strength don't flinch him)
 // and he takes a bit less knockback from the ones that do
 const AURA_ARMOR = { threshold: 900, kb: 0.85, color: '#7dffb0' };
@@ -3034,6 +3223,7 @@ const CHARACTERS = {
       longHair: '#f2f2f2',    // long white hair, swept back
       timeStop: true,         // builds a TIME meter by landing hits (bare-handed down K = Time Stop)
       bleed: true,            // scythe hits stack BLEED on them (see BLEED)
+      weapon: 'scythe',       // his own weapon (Colten's is the greatsword) - see WEAPONS
       scythe3d: true,
       // Stance from Colby's sketch: wide bowed legs, scythe resting across his shoulders behind his
       // head. Front hand reaches up to grip the shaft above his front shoulder, the shaft rises
@@ -3080,6 +3270,8 @@ const CHARACTERS = {
       foreSpikes: '#6b4423',    // brown hair, spiked up only at the forehead
       glasses: true,            // rectangle reading glasses
       greatsword: true,         // the huge sword (drawn in his front hand, angle from the pose's "sw")
+      weapon: 'sword',          // his own weapon (Colby's is the scythe) - see WEAPONS
+      timeStop: true,           // (echo of Colby: bare-handed down K = Time Stop, TIME meter)
       auraArmor: true,          // transformed: glowing aura armor (ultra armor + less knockback)
       transformAura: '#7dffb0',
       // PROUD stance: chest out, standing tall, the greatsword held up in front of him, blade pointing to the
@@ -3124,12 +3316,13 @@ const CHARACTERS = {
       scale: 1.12,            // a bigger guy than the others (drawn and hit 12% bigger)
       fireHits: true,         // his hits burst into flames
       heavyHits: true,        // hits like a truck: longer hit freeze + bigger screen shake
+      hype: true,             // HYPE meter: weaker at base, TAUNT to power back up (see HYPE)
       spd: true,              // 360 + grab = Spinning Piledriver command grab
       transformAura: '#ff6a1a',
       // Hunched wrestler's stance: knees bent wide, upper arms up in a grappling guard, lower fists flexed at his sides
       idle: INF_IDLE,
     },
-    grab: { reachX: 52, reachR: 36 },                          // four arms = a longer, bigger grab
+    grab: { reachX: 64, reachR: 42, startup: 0.045, whiffLag: 0.27 },   // four arms = a faster, longer, bigger grab
     // forward = RKO, back = Giant Swing, up = Spinning Piledriver, down = Body Slam + Elbow Drop
     throwKinds: { forward: 'rko', back: 'giantSwing', up: 'piledriver', down: 'elbowDrop' },
     transformName: 'BLAZE MODE',
@@ -3189,6 +3382,21 @@ CHARACTERS.LANCE.transformName = 'SUPER SAIYAN';
 CHARACTERS.LANCE.downThrow = 'broly';      // down throw = Broly-style ankle grab + repeated floor slams
 CHARACTERS.COLBY.transformName = 'REAPER FORM';
 CHARACTERS.COLBY.bareMoves = COLBY_PUNCHES;  // used while his scythe is thrown
+CHARACTERS.COLTEN.bareMoves = COLBY_PUNCHES; // Colten (Colby's echo): the same bare-handed string while his sword is thrown
+// AIDEN'S TAUNTS: KING's iconic poses (Tekken) - he's a wrestler too
+CHARACTERS.AIDEN.taunts = { 1: 'ROOOAR!', 2: 'COME HERE!', 3: 'HMPH.' };
+CHARACTERS.AIDEN.tauntPoses = {
+  // UP: King's victory pose - stands tall and thrusts one fist straight up at the sky, the other arms flexed
+  1: (p, a, w) => pose({ lean: -0.18, bob: -2, legA: [0.45, 0.2], legB: [-0.45, 0.1],
+                        armA: [3.1, 0.05], armB: [-1.57, 1.57], armC: [1.4, -1.5], armD: [-1.4, 1.5] }),
+  // SIDE: King's JAGUAR stance - sunk low on bent knees, leaning in, all four hands up and clawed like a big cat
+  // about to pounce, rocking side to side ("come here")
+  2: (p, a, w) => pose({ lean: 0.45, bob: -22 + w * 3, legA: [1.0, 1.3], legB: [-0.85, 0.9],
+                        armA: [1.9 + w * 0.15, 1.0], armB: [1.5 - w * 0.15, 1.1], armC: [1.3, 0.9], armD: [1.0, 1.0] }),
+  // DOWN: arms CROSSED - standing proud and unimpressed, all four arms folded across his chest
+  3: (p, a, w) => pose({ lean: -0.08, bob: -2, legA: [0.42, 0.15], legB: [-0.42, 0.1],
+                        armA: [1.2, 2.5], armB: [1.0, 2.6], armC: [1.0, 2.2], armD: [0.8, 2.3] }),
+};
 CHARACTERS.AIDEN.ult = {
   name: 'MAX MALICIOUS MOONSAULT',
   wrestle: true,                       // its own sequence - see updateWrestleUlt
@@ -3213,7 +3421,7 @@ CHARACTERS.COLBALIAS.ult = {
 CHARACTERS.COLTEN.ult = {
   name: "WARLORD'S JUDGMENT",
   greatsword: true,                         // 3 giant swings, all CRITICAL - see updateSwordUlt
-  finalWind: COLTEN_MOVES.sideGround.wind, finalStrike: COLTEN_MOVES.sideGround.strike,
+  finalWind: COLTEN_GANON.sideGround.wind, finalStrike: COLTEN_GANON.sideGround.strike,
   perSwing: 8,                              // damage per swing (x ult power), + the final launch
   final: { dmg: 8, base: 640, growth: 8, angle: 38 },
 };
@@ -3251,6 +3459,7 @@ function setCharacter(f, charName) {
   f.look = c.look || {};
   f.w = 26 * (f.look.scale || 1); f.h = 90 * (f.look.scale || 1);   // bigger characters = bigger hurtbox
   f.transformed = false; f.baseStats = null; f.kaioken = false; f.noScythe = false;
+  f.weapon = (c.look && c.look.weapon) || null;                // Colby / Colten start with their own weapon
 }
 function resetFighter(f, atSpawn) {
   Object.assign(f, {
@@ -3266,15 +3475,23 @@ function resetFighter(f, atSpawn) {
     halo: atSpawn ? 2 : 0, invuln: atSpawn ? 2 : 0, trailT: 0,
     damage: 0, respawnTimer: 0, dodgedFlash: 0, blockedFlash: 0, hitFlash: 0,
     shieldAge: 99, prevShield: false, parryFlash: 0, running: false,
-    comboTimer: 0, chainStep: 0, comboKey: null, revenge: 0, revengeT: 0, bleed: null,
+    comboTimer: 0, chainStep: 0, comboKey: null, revenge: 0, revengeT: 0, bleed: null, hype: 0,
   });
 }
 
-const FIGHTER_INIT = [               // (online matches rebuild both fighters from these, so nothing left over differs)
+// UP TO 4 PLAYERS: one fighter per player slot (P1-P4). A match only uses the slots that are switched on.
+const MAX_PLAYERS = 4;
+const FIGHTER_INIT = [               // (online matches rebuild the fighters from these, so nothing left over differs)
   { name: 'P1',  color: '#f0a818', energy: '#ffd23f', x: 440, controller: 'keyboard', char: 'COLBY' },
   { name: 'CPU', color: '#45b6e8', energy: '#a8ecff', x: 840, controller: 'dummy',    char: 'LANCE' },
+  { name: 'P3',  color: '#5fd068', energy: '#b6f5bd', x: 300, controller: 'dummy',    char: 'STICKMAN' },
+  { name: 'P4',  color: '#e85ad6', energy: '#ffb3f3', x: 980, controller: 'dummy',    char: 'STICKMAN' },
 ];
-const fighters = FIGHTER_INIT.map(o => makeFighter(o));
+const fighterPool = FIGHTER_INIT.map((o, i) => { const f = makeFighter(o); f.slot = i; return f; });
+const fighters = fighterPool.slice(0, 2);            // (rebuilt from the active slots at the start of every match)
+// TEAMS (2v2 etc.): when on, teammates can't hurt each other and the last TEAM standing wins
+const TEAM_COLORS = [{ main: '#e8433a', dark: '#5e1414', name: 'RED' }, { main: '#3a8ee8', dark: '#123e5c', name: 'BLUE' }];
+let matchTeams = false;
 
 // ---------------- Effects ----------------
 const particles = [];
@@ -3458,6 +3675,14 @@ function playPerfectShield() {
 // cancelled, hit, or fully charged).
 // ---- Sword slash (sounds/sword-slash.mp3 via sounds/slash-sfx.js): Colby's neutral scythe swings ----
 // One swoosh in the file, loudest ~0.25s in: play from 0.12s so it lands right as the swing comes out.
+// ---- RKO sound (sounds/rko.mp3 via sounds/rko-sfx.js): plays when Aiden starts his RKO ----
+let rkoBuf = null;
+function loadRkoSfx() {
+  if (!window.RKO_SFX_B64 || rkoBuf || !actx) return;
+  const bin = atob(window.RKO_SFX_B64), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  actx.decodeAudioData(bytes.buffer).then(b => { rkoBuf = b; }).catch(() => {});
+}
 let slashBuf = null;
 const SLASH_CLIP = [0.12, 0.55];
 function loadSlashSfx() {
@@ -3587,6 +3812,7 @@ function unlockAudio() {
     loadSamusSfx();
     loadNeteroSfx();
     loadSlashSfx();
+    loadRkoSfx();
   }
   if (actx.state === 'suspended') actx.resume();
 }
@@ -3762,7 +3988,7 @@ function knock(t, h, dirSign, mult, hx, hy) {
   // ULTIMATE FINISHERS launch MUCH harder (ultimates are hard to land - landing one should be an event).
   // The launch also barely shrinks with leftover meter: a late ult still sends them flying (its damage still scales).
   const kbMult = h.ultFinal ? ULT_KB.power * (ULT_KB.minMeter + (1 - ULT_KB.minMeter) * mult) : mult;
-  let speed = (h.base + h.growth * t.damage) * kbMult * ramp / t.stats.weight;   // heavier = flies less
+  let speed = (h.base + h.growth * t.damage) * kbMult * ramp / (t.stats.weight * hypeWeight(t));   // heavier = flies less (Aiden: lighter at low HYPE)
   // COLTEN'S AURA ARMOR (transformed): a bit less knockback, and ULTRA ARMOR - anything that wouldn't launch
   // him hard doesn't even make him flinch (the damage still counts)
   if (t.transformed && t.look && t.look.auraArmor && !h.ultFinal) {
@@ -4016,13 +4242,14 @@ const THROW_HITSTUN_BONUS = 0.15;   // thrown players stay stunned this much lon
 function startGrab(f) {
   f.grabBuf = 0; f.atkBuf = 0; f.spcBuf = 0; f.squat = 0;
   f.shielding = false;
-  f.action = { type: 'grab', t: 0, dur: GRAB.startup + GRAB.active + GRAB.whiffLag, started: time };
+  const G = { ...GRAB, ...(CHARACTERS[f.char].grab || {}) };              // (some characters grab faster / further)
+  f.action = { type: 'grab', t: 0, dur: G.startup + G.active + G.whiffLag, started: time };
 }
 
 function stepGrab(f, a, dt) {
   f.vx = approach(f.vx, 0, FRICTION * dt);
-  if (a.t < GRAB.startup || a.t > GRAB.startup + GRAB.active) return;
   const G = { ...GRAB, ...(CHARACTERS[f.char].grab || {}) };              // (four arms = longer, bigger grab)
+  if (a.t < G.startup || a.t > G.startup + G.active) return;
   const gx = f.x + G.reachX * f.face, gy = f.y + G.reachY;
   for (const t of fighters) {
     if (t === f || allies(f, t) || t.respawnTimer > 0 || t.halo > 0) continue;
@@ -4136,7 +4363,7 @@ THROWS.giantSwing = { dmg: 11, base: 480, growth: 7.8, angle: 150 };
 THROWS.quadPress  = { dmg: 9,  base: 470, growth: 6.4, angle: 88 };
 THROWS.elbowDrop  = { dmg: 6,  base: 260, growth: 3.4, angle: 80 };   // + 2% from the slam: pops them up close for a follow-up
 THROW_ANIM.piledriver = { dur: 1.3, rel: 1.15 };   // (ends when he lands - see stepPiledriver)
-THROW_ANIM.rko        = { dur: 1.0, rel: 0.85 };    // (ends when he lands - see stepRKO)
+THROW_ANIM.rko        = { dur: 1.8, rel: 1.6 };     // (ends when he lands - see stepRKO)
 THROWS.piledriver = { dmg: 13, base: 330, growth: 6.6, angle: 84 };   // head-first: bounces them straight up, kills high at high %
 THROWS.rko        = { dmg: 11, base: 380, growth: 7.2, angle: 38 };   // face-first: sends them skidding out forward
 for (const k of ['giantSwing', 'quadPress', 'elbowDrop', 'piledriver', 'rko']) truckHit(THROWS[k]);   // (Aiden hits like a truck)
@@ -4311,7 +4538,7 @@ function stepThrow(f, a, dt) {
     v.drawZ = 0;
     v.action = null;
     const own = CHARACTERS[f.char].throwStats || {};
-    knock(v, own[a.kind] || THROWS[a.kind], a.face0, f.revenge > 0 ? powerOf(f) : 1, v.x, v.y - 50);   // (Revenge powers up throws too)      // angles are relative to the starting facing
+    knock(v, own[a.kind] || THROWS[a.kind], a.face0, f.revenge > 0 ? powerOf(f) : hypePower(f), v.x, v.y - 50);   // (Revenge powers up throws too)      // angles are relative to the starting facing
     if (f.look && f.look.fireHits) { burst(v.x, v.y - 50, FIRE, 18, Math.PI / 2, 1.2, 450, { grav: -250 }); if (f.revenge > 0) consumeRevenge(f, v.x, v.y - 50); }
     if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += THROW_HITSTUN_BONUS;   // extra time to follow up
     if (a.kind === 'down') {
@@ -4839,7 +5066,7 @@ function spawnUltBeam(f) {
   const U = CHARACTERS[f.char].ult;
   projectiles.push({
     owner: f, kind: 'beam', ult: true, x: f.x + f.face * 30, y: f.y - 62, dir: f.face, len: 0, grow: 7000,
-    maxLen: 2730, w: 88, life: U.beamTime,                                              // (+5% size) max: U.beamTime, tickT: 0, mult: f.ultPower || 1, color: kiColor(f),
+    maxLen: 2730, w: 88, life: U.beamTime, max: U.beamTime, tickT: 0, mult: f.ultPower || 1, color: kiColor(f),   // (+5% size)
     hit: new Set(), trail: [],
     tick:  { dmg: 2.0, base: 110, growth: 0, angle: 15, noStop: true },
     final: { dmg: 12, base: 520, growth: 6, angle: 35, ultFinal: true, lanceKO: true },   // ~28% total; KOs (see updateBeam)
@@ -4860,7 +5087,8 @@ function powerOf(f) {
   if (!f) return 1;
   if (f.minion) return ninjaLaw(f.owner).power * (f.owner && f.owner.transformed ? CLONE_RAGE.power : 1);   // clones: Inverse Ninja Law (+ rage)
   return (f.transformed ? TRANSFORM.power : 1) * (f.kaioken ? KAIOKEN.dealt : 1) *   // both stack
-         (f.revenge > 0 ? 1 + f.revenge : 1);                                         // Aiden's stored REVENGE power
+         (f.revenge > 0 ? 1 + f.revenge : 1) *                                        // Aiden's stored REVENGE power
+         hypePower(f);                                                                // Aiden's HYPE (weaker at low hype)
 }
 function auraColor(f) { return (f.look && f.look.transformAura) || f.energy; }
 function startTransform(f) {
@@ -5132,7 +5360,8 @@ function startAttack(f, inp, btn) {
   // Its thrown scythe is still HOVERING: side K (or K) calls it back to his hand
   if (f.noScythe && btn === 'spc' && !inp.up && !inp.down && recallScythe(f)) { f.spcBuf = 0; return; }
   if (f.noScythe && btn === 'spc' && !inp.dir && !inp.up && !inp.down) {   // neutral K right next to it = pick it up
-    const s = scythes.find(q => q.owner === f && q.state !== 'fly');
+    // his own (not flying), or ANY weapon lying on the floor - the rival's too
+    const s = scythes.find(q => q.state !== 'fly' && q.state !== 'recall' && (q.owner === f || q.state === 'stuck' || q.state === 'fall'));
     if (s && Math.hypot(s.x - f.x, s.y - (f.y - 20)) < SCYTHE_THROW.pickup) { pickupScythe(f, s); return; }
   }
   const key = chooseMove(f, inp, btn);
@@ -5172,17 +5401,83 @@ const SCYTHE_THROW = { speed: 980, flyTime: 0.55, spin: 24, r: 36, pickup: 90,
   hit: { dmg: 14, base: 430, growth: 6, angle: 40 },
   hoverTime: 1.4, hoverSpin: 30, hoverEvery: 0.4, hoverHit: { dmg: 3, base: 160, growth: 1.2, angle: 70 },
   recallSpeed: 1500, recallHit: { dmg: 6, base: 300, growth: 4, angle: 35 } };
-const scythes = [];
-const moveUsesScythe = m => !!m && !!((m.strike && m.strike.sc) || (m.wind && m.wind.sc) || m.spinScythe || m.throwScythe);
+const scythes = [];     // thrown weapons (scythe or greatsword - see .weapon)
+const moveUsesScythe = m => !!m && !!((m.strike && (m.strike.sc || m.strike.sw !== undefined)) || (m.wind && m.wind.sc) || m.spinScythe || m.throwScythe);
+
+// ---------------- WEAPONS: Colby's SCYTHE and Colten's GREATSWORD ----------------
+// Each of them holds one weapon (or none, after throwing it). WHICH weapon they hold decides their weapon
+// moves and how they're drawn: Colby holding the greatsword fights with Colten's sword moves, and Colten
+// holding the scythe fights with Colby's scythe moves (their own kicks / look / hair stay theirs).
+// RIVALS: if one throws his weapon at the other while the other is EMPTY-HANDED (his own weapon thrown),
+// the other CATCHES it out of the air and keeps it as long as he holds it. A KO puts every weapon back with
+// its owner.
+const WEAPONS = { scythe: { name: 'SCYTHE', owner: 'COLBY' }, sword: { name: 'GREATSWORD', owner: 'COLTEN' } };
+const CATCH = { window: 0.22, reach: 14 };   // press K within this many seconds of it reaching you (a little extra reach)
+// Wielding the RIVAL'S weapon: Colby is quick with Colten's greatsword (faster swings, same power);
+// Colten is a brute with Colby's scythe (hits harder, swings slower). Only their weapon moves change.
+const RIVAL_WIELD = { COLBY: { speed: 1.25, power: 1 }, COLTEN: { speed: 0.85, power: 1.2 } };
+const nativeWeapon = f => (CHARACTERS[f.char] && CHARACTERS[f.char].look && CHARACTERS[f.char].look.weapon) || null;
+const weaponUser = f => !!nativeWeapon(f) && !f.minion;
+function weaponLook(w) {
+  if (w === 'scythe') { const L = CHARACTERS.COLBY.look; return { scythe3d: true, greatsword: false, bleed: true, idle: L.idle, carry: L.carry, stow: L.stow }; }
+  return { scythe3d: false, greatsword: true, bleed: false, idle: CHARACTERS.COLTEN.look.idle, carry: undefined, stow: undefined };
+}
+function equipWeapon(f, w) {
+  const C = CHARACTERS[f.char];
+  f.weapon = w;
+  const R = w && w !== nativeWeapon(f) ? RIVAL_WIELD[f.char] : null;    // holding the rival's weapon
+  f.weaponSpeed = R ? R.speed : 1; f.weaponPower = R ? R.power : 1;
+  if (!w) { f.noScythe = true; f.moveset = C.moves; f.look = C.look; return; }   // empty-handed: his own kicks + bare-handed string
+  f.noScythe = false;
+  if (w === nativeWeapon(f)) { f.moveset = C.moves; f.look = C.look; }           // his own weapon: his own kit
+  else { f.moveset = CHARACTERS[WEAPONS[w].owner].moves; f.look = { ...C.look, ...weaponLook(w) }; }   // the rival's weapon
+}
+// The rival catches a thrown weapon out of the air
+function catchWeapon(t, s) {
+  equipWeapon(t, s.weapon);
+  t.face = -s.dir || t.face;
+  burst(s.x, s.y, ['#ffffff', '#ffd23f', '#cfd8e6'], 18, 0, Math.PI, 420, { grav: 0 });
+  ring(s.x, s.y);
+  painTexts.push({ x: t.x, y: t.y - 140, t: 0.9, max: 0.9, text: 'CAUGHT THE ' + WEAPONS[s.weapon].name + '!', big: true });
+  hitstop = Math.max(hitstop, 0.08); shake = Math.max(shake, 8);
+  sfx.shing ? sfx.shing() : sfx.block();
+}
+// KO: whatever he held goes back to its owner, and his own weapon comes back to him
+function giveWeaponBack(w) {
+  const o = fighters.find(q => !q.minion && nativeWeapon(q) === w);
+  if (!o) return;
+  for (let i = scythes.length - 1; i >= 0; i--) if (scythes[i].weapon === w) scythes.splice(i, 1);
+  equipWeapon(o, w);
+}
+function resetWeapons(f) {
+  const mine = nativeWeapon(f);
+  if (!mine && !f.weapon) return;
+  const held = f.weapon;
+  for (let i = scythes.length - 1; i >= 0; i--) {                  // anything he threw that's still lying around
+    const s = scythes[i];
+    if (s.owner === f) { scythes.splice(i, 1); if (s.weapon !== mine) giveWeaponBack(s.weapon); }
+  }
+  if (held && held !== mine) giveWeaponBack(held);
+  if (mine) {
+    for (const o of fighters) if (o !== f && o.weapon === mine) equipWeapon(o, null);   // take his own back from whoever had it
+    for (let i = scythes.length - 1; i >= 0; i--) if (scythes[i].weapon === mine) scythes.splice(i, 1);
+    equipWeapon(f, mine);
+  }
+}
 function throwScythe(f) {
-  f.noScythe = true;
-  scythes.push({ owner: f, x: f.x + f.face * 40, y: f.y - 72, vx: f.face * SCYTHE_THROW.speed, vy: -40, dir: f.face,
+  const w = f.weapon || nativeWeapon(f) || 'scythe';
+  equipWeapon(f, null);
+  scythes.push({ owner: f, weapon: w, x: f.x + f.face * 40, y: f.y - 72, vx: f.face * SCYTHE_THROW.speed, vy: -40, dir: f.face,
                  ang: 0, state: 'fly', t: 0, hit: new Set(), lostT: 0 });
   sfx.whoosh(true);
 }
+// back in his hand: whatever he threw (if anything's out there)
 function returnScythe(f) {
-  for (let i = scythes.length - 1; i >= 0; i--) if (scythes[i].owner === f) scythes.splice(i, 1);
-  f.noScythe = false;
+  const i = scythes.findIndex(s => s.owner === f);
+  if (i < 0) return;
+  const w = scythes[i].weapon;
+  scythes.splice(i, 1);
+  equipWeapon(f, w);
 }
 // The thrown scythe stops and spins in place (from its flight, or right where it bit into someone)
 function startScytheHover(s) {
@@ -5199,7 +5494,8 @@ function recallScythe(f) {
   return true;
 }
 function pickupScythe(f, s) {
-  returnScythe(f);
+  const i = scythes.indexOf(s); if (i >= 0) scythes.splice(i, 1);
+  equipWeapon(f, s.weapon || 'scythe');
   f.action = { type: 'land', t: 0, dur: 0.2 };          // quick crouch to grab it
   burst(s.x, s.y - 10, ['#ffffff', '#cfd8e6'], 10, -Math.PI / 2, 0.8, 260);
   sfx.shing ? sfx.shing() : sfx.block();
@@ -5208,7 +5504,17 @@ function updateScythes(dt) {
   for (let i = scythes.length - 1; i >= 0; i--) {
     const s = scythes[i];
     s.t += dt;
-    if (s.owner.respawnTimer > 0 || !s.owner.noScythe) { scythes.splice(i, 1); continue; }
+    if (!fighters.includes(s.owner)) { scythes.splice(i, 1); continue; }
+    // RIVAL CATCH: an empty-handed weapon user (not the thrower) who PRESSES K (B) as it reaches him catches
+    // it, and it's his now. Mistime it (or don't press) and it hits him like any thrown weapon.
+    if (s.state === 'fly' || s.state === 'hover') {
+      const c = fighters.find(t => t !== s.owner && weaponUser(t) && t.noScythe && t.respawnTimer <= 0 && !isIntangible(t) &&
+                                   time - (t.spcTapT ?? -9) <= CATCH.window &&
+                                   !(t.action && ['hitstun', 'grabbed', 'thrown', 'ultVictim', 'dizzy'].includes(t.action.type)) &&
+                                   circleHitsFighter(s.x, s.y, SCYTHE_THROW.r + CATCH.reach, t));
+      if (c) { scythes.splice(i, 1); c.action = null; c.spcBuf = 0; c.spcTapT = -9; catchWeapon(c, s); continue; }
+    }
+    const SW = s.weapon === 'sword' ? 1.2 : 1;                 // the greatsword hits harder when thrown
     if (s.state === 'fly') {
       s.x += s.vx * dt; s.y += s.vy * dt; s.ang += s.dir * SCYTHE_THROW.spin * dt;
       if (Math.random() < dt * 40) particles.push({ x: s.x, y: s.y, vx: 0, vy: 0, life: 0.08, max: 0.08, size: 1, color: '#cfd8e6', type: 'bit', grav: 0 });
@@ -5217,10 +5523,10 @@ function updateScythes(dt) {
         if (!circleHitsFighter(s.x, s.y, SCYTHE_THROW.r, t)) continue;
         if (allies(s.owner, t)) continue;
         s.hit.add(t);
-        if (applyHit(t, { ...SCYTHE_THROW.hit }, s.dir, powerOf(s.owner), s.x, s.y, {})) {
+        if (applyHit(t, { ...SCYTHE_THROW.hit, dmg: SCYTHE_THROW.hit.dmg * SW }, s.dir, powerOf(s.owner), s.x, s.y, {})) {
           // it bites in... and stops dead right there, spinning
           startScytheHover(s);
-          if (s.owner && s.owner.look && s.owner.look.bleed && !t.shielding) addBleed(t);   // the thrown scythe makes them bleed too
+          if (s.weapon !== 'sword' && !t.shielding) addBleed(t);   // the thrown scythe makes them bleed too
           if (gore) burst(s.x, s.y, BLOOD, 14, s.dir > 0 ? 0 : Math.PI, 0.8, 420, { stain: true });
         }
       }
@@ -5255,7 +5561,9 @@ function updateScythes(dt) {
         applyHit(t, { ...SCYTHE_THROW.recallHit }, Math.sign(dx) || -s.dir, powerOf(o), s.x, s.y, {});
       }
       if (d < 40 || s.t > 2) {                                                     // caught it!
-        returnScythe(o);
+        scythes.splice(i, 1);
+        if (o.noScythe) equipWeapon(o, s.weapon || 'scythe');
+        else giveWeaponBack(s.weapon);                       // (his hands are full: it goes home to its owner)
         burst(tx, ty, ['#ffffff', '#cfd8e6'], 12, 0, Math.PI, 300, { grav: 0 });
         sfx.shing ? sfx.shing() : sfx.block();
         continue;
@@ -5284,8 +5592,28 @@ function updateScythes(dt) {
     }
   }
 }
+// a thrown GREATSWORD: spinning end over end in the air, planted point-down in the floor when it lands
+function drawThrownSword(s) {
+  ctx.save();
+  const stuck = s.state === 'stuck';
+  ctx.translate(snap(s.x), snap(s.y - (stuck ? 60 : 0)));
+  ctx.rotate(stuck ? Math.PI / 2 + s.dir * 0.08 : s.ang);
+  ctx.lineCap = 'round';
+  const blade = [[-30, 9], [64, 6], [86, 0], [64, -6], [-30, -9]];
+  ctx.fillStyle = sketch ? PAPER : '#4a4f5c';
+  ctx.beginPath(); blade.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = sketch ? '#222' : '#0e0c0c'; ctx.lineWidth = 2; ctx.stroke();
+  if (!sketch) { ctx.fillStyle = '#c9d2de'; ctx.beginPath(); [[-30, 9], [64, 6], [86, 0], [64, 3], [-30, 5]].forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fill(); }
+  ctx.strokeStyle = sketch ? '#222' : '#b08d3a'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(-32, -14); ctx.lineTo(-32, 14); ctx.stroke();                 // crossguard
+  ctx.strokeStyle = sketch ? '#222' : '#3a2614';
+  ctx.beginPath(); ctx.moveTo(-34, 0); ctx.lineTo(-54, 0); ctx.stroke();                    // grip
+  ctx.restore();
+}
 function drawThrownScythes() {
   for (const s of scythes) {
+    if (s.weapon === 'sword') drawThrownSword(s);
+    else {
     ctx.save();
     ctx.translate(snap(s.x), snap(s.y - (s.state === 'stuck' ? 6 : 0)));
     ctx.rotate(s.state === 'stuck' ? (s.dir > 0 ? -0.12 : Math.PI + 0.12) : s.ang);
@@ -5300,6 +5628,7 @@ function drawThrownScythes() {
     ctx.beginPath(); ctx.moveTo(36, -3); ctx.quadraticCurveTo(10, -38, -26, -30); ctx.quadraticCurveTo(6, -24, 38, 4); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = sketch ? '#222' : '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
     ctx.restore();
+    }
     // hovering: a whirling white disc around the blade so you can see its reach - and it flickers just
     // before it drops (last chance to call it back)
     if (s.state === 'hover' && !sketch) {
@@ -5353,6 +5682,12 @@ function beginActive(f, a) {
   if (m.lift && f.ground) { f.y -= m.lift; f.vy = 0; f.ground = false; a.air = true; }   // pops just off the floor
   if (m.airDash && !f.ground) { f.vx = f.face * m.airDash; f.vy = Math.min(f.vy, 0) * 0.3 - 60; }    // air dash kick: burst forward
   sfx.whoosh(!!(m.sweep || m.spinScythe || a.mult > 1.3));           // swing sound
+  // AIDEN releasing a CHARGED move: a burst of fire blasts out the way he swings (bigger the longer he held it)
+  const cf0 = a.cfrac ?? (a.mult - 1) / CHARGE_BONUS;
+  if (f.look && f.look.fireHits && m.charge && cf0 > 0.1) {
+    burst(f.x + f.face * 36, f.y - 55, FIRE, Math.round(10 + 26 * cf0), f.face > 0 ? 0 : Math.PI, 0.9, 380 + 420 * cf0, { grav: -200 });
+    if (cf0 > 0.6) { ring(f.x + f.face * 30, f.y - 55); shake = Math.max(shake, 6 + 8 * cf0); }
+  }
   if (m.fire) m.fire(f, a.mult, a.cfrac ?? (a.mult - 1) / CHARGE_BONUS, a);
 }
 
@@ -5361,7 +5696,8 @@ function stepAction(f, inp, dt) {
   const a = f.action;
   a.t += dt * (a.type !== 'attack' ? 1
               : f.minion ? (f.owner && f.owner.transformed ? CLONE_RAGE.attackSpeed : 1)   // raging clones attack 30% faster
-              : f.transformed ? TRANSFORM.speed : 1);                                       // transformed: attacks play 10% faster
+              : (f.transformed ? TRANSFORM.speed : 1) *                                     // transformed: attacks play 10% faster
+                (f.weaponSpeed && f.weaponSpeed !== 1 && moveUsesScythe(a.move) ? f.weaponSpeed : 1));   // the rival's weapon (see RIVAL_WIELD)
 
   if (a.type === 'clash') return stepClash(f, a, dt);
   if (a.type === 'timeStop') return stepTimeStop(f, a, dt);
@@ -5468,6 +5804,12 @@ function stepAction(f, inp, dt) {
         bolt(f.x + (Math.random() - 0.5) * 40, f.y - 10 - Math.random() * 70, Math.random() * Math.PI * 2,
              20 + 40 * (a.charge / MAX_CHARGE), 0.08, Math.random() < 0.5 ? '#ffffff' : f.energy);
       }
+      if (f.look && f.look.fireHits) {   // AIDEN: flames gather around him and his fists, more and more as it charges
+        const c = clamp(a.charge / MAX_CHARGE, 0, 1);
+        if (Math.random() < dt * (30 + 90 * c)) burst(f.x + (Math.random() - 0.5) * 56, f.y - Math.random() * 90, FIRE, 1, Math.PI / 2, 0.5, 120 + 260 * c, { grav: -320 });
+        if (Math.random() < dt * (10 + 40 * c)) burst(f.x + f.face * 34, f.y - 60, FIRE, 2, Math.PI / 2, 1.2, 160, { grav: -200 });
+        if (c >= 1 && !a.fireFull) { a.fireFull = true; ring(f.x, f.y - 50); burst(f.x, f.y - 50, FIRE, 24, 0, Math.PI, 420, { grav: -200 }); sfx.parry(); }
+      }
       if (Math.random() < dt * 40) {   // charge sparkles pulled toward the fighter
         const ang = Math.random() * Math.PI * 2, d = 50;
         particles.push({ x: f.x + Math.cos(ang) * d, y: f.y - 42 + Math.sin(ang) * d,
@@ -5550,6 +5892,18 @@ function stepAction(f, inp, dt) {
     if (Math.random() < dt * 6) burst(f.x, f.y - f.h - 10, ['#ffd23f'], 1, Math.PI / 2, 0.6, 80, { grav: -50 });
   } else if (a.type === 'land') {
     f.vx = approach(f.vx, 0, FRICTION * dt);
+  } else if (a.type === 'taunt') {
+    f.vx = approach(f.vx, 0, FRICTION * dt);
+    if (!f.ground) { f.action = null; return; }                // knocked off / walked off: taunt over (no hype)
+    // AIDEN ONLY: TAUNT CANCEL - any attack, special, grab, jump or dodge cuts the taunt short and comes out
+    // straight away. He keeps the HYPE for however much of the taunt he got through.
+    if (f.look && f.look.hype && (f.atkBuf > 0 || f.spcBuf > 0 || f.grabBuf > 0 || f.jumpBuf > 0 || f.dodgeBuf > 0 || inp.taunt)) {
+      f.hype = Math.min(100, (f.hype || 0) + HYPE.perTaunt * clamp(a.t / a.dur, 0, 1));
+      burst(f.x, f.y - 50, FIRE, 6, Math.PI / 2, 1.2, 260, { grav: -250 });
+      f.action = null;
+      freeControl(f, inp, dt);
+      return;
+    }
   } else if (a.type === 'parried') {
     f.vx = approach(f.vx, 0, FRICTION * 0.6 * dt);
     if (Math.random() < dt * 8) burst(f.x, f.y - f.h - 6, ['#ffd23f'], 1, Math.PI / 2, 0.8, 90, { grav: -40 });
@@ -5564,6 +5918,7 @@ function stepAction(f, inp, dt) {
   }
 
   if (a.t >= a.dur) {
+    if (a.type === 'taunt') finishTaunt(f, a);
     if (a.type === 'roll') f.face = -a.dx;
     if (a.type === 'spot' || a.type === 'roll') f.dodgeCool = DODGE_COOLDOWN;
     f.action = null;
@@ -5610,6 +5965,8 @@ function freeControl(f, inp, dt) {
     startGrab(f); return;
   }
 
+  // 0) TAUNT (on the ground)
+  if (inp.taunt && f.ground && f.squat <= 0) { startTaunt(f, inp.taunt); return; }
   // 1) Attacks
   // SHORT HOP ATTACK: attack + jump pressed at the SAME TIME (within SIMUL_PRESS) = a low short hop, straight
   // into the air attack - so jump attacks combo easily. (Not while holding UP: W + J is still the up attack.)
@@ -5725,12 +6082,14 @@ function updateFighter(f, inp, dt) {
   f.grabBuf  = inp.grabTap  ? BUFFER : Math.max(0, (f.grabBuf || 0) - dt);
   if (inp.jumpTap) f.jumpTapT = time;                              // (for short hop attacks: were they pressed together?)
   if (inp.atkTap || inp.spcTap) f.atkTapT = time;
+  if (inp.spcTap) f.spcTapT = time;                                // (for catching the rival's thrown weapon)
   if (f.look && f.look.spd) noteStickCircle(f, inp);
   f.ultBuf   = inp.ultTap   ? BUFFER : Math.max(0, (f.ultBuf || 0) - dt);
   f.flyCD = Math.max(0, (f.flyCD || 0) - dt);
   if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
   if (f.kaioken) f.damage += KAIOKEN.drain * dt;                  // Kaioken strain: 1% per second
   updateBleed(f, dt);                                             // scythe wounds
+  if (f.look && f.look.hype) f.hype = Math.max(0, (f.hype || 0) - HYPE.drain * dt);   // Aiden's HYPE slowly drains
   if (f.look && f.look.demonMeter) updateGaze(f, dt);            // Colbalias's gaze mark wears off
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
   syncKame(f);
@@ -5908,7 +6267,7 @@ function updateFighter(f, inp, dt) {
     }
     endTransform(f);                                    // KO'd = you lose your transformation
     f.kaioken = false;                                  // ...and Kaioken
-    returnScythe(f);                                    // ...and gets his scythe back
+    resetWeapons(f);                                    // ...and every weapon goes back to its owner (his own to him)
     f.action = null;
   }
 }
@@ -5921,7 +6280,8 @@ function overlapsStage(f) {
 // ---------------- Inputs ----------------
 function emptyInput() {
   return { dir: 0, up: false, down: false, jumpTap: false, jumpHeld: false, blockTap: false, blockHeld: false,
-           dirTap: false, downTap: false, atkTap: false, atkHeld: false, spcTap: false, spcHeld: false, grabTap: false, ultTap: false, flyTap: 0 };
+           dirTap: false, downTap: false, atkTap: false, atkHeld: false, spcTap: false, spcHeld: false, grabTap: false, ultTap: false, flyTap: 0,
+           taunt: 0 };                                           // 1 = up taunt, 2 = side taunt, 3 = down taunt
 }
 // Double-tap detection (for Fly Dash)
 const DOUBLE_TAP = 0.25;
@@ -5943,6 +6303,7 @@ function keyboardInput() {
     spcTap: tp('special'), spcHeld: h('special'),
     grabTap: tp('grab'),
     ultTap: tp('ult'),
+    taunt: K.taunt && tp('taunt') ? (h('down') ? 3 : (h('left') || h('right')) ? 2 : 1) : 0,
   };
 }
 // Xbox controller -> the same input object. Left stick or D-pad moves; buttons follow your bindings.
@@ -5952,17 +6313,19 @@ function padInput(i) {
   const ps = padPrev[i] || (padPrev[i] = { prev: {}, l: -9, r: -9 });
   if (!s) { ps.prev = {}; return emptyInput(); }
   const prev = ps.prev, tp = a => s[a] && !prev[a];
+  // (in a fight: the LEFT STICK moves - sl/sr/su/sd - and the D-PAD is for taunts)
   let flyTap = 0;
-  if (tp('left'))  { if (time - ps.l < DOUBLE_TAP) flyTap = -1; ps.l = time; }
-  if (tp('right')) { if (time - ps.r < DOUBLE_TAP) flyTap = 1;  ps.r = time; }
+  if (tp('sl')) { if (time - ps.l < DOUBLE_TAP) flyTap = -1; ps.l = time; }
+  if (tp('sr')) { if (time - ps.r < DOUBLE_TAP) flyTap = 1;  ps.r = time; }
   const tj = bindings.tapJump;                     // tap jump: flicking up also jumps
   const inp = {
     flyTap,
-    dir: (s.right ? 1 : 0) - (s.left ? 1 : 0),
-    up: s.up, down: s.down,
-    jumpTap: tp('jump') || (tj && tp('up')), jumpHeld: s.jump || (tj && s.up),
+    dir: (s.sr ? 1 : 0) - (s.sl ? 1 : 0),
+    up: s.su, down: s.sd,
+    jumpTap: tp('jump') || (tj && tp('su')), jumpHeld: s.jump || (tj && s.su),
     blockTap: tp('shield'), blockHeld: s.shield,
-    dirTap: tp('left') || tp('right') || tp('up') || tp('down'), downTap: tp('down'),
+    dirTap: tp('sl') || tp('sr') || tp('su') || tp('sd'), downTap: tp('sd'),
+    taunt: tp('du') ? 1 : (tp('dl') || tp('dr')) ? 2 : tp('dd') ? 3 : 0,
     atkTap: tp('attack'), atkHeld: s.attack,
     spcTap: tp('special'), spcHeld: s.special,
     grabTap: tp('grab'),
@@ -6088,6 +6451,7 @@ function aiInput(f, level) {
   inp.downTap = ai.tapDown;
   inp.grabTap = ai.tapGrab;
   inp.ultTap = ai.tapUlt;
+  inp.taunt = ai.tapTaunt || 0; ai.tapTaunt = 0;
   inp.flyTap = ai.flyTap || 0;
   ai.tapJump = ai.tapAtk = ai.tapSpc = ai.tapBlock = ai.tapDown = ai.tapGrab = ai.tapUlt = false;
   ai.flyTap = 0;
@@ -6138,6 +6502,11 @@ function aiDecide(f, o, ai, L) {
     }
   }
 
+  // Empty-handed and the RIVAL'S thrown weapon is about to reach us: press K to catch it
+  if (weaponUser(f) && f.noScythe && scythes.some(s => s.owner !== f && (s.state === 'fly' || s.state === 'hover') &&
+                                                      Math.hypot(s.x - f.x, s.y - (f.y - 50)) < 90) && Math.random() < 0.5 * (L.defend + 0.5)) {
+    ai.tapSpc = true; return;
+  }
   // 1) DEFEND against an incoming attack or projectile
   const meleeThreat = oa && oa.type === 'attack' && oa.phase !== 'end' && oa.move.hitboxes && adx < 140 && Math.abs(dy) < 130;
   const shotThreat = projectiles.some(s => (s.owner !== f || (s.kind === 'disc' && s.phase === 'back' && !s.passed)) &&   // (incl. his own disc coming back)
@@ -6169,6 +6538,10 @@ function aiDecide(f, o, ai, L) {
   // ...and send a shadow clone in from mid range now and then
   if (f.look && f.look.demonMeter && f.ground && (f.cloneCD || 0) <= 0 && adx > 200 && adx < 600 && Math.abs(dy) < 60 && Math.random() < 0.05) {
     f.face = toward; ai.down = true; ai.tapSpc = true; return;
+  }
+  // AIDEN: low on HYPE and safely far away = TAUNT to pump it back up
+  if (f.look && f.look.hype && f.ground && (f.hype || 0) < 60 && adx > 420 && !(oa && oa.type === 'attack') && Math.random() < 0.04) {
+    ai.tapTaunt = 1 + Math.floor(Math.random() * 3); return;
   }
   // TRANSFORM as soon as the meter is full
   if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { ai.tapUlt = true; return; }
@@ -6497,7 +6870,9 @@ function update(dt) {
         // right next to him, and it's the very first instant -> one huge critical punch instead
         const GC = a.move.groundCrit;
         const crit = GC && a.groundStart && a.t <= GC.window && t.ground && Math.abs(t.x - f.x) <= GC.range && !t.shielding;
-        if (applyHit(t, crit ? { ...GC.hit } : h, f.face, a.mult * powerOf(f) * demonBoost, hx, hy, { fighter: f })) {
+        const wieldPow = f.weaponPower && f.weaponPower !== 1 && moveUsesScythe(a.move) ? f.weaponPower : 1;   // rival's weapon (Colten + scythe hits harder)
+        const ia0 = impactAt;                         // (to tell if this hit made a new impact frame)
+        if (applyHit(t, crit ? { ...GC.hit } : h, f.face, a.mult * powerOf(f) * demonBoost * wieldPow, hx, hy, { fighter: f })) {
           a.hit.add(key);
           if (crit) {
             for (const hb of boxes) a.hit.add(fighters.indexOf(t) + ':' + (hb.group || 0));   // that's the whole move for them
@@ -6560,6 +6935,15 @@ function update(dt) {
             hitstop = Math.max(hitstop, 0.12); shake = Math.max(shake, 14);
             dust(t.x, t.y, 12, 2);
           }
+          // AIDEN'S CHARGED HITS: a well-charged hit that lands clean gets a FIRE impact frame
+          const cf = a.cfrac ?? (a.mult - 1) / CHARGE_BONUS;
+          if (f.look && f.look.fireHits && clean && a.move.charge && cf >= 0.5) {
+            impactFrame = Math.max(impactFrame, 0.06 + 0.06 * Math.min(1, cf));
+            impactAt = { x: hx, y: hy, ang: Math.PI / 2, all: false, focus: true, fire: true };
+            burst(hx, hy, FIRE, 20, Math.PI / 2, Math.PI, 600, { grav: -250 });
+          }
+          // every impact frame Aiden causes is a FIRE one
+          if (f.look && f.look.fireHits && impactAt && impactAt !== ia0) impactAt.fire = true;
         }
         if (f.action !== a) break hitLoop;          // got perfect-blocked: this attack is over
       }
@@ -7128,10 +7512,11 @@ function basePose(p) {
     return s;
   }
   if (a && a.type === 'grab') {      // lunging grab: both hands shoot out to the grab point
-    const reach = a.t >= GRAB.startup && a.t <= GRAB.startup + GRAB.active;
-    const whiff = a.t > GRAB.startup + GRAB.active;
+    const G = { ...GRAB, ...(CHARACTERS[p.char].grab || {}) };
+    const reach = a.t >= G.startup && a.t <= G.startup + G.active;
+    const whiff = a.t > G.startup + G.active;
     return pose({ lean: reach ? 0.45 : whiff ? 0.3 : 0.15, bob: -6, legA: [0.75, 0.7], legB: [-0.55, 0.2],
-                  grip: reach ? [GRAB.reachX + 8, GRAB.reachY] : whiff ? [34, -46] : [18, -60] });
+                  grip: reach ? [G.reachX + 8, G.reachY] : whiff ? [34, -46] : [18, -60] });
   }
   if (a && a.type === 'holding') {   // both hands clamped on their chest; pummel = knee to the gut
     const pm = (a.pummel || 0) > 0;
@@ -7213,6 +7598,7 @@ function basePose(p) {
     return pose({ lean: -0.55 + w, bob: -2, legA: [0.5, 0.4], legB: [-0.45, 0.2], armA: [-2.4, 0.3], armB: [2.5, -0.3] });
   }
   if (a && a.type === 'land') return pose({ bob: -10, lean: 0.3, legA: [0.75, 1.5], legB: [0.55, 1.3] });
+  if (a && a.type === 'taunt') return tauntPose(p, a);
   if (a && a.type === 'spot') return pose({ lean: 0.35, bob: -10, legA: [0.75, 1.5], legB: [0.55, 1.3], armA: [0.9, -1.9], armB: [0.5, -1.9] });
   if (a && a.type === 'roll') {
     const prog = Math.min(1, a.t / (a.dur * 0.8));
@@ -7461,6 +7847,7 @@ function drawFigure(fig, opts = {}) {
   if (look.oneArm) { /* only one arm (Future Gohan) - nothing on the far side */ }
   else if (grip) ikArm(shoulder, { x: grip.x - f * 3, y: grip.y + 7 });
   else if (S && (S.hands === 2 || S.hands === 'B')) ikArm(shoulder, S.at(S.hb));
+  else if (look.greatsword && !fig.noScythe) ikArm(shoulder, swordSecondHand(shoulder, pz, f));   // both hands on the greatsword
   else if (MUS) muscleLimb(shoulder, pz.armB, AL, AL2, f, ARM_W, back, null);
   else limb(shoulder, pz.armB, 16, 15, f);
   if (four) {                                                 // far LOWER arm
@@ -7753,19 +8140,25 @@ function drawFigure(fig, opts = {}) {
   else if (S && S.hands === 2) ikArm(shoulder, S.g);
   else if (MUS) muscleLimb(shoulder, pz.armA, AL, AL2, f, ARM_W, main, EDGE);
   else limb(shoulder, pz.armA, 16, 15, f);
-  if (look.greatsword && !grip) drawGreatsword(shoulder, pz, f, opts);      // Colten's greatsword, in his front hand
+  if (look.greatsword && !grip && !fig.noScythe) drawGreatsword(shoulder, pz, f, opts);      // the greatsword, in his front hand
   if (look.auraArmor && fig.transformed && !opts.tint && !sketch) drawAuraArmor(hip, shoulder, head, f);
   ctx.restore();
 }
 // COLTEN'S GREATSWORD: a long, broad blade held in his front hand. Its angle comes from the pose ("sw");
 // poses without one just hold it in line with his forearm.
-function drawGreatsword(shoulder, pz, f, opts) {
+// where his front hand is, and which way the blade points
+function swordHold(shoulder, pz, f) {
   const [th, bend] = pz.armA;
   const mid = { x: shoulder.x + Math.sin(th) * 16 * f, y: shoulder.y + Math.cos(th) * 16 };
   const a2 = th - bend;
   const hand = { x: mid.x + Math.sin(a2) * 15 * f, y: mid.y + Math.cos(a2) * 15 };
   const ang = pz.sw !== undefined ? pz.sw : a2;
-  const ux = Math.sin(ang) * f, uy = Math.cos(ang);                // along the blade
+  return { hand, ux: Math.sin(ang) * f, uy: Math.cos(ang) };
+}
+// TWO-HANDED GRIP: his other hand holds the hilt just below the first one (toward the pommel)
+const swordSecondHand = (shoulder, pz, f) => { const s = swordHold(shoulder, pz, f); return { x: s.hand.x - s.ux * 9, y: s.hand.y - s.uy * 9 }; };
+function drawGreatsword(shoulder, pz, f, opts) {
+  const { hand, ux, uy } = swordHold(shoulder, pz, f);              // (ux, uy = along the blade)
   const nx = -uy, ny = ux;                                         // across it
   const P = (along, across) => ({ x: hand.x + ux * along + nx * across, y: hand.y + uy * along + ny * across });
   const outline = opts.outline || 0;
@@ -8289,7 +8682,61 @@ function drawParticles() {
 }
 
 // Kamehameha beam: glowing column with a white-hot core and a round head
+// LANCE'S ULTIMATE as a proper KAMEHAMEHA: a blazing sphere at his hand, a beam with a white-hot core and
+// rippling blue edges, swirling energy rings racing down it, and a big bulb of energy at its head
+function drawKameBeam(s) {
+  const k = clamp(s.life / s.max, 0, 1), fade = k < 0.2 ? k / 0.2 : 1;
+  const w = s.w * (0.92 + Math.sin(time * 50) * 0.06) * fade;
+  const x0 = s.x, x1 = s.x + s.dir * s.len, d = s.dir;
+  const edge = (side, mul) => {                                  // a wavy edge along the beam
+    const pts = [];
+    for (let x = 0; x <= s.len; x += 24) {
+      const ripple = 1 + 0.09 * Math.sin(x * 0.045 - time * 40) + 0.05 * Math.sin(x * 0.11 + time * 23);
+      pts.push([x0 + d * x, s.y + side * (w * mul / 2) * ripple]);
+    }
+    return pts;
+  };
+  const body = (mul, col, al) => {
+    ctx.globalAlpha = al * fade; ctx.fillStyle = col;
+    const top = edge(-1, mul), bot = edge(1, mul).reverse();
+    ctx.beginPath(); [...top, ...bot].forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(x1, s.y, w * mul * 0.62, 0, Math.PI * 2); ctx.fill();          // the bulb at its head
+    ctx.beginPath(); ctx.arc(x0, s.y, w * mul * 0.7, 0, Math.PI * 2); ctx.fill();           // the sphere at his hand
+  };
+  ctx.save();
+  body(1.9, s.color, 0.18);                                     // wide glow
+  body(1.35, s.color, 0.4);
+  body(1.0, '#6cc8ff', 0.9);                                    // the beam
+  body(0.55, '#dff5ff', 1);
+  body(0.28, '#ffffff', 1);                                     // white-hot core
+  // swirling energy rings racing down the beam
+  ctx.globalAlpha = 0.7 * fade; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+  for (let x = (time * 1400) % 150; x < s.len - 40; x += 150) {
+    ctx.beginPath(); ctx.ellipse(x0 + d * x, s.y, 9, w * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  // crackle round the head
+  if (Math.random() < 0.6) { ctx.globalAlpha = fade; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+    const a0 = Math.random() * Math.PI * 2; ctx.beginPath(); ctx.arc(x1, s.y, w * 0.8 + Math.random() * 20, a0, a0 + 1.2); ctx.stroke(); }
+  ctx.restore();
+}
+// the Kamehameha ball growing in his cupped hand while he charges the ultimate
+function drawKameCharge() {
+  for (const f of fighters) {
+    const a = f.action;
+    if (!a || a.type !== 'ultBeam' || a.phase !== 'charge' || f.respawnTimer > 0) continue;
+    const U = CHARACTERS[f.char].ult, c = clamp(a.t / U.windTime, 0, 1);
+    const x = f.x - f.face * 14, y = f.y - 48, r = 6 + 30 * c + Math.sin(time * 40) * 2;   // cupped back at his hip ("KA-ME-HA-ME...")
+    ctx.save();
+    for (const [mul, col, al] of [[2.2, kiColor(f), 0.18], [1.5, kiColor(f), 0.45], [1, '#9be7ff', 0.95], [0.55, '#ffffff', 1]]) {
+      ctx.globalAlpha = al; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r * mul, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 0.8; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) { const a0 = time * 12 + i * 2.1; ctx.beginPath(); ctx.arc(x, y, r * 1.3, a0, a0 + 0.9); ctx.stroke(); }
+    ctx.restore();
+  }
+}
 function drawBeam(s) {
+  if (s.ult && !sketch) return drawKameBeam(s);
   const k = clamp(s.life / s.max, 0, 1), fade = k < 0.2 ? k / 0.2 : 1;
   const w = s.w * (0.8 + Math.sin(time * 60) * 0.1) * fade;
   const x0 = s.x, x1 = s.x + s.dir * s.len;
@@ -8318,6 +8765,7 @@ function drawProjectiles() {
     ctx.fillStyle = '#f0a818';
     for (let k = 0; k < 6; k++) ctx.fillRect(snap(x - cannon.side * k * 3) - (cannon.side < 0 ? 0 : PIX), snap(cannon.y - 15 + k * 3), PIX, snap(30 - k * 6));
   }
+  if (!sketch) drawKameCharge();                                // Lance's ultimate: the ki ball growing in his hand
   for (const s of projectiles) if (s.kind === 'beam') drawBeam(s); else if (s.kind === 'disc') drawDisc(s);
   if (sketch) {                          // pen-drawn energy balls with a scribbled fill
     ctx.lineCap = 'round';
@@ -8370,8 +8818,8 @@ function drawProjectiles() {
 // The black & white impact frame: everything goes black, fighters turn white, lightning bursts out.
 function drawImpactFrame() {
   // Fill the whole screen first, then draw the fighters/lightning through the camera
-  const inv = impactAt && impactAt.invert;
-  ctx.fillStyle = sketch ? (inv ? '#111' : PAPER) : (inv ? '#ffffff' : '#000000');
+  const inv = impactAt && impactAt.invert, fire = impactAt && impactAt.fire && !sketch;
+  ctx.fillStyle = sketch ? (inv ? '#111' : PAPER) : fire ? (inv ? '#ff7a1a' : '#1c0300') : (inv ? '#ffffff' : '#000000');
   ctx.fillRect(-60, -60, W + 120, H + 120);
   ctx.save();
   applyCamera(ctx);
@@ -8398,13 +8846,16 @@ function drawImpactFrameWorld() {
     return;
   }
   // Normal: black screen, white fighters. Inverted: white screen, black fighters (alternates on clash beats).
-  const inv = impactAt && impactAt.invert;
-  const bg = inv ? '#ffffff' : '#000000', fg = inv ? '#000000' : '#ffffff';
+  // FIRE (Aiden): a scorched dark-red screen, blazing orange silhouettes and flames instead of lightning.
+  const inv = impactAt && impactAt.invert, fire = impactAt && impactAt.fire;
+  const bg = fire ? (inv ? '#ff7a1a' : '#1c0300') : inv ? '#ffffff' : '#000000';
+  const fg = fire ? (inv ? '#1c0300' : '#ffb02e') : inv ? '#000000' : '#ffffff';
+  const spark = fire ? ['#ff3d0a', '#ffd23f', '#ff7a1a'] : null;
   ctx.fillStyle = bg;
   ctx.fillRect(-50, -50, W + 100, H + 100);
   if (impactAt && impactAt.focus) {
     // Manga focus lines: thin wedges rushing in from the edges toward the impact point
-    ctx.fillStyle = inv ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.75)';
+    ctx.fillStyle = fire ? (inv ? 'rgba(28,3,0,0.8)' : 'rgba(255,110,20,0.7)') : inv ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.75)';
     for (let i = 0; i < 70; i++) {
       const ang = i / 70 * Math.PI * 2 + Math.random() * 0.05;
       const r1 = 170 + Math.random() * 120, r2 = 1500, w = 0.006 + Math.random() * 0.012;
@@ -8424,8 +8875,8 @@ function drawImpactFrameWorld() {
       const ang = impactAt.all ? (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.3
                                : impactAt.ang + (i - 4) * 0.35 + (Math.random() - 0.5) * 0.2;
       const len = (impactAt.all ? 160 : 200) + Math.random() * 330;
-      ctx.strokeStyle = i % 3 === 0 ? fg : '#ffd23f';
-      ctx.lineWidth = 3 + Math.random() * 9;
+      ctx.strokeStyle = spark ? spark[i % 3] : i % 3 === 0 ? fg : '#ffd23f';
+      ctx.lineWidth = (fire ? 6 : 3) + Math.random() * 9;              // (fire: thicker, like licking flames)
       ctx.beginPath(); ctx.moveTo(impactAt.x, impactAt.y);
       for (let k = 1; k <= 6; k++) {
         ctx.lineTo(impactAt.x + Math.cos(ang) * len * k / 6 + (Math.random() - 0.5) * 50,
@@ -8434,9 +8885,9 @@ function drawImpactFrameWorld() {
       ctx.stroke();
     }
     // Blinding core
-    ctx.fillStyle = '#ffd23f';
-    ctx.beginPath(); ctx.arc(impactAt.x, impactAt.y, impactAt.all ? 20 : 30, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = fg;
+    ctx.fillStyle = fire ? '#ff7a1a' : '#ffd23f';
+    ctx.beginPath(); ctx.arc(impactAt.x, impactAt.y, (impactAt.all ? 20 : 30) * (fire ? 1.4 : 1), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = fire ? '#ffe066' : fg;
     ctx.beginPath(); ctx.arc(impactAt.x, impactAt.y, impactAt.all ? 11 : 18, 0, Math.PI * 2); ctx.fill();
   }
 }
@@ -8537,7 +8988,7 @@ function drawHUD() {
   if (ult && ult.phase === 'cutscene') { drawUltHUD(); return; }   // cinematic: hide the HUD
   // Damage cards (just the two players - not Colbalias's clones)
   fighters.slice(0, REAL_FIGHTERS).forEach((f, i) => {
-    const x = W / 2 - 230 + i * 250, y = H - 96;
+    const x = W / 2 - (REAL_FIGHTERS * 250 - 40) / 2 + i * 250, y = H - 96;   // (2-4 cards, centered)
     if (sketch) {
       // Sticky note, slightly crooked, with a pen-colored stripe
       sctx.save();
@@ -8549,6 +9000,7 @@ function drawHUD() {
     } else {
       sctx.fillStyle = '#0e0c0c'; sctx.fillRect(x, y, 210, 78);
       sctx.fillStyle = '#26211f'; sctx.fillRect(x + 3, y + 3, 204, 72);
+      if (matchTeams && f.team !== undefined) { sctx.fillStyle = TEAM_COLORS[f.team].main; sctx.fillRect(x, y - 5, 210, 5); }   // team stripe
       sctx.fillStyle = f.color;   sctx.fillRect(x + 3, y + 3, 12, 72);
     }
     text(f.name + ' ' + f.char, x + 26, y + 24, 10, '#ffffff', 'left', false);
@@ -8560,6 +9012,12 @@ function drawHUD() {
       sctx.fillStyle = '#0e0c0c'; sctx.fillRect(x + 110, y + 30, 90, 6);
       sctx.fillStyle = (f.tsCD || 0) > 0 ? '#56493f' : TIME_STOP.color; sctx.fillRect(x + 111, y + 31, 88 * tm, 4);
       text('TIME', x + 106, y + 37, 6, TIME_STOP.color, 'right', false);
+    }
+    if (f.look && f.look.hype) {                          // Aiden's HYPE meter (fill it by taunting; it drains)
+      const hk = hypeK(f), full = hk >= 1, flash = full && Math.floor(performance.now() / 200) % 2;
+      sctx.fillStyle = '#0e0c0c'; sctx.fillRect(x + 110, y + 30, 90, 6);
+      sctx.fillStyle = flash ? '#ffffff' : HYPE.color; sctx.fillRect(x + 111, y + 31, 88 * hk, 4);
+      text('HYPE', x + 106, y + 37, 6, HYPE.color, 'right', false);
     }
     if (f.kaioken) text('KAIOKEN', x + 196, y + 54, 8, Math.floor(performance.now() / 250) % 2 ? KAIOKEN.color : '#ff8a3c', 'right', false);
     if (f.look && f.look.demonMeter) {                     // Colbalias's DEMON meter: each letter lights up as it fills
@@ -9013,23 +9471,31 @@ function setWatchMode(on) {
   }
   menuSfx('pick');
 }
-const SEL_COLORS = [{ main: '#f0a818', dark: '#6b3f06' }, { main: '#45b6e8', dark: '#123e5c' }];
+const SEL_COLORS = [{ main: '#f0a818', dark: '#6b3f06' }, { main: '#45b6e8', dark: '#123e5c' },
+                    { main: '#5fd068', dark: '#1d4d22' }, { main: '#e85ad6', dark: '#5a1752' }];
+// 4 player slots. P3 / P4 start switched OFF (click their HMN/CPU/OFF button to add them).
+// team: 0 = RED, 1 = BLUE (only used when TEAMS is on)
 const players = [
-  { name: 'P1', dev: 'keyboard', cpu: false, char: null, level: 'AI NORMAL', cur: { x: 330, y: 260 }, carry: 0 },
-  { name: 'P2', dev: null,       cpu: true,  char: null, level: 'AI NORMAL', cur: { x: 950, y: 260 }, carry: 1 },
+  { name: 'P1', dev: 'keyboard', cpu: false, char: null, level: 'AI NORMAL', cur: { x: 330, y: 260 }, carry: 0, team: 0 },
+  { name: 'P2', dev: null,       cpu: true,  char: null, level: 'AI NORMAL', cur: { x: 950, y: 260 }, carry: 1, team: 1 },
+  { name: 'P3', dev: null,       cpu: true,  off: true, char: null, level: 'AI NORMAL', cur: { x: 330, y: 300 }, carry: 2, team: 0 },
+  { name: 'P4', dev: null,       cpu: true,  off: true, char: null, level: 'AI NORMAL', cur: { x: 950, y: 300 }, carry: 3, team: 1 },
 ];
+const activePlayers = () => players.filter(p => !p.off);
 let selMsg = null;                    // little popup message ("COMING SOON", "CONTROLLER 1 JOINED")
 function rosterRect(i) {
   const cols = 4, w = 236, h = 150, gap = 14, top = 104;
   const x0 = (W - (cols * w + (cols - 1) * gap)) / 2;
   return { x: x0 + (i % cols) * (w + gap), y: top + Math.floor(i / cols) * (h + gap), w, h };
 }
-const cardRect = i => ({ x: W / 2 - 330 + i * 360, y: 462, w: 300, h: 240 });
+const cardRect = i => ({ x: 306 + i * 242, y: 462, w: 232, h: 240 });   // 4 player cards, right of the GAME OPTIONS panel
+const teamRect = c => ({ x: c.x + 14, y: c.y + 78, w: 112, h: 22 });     // (TEAMS on) click = switch team
 const toggleRect = c => ({ x: c.x + c.w - 96, y: c.y + 14, w: 84, h: 28 });
 const levelRect = c => ({ x: c.x + 14, y: c.y + c.h - 78, w: 150, h: 26 });
 const devRect = c => ({ x: c.x + 14, y: c.y + 52, w: 190, h: 18 });
 const CONTROLS_BTN = { x: W - 262, y: 24, w: 238, h: 40 };
 const TURBO_BTN = { x: W - 262 - 200, y: 24, w: 186, h: 40 };
+const TEAMS_BTN = { x: W - 262 - 200 - 190, y: 24, w: 176, h: 40 };   // TEAMS on/off (2v2 etc.)
 const READY_RECT = { x: 0, y: 396, w: W, h: 58 };
 // GAME OPTIONS panel (bottom-left of the select screen)
 const GO_PANEL = { x: 22, y: 466, w: 268, h: 240 };
@@ -9043,7 +9509,12 @@ function changeStocks(d) {               // 0 = FREE PLAY, then 1..99 (wraps aro
   gameOptions.stocks = (gameOptions.stocks + d + 100) % 100;
   saveOptions(); menuSfx('move');
 }
-const allReady = () => players.every(p => p.char);
+// ready = at least 2 players in, everyone in has picked a fighter, and (TEAMS) both teams have someone
+const allReady = () => {
+  const a = activePlayers();
+  if (a.length < 2 || !a.every(p => p.char)) return false;
+  return !gameOptions.teams || new Set(a.map(p => p.team)).size > 1;
+};
 const devLabel = p => p.cpu ? 'COMPUTER' : p.dev === 'keyboard' ? 'KEYBOARD + MOUSE' : 'CONTROLLER ' + (+p.dev.slice(3) + 1);
 
 function joinDevice(dev) {
@@ -9054,11 +9525,11 @@ function joinDevice(dev) {
     const kb = players.find(p => !p.cpu && p.dev === 'keyboard');
     if (kb && !kbActed) slot = kb;
   }
-  slot = slot || players.find(p => p.cpu);
+  slot = slot || players.find(p => p.cpu && !p.off) || players.find(p => p.off);   // a CPU slot, or switch on P3 / P4
   if (!slot) return;
   const i = players.indexOf(slot);
-  slot.cpu = false; slot.dev = dev; slot.carry = i;
-  slot.cur = { x: cardRect(i).x + 150, y: 300 };
+  slot.cpu = false; slot.off = false; slot.dev = dev; slot.carry = i;
+  slot.cur = { x: cardRect(i).x + cardRect(i).w / 2, y: 300 };
   for (const p of players) if (p !== slot && p.carry === i) p.carry = players.indexOf(p);   // nobody else holds this token now
   selMsg = { text: devLabel(slot) + ' JOINED AS ' + slot.name, t: 1.6 };
   menuSfx('pick');
@@ -9072,6 +9543,8 @@ function selectClick(p) {
   const pt = p.cur, me = players.indexOf(p);
   if (inRect(pt, CONTROLS_BTN)) return openControls('select');
   if (inRect(pt, TURBO_BTN) || inRect(pt, GO_TURBO)) return setTurbo(!turbo);
+  if (inRect(pt, TEAMS_BTN)) { gameOptions.teams = !gameOptions.teams; saveOptions(); menuSfx('pick');
+    selMsg = { text: gameOptions.teams ? 'TEAMS ON - CLICK A PLAYER\'S TEAM BADGE TO SWITCH THEM' : 'TEAMS OFF - FREE FOR ALL', t: 2.2 }; return; }
   // Game options
   if (inRect(pt, GO_LEFT)) return changeStocks(-1);
   if (inRect(pt, GO_RIGHT)) return changeStocks(1);
@@ -9083,8 +9556,12 @@ function selectClick(p) {
   // Player cards: HMN/CPU switch, CPU level, or pick a token back up
   for (let i = 0; i < players.length; i++) {
     const c = cardRect(i), q = players[i];
+    // P3 / P4 switched OFF: clicking anywhere on the card adds them (as a CPU)
+    if (q.off) { if (inRect(pt, c)) { q.off = false; q.cpu = true; q.char = null; p.carry = i; menuSfx('pick'); } continue; }
+    if (gameOptions.teams && inRect(pt, teamRect(c))) { q.team = 1 - (q.team || 0); menuSfx('move'); return; }   // switch team
     if (inRect(pt, toggleRect(c))) {
       if (watchMode) selMsg = { text: 'WATCH MODE IS ON - TURN IT OFF IN GAME OPTIONS TO PLAY', t: 2.2 };
+      else if (q.cpu && i >= 2) { q.off = true; q.char = null; for (const o of players) if (o.carry === i) o.carry = players.indexOf(o); menuSfx('back'); }   // CPU -> OFF (P3 / P4)
       else if (!q.cpu) {
         const dev = q.dev;
         makeCpu(q);
@@ -9119,13 +9596,13 @@ function selectClick(p) {
     if (!ROSTER[i]) { selMsg = { text: 'COMING SOON', t: 1.2 }; menuSfx('back'); return; }
     let t = players[p.carry];
     if (p.host) {                                // watch mode host only ever places CPU tokens
-      if (!t || !t.cpu) t = players.find(q => q.cpu && !q.char);
+      if (!t || !t.cpu || t.off) t = players.find(q => q.cpu && !q.off && !q.char);
       if (!t) { selMsg = { text: 'CLICK A CPU CARD TO CHANGE ITS FIGHTER', t: 1.6 }; return; }
     } else if (!t || (t !== p && !t.cpu)) { p.carry = me; t = p; }
     t.char = ROSTER[i];
     menuSfx('pick');
     // Next: pick up any CPU's token that still needs a fighter (like grabbing the CPU coin in Smash)
-    const needCpu = players.findIndex(q => q.cpu && !q.char);
+    const needCpu = players.findIndex(q => q.cpu && !q.off && !q.char);
     p.carry = needCpu >= 0 ? needCpu : me;
     return;
   }
@@ -9185,7 +9662,7 @@ function selectUpdate(dt) {
 //   stocks: lives per player, 1-99 (0 = FREE PLAY: unlimited, like before)
 //   cleanHud: hide all the demo/debug text (controls list, demo labels) for real matches
 const gameOptions = (() => {
-  const d = { stocks: 3, cleanHud: false, stage: 0 };       // stage = index into STAGE_LIST
+  const d = { stocks: 3, cleanHud: false, stage: 0, teams: false };   // stage = index into STAGE_LIST; teams = 2v2 etc.
   try { const s = JSON.parse(localStorage.getItem('stickman-brawl-options') || 'null'); if (s) return { ...d, ...s }; } catch (e) {}
   return d;
 })();
@@ -9207,17 +9684,22 @@ let matchOver = null;           // { winner, t } once only one fighter has lives
 let results = null;             // what the results screen shows
 function checkMatchEnd() {
   const left = fighters.filter(f => !f.out && !f.minion);
-  if (left.length <= 1 && !matchOver) {
-    matchOver = { winner: left[0] || null, t: 0 };
+  // free-for-all: one fighter left. TEAMS: only one team left (its last players don't fight each other)
+  const over = matchTeams ? new Set(left.map(f => f.team)).size <= 1 : left.length <= 1;
+  if (over && !matchOver) {
+    matchOver = { winner: left[0] || null, team: matchTeams && left[0] ? left[0].team : null, t: 0 };
     startSlowmo(1.6);
     shake = Math.max(shake, 18);
     menuSfx('go');
   }
 }
 function showResults() {
+  const team = matchOver.team;
   results = {
     winner: matchOver.winner ? fighters.indexOf(matchOver.winner) : -1,
-    rows: fighters.slice(0, REAL_FIGHTERS).map((f, i) => ({ name: f.name, char: f.char, color: f.color, stocks: Math.max(0, f.stocks), falls: f.kos, i })),
+    team,                                                                // TEAMS: the winning team (null in free-for-all)
+    rows: fighters.slice(0, REAL_FIGHTERS).map((f, i) => ({ name: f.name, char: f.char, color: f.color, stocks: Math.max(0, f.stocks), falls: f.kos, i,
+                                                            won: team !== null && team !== undefined ? f.team === team : f === matchOver.winner })),
   };
   matchOver = null; scene = 'results'; menuSfx('go');
 }
@@ -9225,11 +9707,20 @@ function showResults() {
 function startMatch() {
   removeAllMinions();
   applyStage(gameOptions.stage || 0);
+  // the fighters for this match: one per switched-on player slot (2-4)
+  fighters.length = 0;
+  players.forEach((pl, i) => { if (!pl.off) fighters.push(fighterPool[i]); });
+  REAL_FIGHTERS = fighters.length;
+  matchTeams = !!gameOptions.teams;
+  const cpus = activePlayers().filter(q => q.cpu).length;
   players.forEach((pl, i) => {
-    const f = fighters[i];
+    if (pl.off) return;
+    const f = fighterPool[i];
     setCharacter(f, pl.char);
     f.controller = pl.cpu ? 'dummy' : pl.dev;
-    f.name = pl.cpu ? (players.every(q => q.cpu) ? 'CPU ' + (i + 1) : 'CPU') : pl.name;
+    f.name = pl.cpu ? (cpus > 1 ? 'CPU ' + (i + 1) : 'CPU') : pl.name;
+    f.team = matchTeams ? pl.team : undefined;
+    f.color = matchTeams ? TEAM_COLORS[pl.team].main : FIGHTER_INIT[i].color;   // TEAMS: red / blue
     f.kos = 0; f.ult = 0; f.disp = null;
     f.stocks = gameOptions.stocks > 0 ? gameOptions.stocks : Infinity;   // lives
     f.cpuLevel = pl.cpu ? pl.level : null;                                // each CPU plays at its own level
@@ -9255,7 +9746,7 @@ function claimFighter(dev) {
   const idleKb = fighters.find(f => f.controller === 'keyboard' && performance.now() - lastKeyTime > 2000);
   const f = idleKb || fighters.find(f => f.controller === 'dummy');
   if (!f) return;
-  const i = fighters.indexOf(f);
+  const i = f.slot;
   f.controller = dev;
   players[i].cpu = false; players[i].dev = dev;
   f.name = players[i].name;
@@ -9268,7 +9759,7 @@ function backToSelect() {
   scene = 'select'; paused = false;
   removeAllMinions();
   for (const f of fighters) { stopKameCharge(f); stopShotCharge(f); }
-  players.forEach((p, i) => { p.carry = i; p.cur = { x: cardRect(i).x + 150, y: 300 }; });
+  players.forEach((p, i) => { p.carry = i; p.cur = { x: cardRect(i).x + cardRect(i).w / 2, y: 300 }; });
 }
 
 // ---- Drawing helpers for menus ----
@@ -9378,6 +9869,11 @@ function drawSelect() {
     slantRect(TURBO_BTN.x, TURBO_BTN.y, TURBO_BTN.w, TURBO_BTN.h, 14, hoverT ? '#ffffff' : turbo ? '#d63a2a' : '#26211f');
     text('TURBO ' + (turbo ? 'ON x' + TURBO_SPEED : 'OFF') + ' [T/X]', TURBO_BTN.x + TURBO_BTN.w / 2, TURBO_BTN.y + 26, 9,
          hoverT ? '#0e0c0c' : turbo ? '#ffffff' : '#8f8f98', 'center', false);
+    // TEAMS on/off
+    const hoverTm = players.some(p => !p.cpu && inRect(p.cur, TEAMS_BTN));
+    slantRect(TEAMS_BTN.x, TEAMS_BTN.y, TEAMS_BTN.w, TEAMS_BTN.h, 14, hoverTm ? '#ffffff' : gameOptions.teams ? '#3a5fd6' : '#26211f');
+    text('TEAMS ' + (gameOptions.teams ? 'ON' : 'OFF'), TEAMS_BTN.x + TEAMS_BTN.w / 2, TEAMS_BTN.y + 26, 9,
+         hoverTm ? '#0e0c0c' : gameOptions.teams ? '#ffffff' : '#8f8f98', 'center', false);
 
     // Roster
     for (let i = 0; i < ROSTER.length; i++) {
@@ -9417,6 +9913,15 @@ function drawSelect() {
     // Player cards
     players.forEach((q, i) => {
       const c = cardRect(i), col = SEL_COLORS[i];
+      if (q.off) {                                            // P3 / P4 switched off: a dim "add player" card
+        slantRect(c.x - 6, c.y - 6, c.w + 12, c.h + 12, 18, '#0e0c0c');
+        const hov = players.some(p => !p.cpu && inRect(p.cur, c));
+        slantRect(c.x, c.y, c.w, c.h, 14, hov ? '#3a3540' : '#1d1b1f');
+        text(q.name, c.x + 18, c.y + 44, 28, '#56525a');
+        text('OFF', c.x + c.w / 2, c.y + 130, 22, '#56525a', 'center');
+        text('CLICK / PRESS A TO ADD', c.x + c.w / 2, c.y + c.h - 20, 7, hov ? '#ffffff' : '#8f8f98', 'center', false);
+        return;
+      }
       slantRect(c.x - 6, c.y - 6, c.w + 12, c.h + 12, 18, '#0e0c0c');
       const g = sctx.createLinearGradient(c.x, c.y, c.x, c.y + c.h);
       g.addColorStop(0, q.cpu ? '#56525a' : col.main); g.addColorStop(1, q.cpu ? '#1d1b1f' : col.dark);
@@ -9433,6 +9938,11 @@ function drawSelect() {
       const tr = toggleRect(c), hov = players.some(p => !p.cpu && inRect(p.cur, tr));
       sctx.fillStyle = hov ? '#ffffff' : '#0e0c0c'; sctx.fillRect(tr.x, tr.y, tr.w, tr.h);
       text(q.cpu ? 'CPU' : 'HMN', tr.x + tr.w / 2, tr.y + 19, 11, hov ? '#0e0c0c' : (q.cpu ? '#8f8f98' : col.main), 'center', false);
+      if (gameOptions.teams) {                                // TEAMS: red / blue badge (click to switch)
+        const tr2 = teamRect(c), T = TEAM_COLORS[q.team || 0], th = players.some(p => !p.cpu && inRect(p.cur, tr2));
+        sctx.fillStyle = th ? '#ffffff' : T.main; sctx.fillRect(tr2.x, tr2.y, tr2.w, tr2.h);
+        text(T.name + ' TEAM', tr2.x + tr2.w / 2, tr2.y + 15, 8, th ? '#0e0c0c' : '#ffffff', 'center', false);
+      }
       if (q.cpu) {
         const lr = levelRect(c), lh = players.some(p => !p.cpu && inRect(p.cur, lr));
         sctx.fillStyle = lh ? '#ffffff' : 'rgba(0,0,0,0.6)'; sctx.fillRect(lr.x, lr.y, lr.w, lr.h);
@@ -9597,7 +10107,8 @@ function drawResults() {
     const R = results;
     const win = R.winner >= 0 ? R.rows[R.winner] : null;
     slantRect(-20, 30, 720, 70, 26, '#a8261e');
-    text(win ? win.name + ' WINS!' : 'NO CONTEST', 32, 80, 30, '#ffffff');
+    const teamWin = R.team !== null && R.team !== undefined;
+    text(teamWin ? TEAM_COLORS[R.team].name + ' TEAM WINS!' : win ? win.name + ' WINS!' : 'NO CONTEST', 32, 80, 30, '#ffffff');
     if (win) {
       // big spotlight on the winner
       const g = sctx.createRadialGradient(330, 440, 20, 330, 440, 260);
@@ -9608,12 +10119,13 @@ function drawResults() {
       if (CHAR_INFO[win.char]) text(CHAR_INFO[win.char].title, 330, 676, 9, '#ffd23f', 'center', false);
     }
     // the table of everyone
+    const rowH = R.rows.length > 2 ? 118 : 130, boxH = R.rows.length > 2 ? 96 : 100;   // (up to 4 players)
     R.rows.forEach((r, k) => {
-      const y = 200 + k * 130, x = 700;
-      slantRect(x - 4, y - 4, 520, 108, 14, '#0e0c0c');
-      slantRect(x, y, 512, 100, 12, k === R.winner ? '#5e4a12' : '#26211f');
-      sctx.fillStyle = r.color; sctx.fillRect(x + 12, y + 10, 10, 80);
-      text((k === R.winner ? '1ST  ' : '2ND  ') + r.name, x + 36, y + 36, 16, '#ffffff', 'left', false);
+      const y = (R.rows.length > 2 ? 170 : 200) + k * rowH, x = 700;
+      slantRect(x - 4, y - 4, 520, boxH + 8, 14, '#0e0c0c');
+      slantRect(x, y, 512, boxH, 12, r.won ? '#5e4a12' : '#26211f');
+      sctx.fillStyle = r.color; sctx.fillRect(x + 12, y + 10, 10, boxH - 20);
+      text((r.won ? 'WIN  ' : '     ') + r.name, x + 36, y + 36, 16, '#ffffff', 'left', false);
       text(r.char, x + 36, y + 64, 10, '#ffd23f', 'left', false);
       text('STOCKS LEFT ' + r.stocks, x + 490, y + 36, 10, '#ffffff', 'right', false);
       text('FALLS ' + r.falls, x + 490, y + 64, 10, '#b4b4bb', 'right', false);
