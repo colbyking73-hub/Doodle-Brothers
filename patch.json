@@ -1,5 +1,5 @@
 {
-    "version":  "0.5.2",
+    "version":  "0.5.3",
     "shell":  "2c7f2e991c796adb",
     "files":  {
                   "build/icon.png":  {
@@ -7,8 +7,8 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "1125ce47f6e3ec6b96090517f601fdf56edf9fc1de3f8f90b2c0b65b0d7788a9",
-                                     "size":  851397
+                                     "hash":  "557bb9003f2005270c6eade28ac14bbb30f3e2299711bba0b2dbd034d5c8b2e1",
+                                     "size":  891641
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
@@ -22,6 +22,10 @@
                                                    "hash":  "571b4fb114ed3db0180939b9bd935790062c3c7f87aa03e84dee76b4511d298b",
                                                    "size":  155320
                                                },
+                  "sounds/deck-ult-sfx.js":  {
+                                                 "hash":  "f3147ac6014a68f65f27e6acdf2bfab0b4d5f8221aad6e25788c125dce2c93b9",
+                                                 "size":  331760
+                                             },
                   "sounds/fight-sfx.js":  {
                                               "hash":  "dd55fe774ec7995725798bfff8f0c575d566b77906e106e8aaa116b17b7ee392",
                                               "size":  243422

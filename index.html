@@ -23,6 +23,7 @@
 <script src="sounds/smash-hits-sfx.js"></script>
 <script src="sounds/heel-voice-sfx.js"></script>
 <script src="sounds/ship-ult-sfx.js"></script>
+<script src="sounds/deck-ult-sfx.js"></script>
 <script src="sounds/lance-my-turn-sfx.js"></script>
 <!-- Online play: PeerJS (WebRTC peer-to-peer connections) -->
 <script src="lib/peerjs.min.js"></script>
@@ -451,7 +452,8 @@ function updateCamera(dt) {
   }
   if (typeof ult !== 'undefined' && ult) {          // ultimate: push in close on the action
     const u = ult.user, v = ult.target;
-    if (ult.def.wrestle && ult.cx !== undefined) { tx = ult.cx; ty = STAGE.y - 120; tz = 1.0; speed = 4; }   // the whole ring in view
+    if (ult.def.deck && ult.cam) { tx = ult.cam.x; ty = ult.cam.y; tz = ult.cam.z; speed = ult.cam.fast ? 28 : ult.scene ? 6 : 4; }   // the pirate ship ring
+    else if (ult.def.wrestle && ult.cx !== undefined) { tx = ult.cx; ty = STAGE.y - 120; tz = 1.0; speed = 4; }   // the whole ring in view
     else if (ult.def.rush) {                                 // Lance: close on the two of them for the line, wider for the beating
       const talk = ult.phase === 'talk';
       tx = (u.x + v.x) / 2; ty = Math.min(u.y, v.y) - (talk ? 60 : 90); tz = talk ? 1.55 : 1.0; speed = talk ? 2.5 : 5;
@@ -1113,8 +1115,8 @@ const LANCE_MOVES = {
 // harder, but the strain on his body gets MUCH worse (damage he takes every second).
 const KAIOKEN = { taken: 1, color: '#ff2a1f',
                   levels: [{ dealt: 1.05, drain: 1 },      // KAIOKEN     : +5%,  1% a second
-                           { dealt: 1.1,  drain: 2.5 },    // KAIOKEN x2  : +10%, 2.5% a second
-                           { dealt: 1.16, drain: 5 }] };   // KAIOKEN x3  : +16%, 5% a second
+                           { dealt: 1.1,  drain: 2 },      // KAIOKEN x2  : +10%, 2% a second
+                           { dealt: 1.16, drain: 4 }] };   // KAIOKEN x3  : +16%, 4% a second
 const kaiokenLv = f => KAIOKEN.levels[Math.min(3, f.kaioken | 0) - 1] || null;
 function toggleKaioken(f) {
   f.kaioken = (f.kaioken | 0) >= 3 ? 0 : (f.kaioken | 0) + 1;
@@ -2951,6 +2953,7 @@ const SPD = { flip: 0.22, leap: 1350, turns: 2.6, holdY: 4, grabReach: 70, grabR
 function stepPiledriver(f, a, dt) {
   const v = a.victim, F = a.face0, T = a.t;
   if (a.released) { f.vx = approach(f.vx, 0, FRICTION * dt); return; }
+  if (a.gy0 === undefined) a.gy0 = f.y;                       // (the floor it started on - his grab ultimate needs it)
   v.vx = v.vy = 0; v.face = F;                                // (upside down, facing the same way he does)
   const hold = (d) => { v.x = f.x + F * d; v.y = f.y - SPD.holdY; };
   const wrap = (turn) => ({ ...pose({ lean: 0.08, bob: -10, legA: [0.55, 0.8], legB: [-0.45, 0.8],          // knees round their head
@@ -3028,7 +3031,7 @@ function trySPD(f) {
   f.action = { type: 'grab', t: GRAB.startup + GRAB.active, dur: GRAB.startup + GRAB.active + GRAB.whiffLag + 0.25, started: time };
   return true;
 }
-// ---------------- FORWARD THROW: RKO (Randy Orton / Bryan Fury) ----------------
+// ---------------- FORWARD THROW: the YARKO (a pirate's RKO - Randy Orton / Bryan Fury) ----------------
 // 1. He hauls them up onto his SHOULDERS (lying across them)...
 // 2. ...and HEAVES them straight up into the air, spinning.
 // 3. He JUMPS up after them and catches them round the NECK at the top ("OUTTA NOWHERE!")...
@@ -3111,7 +3114,7 @@ function stepRKO(f, a, dt) {
     if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += THROW_HITSTUN_BONUS;
     burst(v.x, a.gy0 - 10, FIRE, 20, Math.PI / 2, 1.0, 460, { grav: -250 });
     if (f.revenge > 0) consumeRevenge(f, v.x, a.gy0 - 30);
-    painTexts.push({ x: v.x, y: a.gy0 - 140, t: 0.8, max: 0.8, text: 'RKO!', big: true });
+    painTexts.push({ x: v.x, y: a.gy0 - 140, t: 0.8, max: 0.8, text: 'YARKO!', big: true });
     a.dur = a.t + 0.4;
     a.pose = pose({ lean: 1.2, bob: -44, legA: [-1.3, 0.1], legB: [-1.55, 0.15], armA: [1.9, 0.2], armB: [2.3, 0.2], armC: [1.5, 0.2], armD: [1.8, 0.2] });   // flat on the mat beside them
   }
@@ -3738,6 +3741,476 @@ function drawPirateShip(S, dir) {
 // (behind everyone while it sails in and is held up; in FRONT of them once it's coming down on them)
 function drawShipUlts(front) {
   for (const f of fighters) if (f.action && f.action.type === 'shipUlt' && (f.action.t >= SHIP.holdEnd) === !!front) drawPirateShip(f.action.ship, f.action.dir);
+}
+
+// ---------------- DEAD MAN'S DECK MATCH (Aiden's GRAB ultimate) ----------------
+// Press ULT while holding someone in ANY grab or throw: a flash, and the two of them are suddenly on the deck of a
+// pirate ship out at sea - with a wrestling ring built on it. He runs the ropes (bouncing off them, leaping over
+// his dazed opponent), FLYING ARM BAR - SNAP, their arm's broken - climbs the top turnbuckle, flexes... then jumps
+// SUPER high, way up past the clouds, and comes down with a NUCLEAR ELBOW DROP (a mushroom cloud over the ship).
+// Then another flash and they're back on the stage, the victim blasted away.
+const DECK = { half: 300, post: 112, jumpH: 1500 };
+const DT_ = {                           // the timeline (seconds)
+  warp: 0.35, warpIn: 0.7,              // white-out: off to the ship / fade in on it
+  runs: [[0.7, 1.0], [1.08, 1.55], [1.63, 2.1], [2.18, 2.42]],   // the rope runs: back, forward, back, then at them
+  leap: 2.62, down: 2.8, snap: 3.3, armEnd: 3.62,
+  climb: 4.2, flex: 4.6, rise: 5.3, hang: 5.55, drop: 5.85,
+  back: 7.35, end: 7.75,
+};
+function heldVictim(f) {                // whoever f has hold of right now (grab, throw, whip...)
+  return fighters.find(t => t !== f && t.action && t.action.holder === f && ['grabbed', 'whipped', 'thrown'].includes(t.action.type) && t.respawnTimer <= 0);
+}
+function startDeckUlt(f, v) {
+  const def = CHARACTERS[f.char].grabUlt, a0 = f.action;      // (a0: the throw he's in the middle of, if any)
+  f.ultPower = 0.5 + 0.5 * clamp((f.ult || 0) / ULT_MAX, 0, 1);
+  f.ult = 0; f.ultBuf = 0; f.atkBuf = f.spcBuf = f.grabBuf = 0; f.shielding = false;
+  if (cage && cage.owner === f) breakCage();
+  heelSay(f, 'roar');
+  ultBanner = { t: 1.1, name: def.name, color: f.color, who: f };
+  hitstop = Math.max(hitstop, 0.3);
+  shake = Math.max(shake, 10);
+  sfx.parry(); sfx.clash(true);
+  startUltSequence(f, v, def);
+  const U = ult;
+  U.phase = 'deck'; U.dir = f.face || 1;
+  U.userPose = pose({ lean: 0.2, bob: -6, legA: [0.7, 0.5], legB: [-0.6, 0.2], grip: [44, -58] });   // (drawn before its first update)
+  U.victimPose = pose({ lean: -0.5, legA: [0.6, 0.6], legB: [-0.5, 0.4], armA: [-2.4, 0.3], armB: [2.3, -0.3] });
+  U.home = { ux: f.x, uy: f.y, vx: v.x, vy: v.y };
+  // Straight out of the SPINNING PILEDRIVER or the YARKO: the throw carries on UP into the sky, and they come
+  // down out of it onto the ship - the piledriver / the YARKO lands on the deck, and the ult goes on from there
+  U.entry = a0 && a0.type === 'throw' && a0.kind === 'piledriver' ? 'spd' : a0 && a0.type === 'throw' && a0.kind === 'rko' ? 'rko' : null;
+  if (!f.ground) {                                                 // (they come back down on the floor the throw started from)
+    const floor = a0 && a0.gy0 !== undefined ? a0.gy0 : STAGE.y;
+    U.home.uy = U.home.vy = floor; U.home.vx = f.x + (f.face || 1) * 40;
+  }
+  if (f.shipSong) stopBuffer(f.shipSong, 0.1);
+  f.shipSong = playBuffer(deckUltBuf || shipUltBuf, DECK_SONG.vol, deckUltBuf ? DECK_SONG.from : SHIP_SONG.from);   // "Poop Deck Party" from 1:11
+}
+function updateDeckUlt(U, dt) {
+  const u = U.user, v = U.target, d = U.dir, T = U.t;
+  const cx = STAGE.x + STAGE.w / 2, gy = STAGE.y, H_ = DECK.half;
+  const once = k => !U.events.has(k) && U.events.add(k);
+  u.vx = u.vy = v.vx = v.vy = 0;
+  u.anim += dt; v.anim += dt;
+  u.hitFlash = Math.max(0, u.hitFlash - dt); v.hitFlash = Math.max(0, v.hitFlash - dt);
+  U.jolt = Math.max(0, U.jolt - dt);
+  U.cheer = Math.max(1, (U.cheer || 1) - dt * 1.5);                // the crew goes wild on the big moments
+  if (U.entry && !U.entryDone) return stepDeckEntry(U, dt);        // (out of the piledriver / YARKO: they fall onto the ship)
+  // white-out flash in and out of the scene
+  U.white = T < DT_.warp ? T / DT_.warp : T < DT_.warpIn ? 1 - (T - DT_.warp) / (DT_.warpIn - DT_.warp)
+          : T > DT_.back ? Math.min(1, (T - DT_.back) / 0.2) * (T < DT_.back + 0.25 ? 1 : 1 - (T - DT_.back - 0.25) / 0.15) : 0;
+  if (T < DT_.warp) {                                              // still on the stage, about to vanish
+    U.cam = null;
+    U.userPose = pose({ lean: 0.2, bob: -6, legA: [0.7, 0.5], legB: [-0.6, 0.2], grip: [44, -58] });
+    U.victimPose = pose({ lean: -0.5, legA: [0.6, 0.6], legB: [-0.5, 0.4], armA: [-2.4, 0.3], armB: [2.3, -0.3] });
+    return;
+  }
+  if (T < DT_.back + 0.2) {
+    if (once('arrive')) { U.scene = true; U.ropes = { L: 0, R: 0 }; particles.length = 0; ghosts.length = 0; sfx.huge(); }
+  }
+  U.ropes.L = U.ropes.R = 0;
+  const ropeX = side => cx + side * H_;                          // side: +d = the far ropes, -d = the near ones
+  const stretch = (side, amt) => { if (side > 0) U.ropes.R = amt; else U.ropes.L = amt; };
+  const run = sp => pose({ lean: 0.55, bob: -4 + Math.abs(Math.sin(T * sp)) * 3, legA: [Math.sin(T * sp) * 1.0, 0.4 + Math.max(0, Math.cos(T * sp)) * 1.3],
+                           legB: [-Math.sin(T * sp) * 1.0, 0.4 + Math.max(0, -Math.cos(T * sp)) * 1.3], armA: [-1.6, -0.4], armB: [-1.9, -0.3], armC: [-1.3, -0.5], armD: [-1.5, -0.4] });
+  const lying = (armA, armB, extra = {}) => ({ ...pose({ lean: 0, legA: [0.12, 0.1], legB: [-0.12, 0.1], armA, armB, ...extra }), spin: -d * Math.PI / 2 });
+  const vx0 = cx + d * 40;                                         // where the victim stands (and later lies)
+  const dazed = () => { const w = Math.sin(T * 5); return pose({ lean: -0.15 + w * 0.15, bob: -4, legA: [0.35, 0.3], legB: [-0.35, 0.3], armA: [-0.4 + w * 0.3, 0.3], armB: [0.5 - w * 0.3, 0.3] }); };
+  U.caption = null;
+  let camX = cx, camY = gy - 150, camZ = 1.0;
+
+  if (T < DT_.leap) {
+    // ---- ROPE RUNS: he bounces back and forth off the ropes, hurdling his dazed opponent each time ----
+    v.x = vx0; v.y = gy; v.face = Math.sign(u.x - v.x) || -d; U.victimPose = dazed();
+    const legs = DT_.runs, from = [cx - d * 60, ropeX(-d), ropeX(d), ropeX(-d)], to = [ropeX(-d), ropeX(d), ropeX(-d), vx0 - d * 120];
+    let i = legs.findIndex(([a, b]) => T < b);
+    if (i < 0) i = legs.length;
+    if (i < legs.length && T >= legs[i][0]) {                      // running a leg
+      const [a, b] = legs[i], k = (T - a) / (b - a);
+      u.x = lerp(from[i], to[i], i === 0 ? easeOut(k) : k);
+      u.face = Math.sign(to[i] - from[i]);
+      const near = Math.max(0, 1 - Math.abs(u.x - v.x) / 80);       // hurdles over them
+      u.y = gy - Math.sin(near * Math.PI / 2) * 95;
+      U.userPose = near > 0.2 ? pose({ lean: 0.4, legA: [1.6, 1.4], legB: [-0.9, 1.6], armA: [2.4, 0.2], armB: [1.6, 0], armC: [2.1, 0.2], armD: [1.4, 0] }) : run(26);
+      if (near > 0.5 && once('hop' + i)) sfx.whoosh(false);
+      if (Math.floor(T * 9) !== Math.floor((T - dt) * 9) && near < 0.2) sfx.step();
+    } else if (i < legs.length) {                                   // bouncing off the ropes between legs
+      const side = Math.sign(from[i] - cx), [a] = legs[i], b0 = legs[i - 1] ? legs[i - 1][1] : a;
+      const k = clamp((T - b0) / (a - b0), 0, 1), s = Math.sin(k * Math.PI) * 30;
+      u.x = ropeX(side) + side * s; u.y = gy; u.face = side; stretch(side, s);
+      U.userPose = pose({ lean: -0.35, bob: -6, legA: [0.3, 0.3], legB: [-0.6, 0.5], armA: [-2.4, 0.4], armB: [-2.2, 0.3], armC: [-2.0, 0.4], armD: [-1.9, 0.3] });   // back into the ropes
+      if (once('boing' + i)) { sfx.whoosh(true); shake = Math.max(shake, 4); }
+    } else {                                                        // the leap: up and onto them
+      const k = clamp((T - legs[legs.length - 1][1]) / (DT_.leap - legs[legs.length - 1][1]), 0, 1);
+      u.x = lerp(vx0 - d * 120, vx0 - d * 10, k); u.y = gy - Math.sin(k * Math.PI) * 120 - 20 * k; u.face = d;
+      U.userPose = pose({ lean: 1.0, legA: [1.7, 1.9], legB: [1.3, 1.7], armA: [1.6, 0], armB: [1.4, 0.1], armC: [1.2, 0], armD: [1.0, 0.1] });
+      if (once('leap')) { sfx.whoosh(true); heelSay(u, 'shout'); }
+    }
+    if (T < 1.0) U.caption = 'WELCOME ABOARD...';
+    else U.caption = 'RUNNING THE ROPES!';
+    camZ = 1.3; camY = gy - 110;
+  } else if (T < DT_.armEnd) {
+    // ---- FLYING ARM BAR (standing - like the photo): he lands ON them, legs hooked over their shoulder and round
+    //      their neck, their arm pulled straight up across his chest - hanging off it, leaning back, cranking it while
+    //      they stagger under him... SNAP. Then they both drop: them flat on the mat, him onto his feet. ----
+    const snapped = T >= DT_.snap, crank = clamp((T - DT_.leap) / (DT_.snap - DT_.leap), 0, 1);
+    const fall = clamp((T - DT_.snap - 0.08) / 0.2, 0, 1);             // after the snap: down they go
+    const sway = Math.sin(T * 9) * (1 - fall);
+    v.face = -d; u.face = d;
+    if (fall <= 0) {
+      v.x = vx0 + d * sway * 6; v.y = gy;
+      // standing, knees buckling under his weight, leaning back, their arm straight up - then bent the WRONG way
+      U.victimPose = pose({ lean: -0.2 - 0.25 * crank + sway * 0.06, bob: -6 - 12 * crank, legA: [0.55 + 0.2 * crank, 0.8 + 0.5 * crank], legB: [-0.5, 0.6 + 0.4 * crank],
+                            armA: snapped ? [2.25, -1.7] : [2.25 + Math.sin(T * 30) * 0.05 * crank, 0], armB: [-0.7 + Math.sin(T * 12) * 0.5, 0.6] });
+      // him: hips up at their shoulder, both legs hooked forward over it (one round the neck, one across the chest),
+      // body leaning back off them, all four hands on their wrist, cranking it back against his chest
+      u.x = v.x - d * 34; u.y = gy - 14 + 6 * crank;
+      const tips = figureTips(v), wr = tips ? tips.hA : { x: v.x - d * 24, y: gy - 92 };
+      const g = [(wr.x - u.x) * u.face / 1.12, (wr.y - u.y) / 1.12];
+      U.userPose = { ...pose({ lean: -0.85 - 0.3 * crank, bob: 0, legA: [1.95, 1.9], legB: [1.35, 1.2], grip: g, lowFree: false }), raw: true };
+      if (!snapped && Math.random() < dt * 20) U.jolt = 0.03;
+      if (once('latch')) { sfx.grab(); shake = Math.max(shake, 10); hitstop = Math.max(hitstop, 0.08); }
+    } else {
+      // they topple straight back onto the mat; he drops off and lands on his feet beside them
+      v.x = vx0; v.y = lerp(gy, gy + 38, easeOut(fall));
+      U.victimPose = { ...pose({ lean: 0, legA: [0.12, 0.1], legB: [-0.12, 0.1], armA: [1.57, -1.4], armB: [2.6, -0.2] }), spin: -d * Math.PI / 2 * easeOut(fall) };
+      u.x = lerp(vx0 - d * 34, vx0 - d * 30, fall); u.y = lerp(gy - 14, gy, fall * fall);
+      U.userPose = pose({ lean: 0.3, bob: -14 * (1 - fall), legA: [0.9, 1.2], legB: [-0.5, 0.8], armA: [1.2, 0.5], armB: [1.0, 0.5], armC: [0.8, 0.6], armD: [0.6, 0.6] });
+      if (fall >= 1 && once('mat')) { painfulSlam(v, vx0, gy, 0, false); shake = Math.max(shake, 12); v.damage += 3 * AIDEN_POWER.dmg * U.power; }
+    }
+    if (snapped && once('snap')) {
+      U.cheer = 2.2;
+      v.damage += 9 * AIDEN_POWER.dmg * U.power; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + 9);
+      v.hitFlash = 0.15; U.jolt = 0.15;
+      impactFrame = 0.14; impactAt = { x: vx0, y: gy - 70, ang: 0, all: false, focus: true, invert: true };
+      hitstop = Math.max(hitstop, 0.25); shake = 22;
+      burst(vx0, gy - 70, ['#ffffff', '#ffd23f'], 20, 0, Math.PI, 500, { grav: 0 });
+      sfx.snap(); sfx.hit(1); heelSay(u, 'effort');
+    }
+    U.caption = snapped ? 'SNAP!!' : 'FLYING ARM BAR!';
+    camX = vx0 - d * 12; camY = gy - 70; camZ = 2.0;
+  } else if (T < DT_.flex) {
+    // ---- up onto the top turnbuckle (the corner past their feet) and FLEX ----
+    v.x = vx0; v.y = gy + 38; v.face = -d;
+    U.victimPose = { ...pose({ lean: 0, legA: [0.12, 0.1], legB: [-0.12, 0.1], armA: [1.57, -1.4], armB: [2.6, -0.2] }), spin: -d * Math.PI / 2 };
+    const postX = ropeX(d) - d * 6;
+    const k = clamp((T - DT_.armEnd) / (DT_.climb - DT_.armEnd), 0, 1);
+    if (k < 1) {
+      u.x = lerp(vx0 - d * 30, postX, easeOut(k)); u.y = gy - DECK.post * easeOut(k) - Math.sin(k * Math.PI) * 80;
+      u.face = d;
+      U.userPose = pose({ lean: 0.3, legA: [1.4, 2.2], legB: [1.0, 2.0], armA: [2.4, -0.5], armB: [2.0, -0.4], armC: [2.2, -0.3], armD: [1.8, -0.3] });
+      if (once('climb')) sfx.whoosh(true);
+    } else {
+      u.x = postX; u.y = gy - DECK.post; u.face = -d;
+      U.userPose = pose({ lean: -0.1, bob: -4, legA: [0.35, 0.2], legB: [-0.3, 0.15], armA: [2.5, -1.7], armB: [2.2, -1.8], armC: [1.4, -2.0], armD: [1.1, -2.1] });   // FLEX
+      if (once('flex')) { burst(u.x, u.y - 60, FIRE, 30, Math.PI / 2, 1.0, 400, { grav: -300 }); ring(u.x, u.y - 50); sfx.parry(); heelSay(u, 'roar'); U.cheer = 2.2; }
+    }
+    U.caption = 'TO THE TOP ROPE!';
+    camX = cx + d * 140; camY = gy - 130; camZ = 1.25;
+  } else if (T < DT_.drop) {
+    // ---- the jump: SUPER high, way up through the clouds... then the NUCLEAR ELBOW comes down ----
+    v.x = vx0; v.y = gy + 38; v.face = -d;
+    const postX = ropeX(d) - d * 6, topY = gy - DECK.post - DECK.jumpH;
+    if (T < DT_.rise) {
+      const k = (T - DT_.flex) / (DT_.rise - DT_.flex);
+      u.x = lerp(postX, vx0, k); u.y = lerp(gy - DECK.post, topY, easeOut(k)); u.face = -d;
+      U.userPose = pose({ lean: -0.1, legA: [0.2, 0.2], legB: [-0.2, 0.2], armA: [3.1, 0], armB: [3.0, 0], armC: [2.8, 0], armD: [2.7, 0] });
+      if (once('launch')) { dust(postX, gy - DECK.post, 20, 3); ring(postX, gy - DECK.post); shake = 14; sfx.whoosh(true); sfx.beam(0.5); }
+      if (Math.random() < dt * 40) ghosts.push({ fig: figureOf(u), life: 0.25, max: 0.25, color: '#ff8a3c' });
+      U.caption = 'HE\'S GOING ALL THE WAY UP!';
+    } else if (T < DT_.hang) {                                    // a twinkle at the very top
+      u.x = vx0; u.y = topY; u.face = -d;
+      const k = (T - DT_.rise) / (DT_.hang - DT_.rise);
+      U.userPose = { ...pose({ lean: 0, legA: [0.2, 0.3], legB: [-0.3, 0.3], armA: [0.4, 2.4], armB: [2.6, 0.3], armC: [2.4, 0.2], armD: [2.2, 0.2] }), spin: d * Math.PI / 2 * easeOut(k) };
+      if (once('twinkle')) { sfx.parry(); burst(u.x, u.y - 40, ['#ffffff', '#ffd23f'], 14, 0, Math.PI, 300, { grav: 0 }); }
+      U.caption = '...';
+    } else {                                                        // DOWN he comes - elbow first, on fire
+      const k = (T - DT_.hang) / (DT_.drop - DT_.hang);
+      u.x = vx0; u.y = lerp(topY, gy + 30, k * k); u.face = -d;
+      U.userPose = { ...pose({ lean: 0, legA: [0.2, 0.3], legB: [-0.3, 0.3], armA: [0.4, 2.4], armB: [2.6, 0.3], armC: [2.4, 0.2], armD: [2.2, 0.2] }), spin: d * Math.PI / 2 };
+      if (once('fall')) { sfx.whoosh(true); heelSay(u, 'shout'); }
+      ghosts.push({ fig: figureOf(u), life: 0.18, max: 0.18, color: '#ff5a1a' });
+      burst(u.x, u.y - 30, FIRE, 3, -Math.PI / 2, 0.5, 300, { grav: -400 });
+      U.caption = 'NUCLEAR ELBOW!!!';
+    }
+    camX = vx0; camY = Math.min(gy - 150, u.y + 60); camZ = T < DT_.rise ? lerp(1.25, 0.8, (T - DT_.flex) / (DT_.rise - DT_.flex)) : 0.8;
+  } else {
+    // ---- KA-BOOM: a mushroom cloud over the ship ----
+    if (!U.events.has('home')) { v.x = vx0; v.y = gy + 38; u.x = vx0; u.y = gy + 30; }
+    else { u.x = U.home.ux; u.y = U.home.uy; v.x = U.baseX; v.y = U.baseY; }
+    U.victimPose = { ...pose({ lean: 0, legA: [0.5, 0.3], legB: [-0.5, 0.3], armA: [2.0, 0.6], armB: [-2.0, 0.4] }), spin: -d * Math.PI / 2 };
+    U.userPose = { ...pose({ lean: 0, legA: [0.2, 0.3], legB: [-0.3, 0.3], armA: [0.4, 2.4], armB: [2.6, 0.3], armC: [2.4, 0.2], armD: [2.2, 0.2] }), spin: d * Math.PI / 2 };
+    if (once('nuke')) {
+      U.nuke = { x: vx0, y: gy, t: 0 }; U.cheer = 2.6;
+      v.damage += 14 * AIDEN_POWER.dmg * U.power; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + 12);
+      v.hitFlash = 0.2;
+      impactFrame = 0.25; impactAt = { x: vx0, y: gy - 20, ang: Math.PI / 2, all: false, focus: true, invert: true, fire: true };
+      hitstop = Math.max(hitstop, 0.35); shake = 40; camPunch = 1;
+      for (let k = 0; k < 7; k++) burst(vx0 + (k - 3) * 40, gy - 10, FIRE, 26, Math.PI / 2, 0.8, 800 + k * 80, { grav: -350 });
+      dust(vx0, gy, 40, 4); ring(vx0, gy - 10); ring(vx0, gy - 60); ring(vx0, gy - 120);
+      cracks.push({ x: vx0, y: gy, life: 6, max: 6, seed: Math.random() * 1000, size: 2.6 });
+      sfx.huge(); sfx.slam(); sfx.slam(); sfx.clash(true); sfx.beam(1); heelSay(u, 'roar');
+    }
+    if (U.nuke) U.nuke.t += dt;
+    if (U.scene && Math.random() < dt * 25) burst(vx0 + (Math.random() - 0.5) * 300, gy - Math.random() * 400, ['#ff7a1a', '#ffd23f', '#6a6a6a'], 2, -Math.PI / 2, 1.2, 200, { grav: -100 });
+    U.caption = 'NUCLEAR ELBOW!!!';
+    shake = Math.max(shake, 6);
+    camX = vx0; camY = gy - 250; camZ = 0.72;
+    if (T >= DT_.back + 0.2 && once('home')) {                     // back to the stage
+      U.scene = false; U.nuke = null; particles.length = 0; ghosts.length = 0;
+      u.x = U.home.ux; u.y = U.home.uy; U.baseX = U.home.vx; U.baseY = U.home.vy;
+      v.x = U.baseX; v.y = U.baseY;
+    }
+    if (T >= DT_.end) {
+      u.y = U.home.uy; U.victimPose = null;
+      endShipSong(u);
+      endUlt(U);
+      return;
+    }
+  }
+  if (!U.scene) { camX = v.x; camY = v.y - 70; camZ = 1.1; }
+  U.cam = { x: camX, y: camY, z: camZ };
+}
+// --- out of the SPINNING PILEDRIVER / YARKO: up into the sky off the stage... and down out of it onto the ship ---
+const ENTRY = { up: 0.5, land: 1.0, out: 1.35 };
+function stepDeckEntry(U, dt) {
+  const u = U.user, v = U.target, d = U.dir, T = U.t, once = k => !U.events.has(k) && U.events.add(k);
+  const cx = STAGE.x + STAGE.w / 2, gy = STAGE.y, vx0 = cx + d * 40, spd = U.entry === 'spd';
+  U.white = T < 0.25 ? 0 : T < ENTRY.up ? (T - 0.25) / 0.25 : T < ENTRY.up + 0.25 ? 1 - (T - ENTRY.up) / 0.25 : 0;
+  U.caption = null;
+  const limp = (extra = {}) => pose({ lean: -0.3, legA: [0.4, 0.4], legB: [-0.4, 0.4], armA: [-2.6, 0.2], armB: [2.5, -0.2], ...extra });
+  const wrap = turn => ({ ...pose({ lean: 0.08, bob: -10, legA: [0.55, 0.8], legB: [-0.45, 0.8], grip: [8, -66], lowFree: false }), turnX: turn, raw: true });
+  const rkoFly = pose({ lean: 1.2, legA: [-1.25, 0.15], legB: [-1.55, 0.2], grip: [56, -74], armB: [2.4, 0.3], armD: [1.9, 0.3] });
+  let cam;
+  if (T < ENTRY.up) {                                              // 1. UP off the stage, high into the sky
+    const k = T / ENTRY.up, rise = k * k;
+    u.x = U.home.ux; u.face = d;
+    if (spd) {                                                     // still corkscrewing, them upside down between his knees
+      const c = Math.cos(T * Math.PI * 2 * 3);
+      u.y = U.home.uy - 1100 * rise; v.x = u.x + d * 8 * c; v.y = u.y - 4; v.face = d;
+      U.userPose = wrap(c); U.victimPose = { ...limp(), spin: d * Math.PI, turnX: c, raw: true };
+    } else {                                                       // the YARKO: hurled up, and he leaps up after them
+      v.x = U.home.ux + d * 30; v.y = U.home.vy - 1250 * Math.pow(k, 1.4); v.face = -d;
+      u.y = U.home.uy - 1100 * rise;
+      U.victimPose = { ...limp(), spin: d * T * 14 };
+      U.userPose = pose({ lean: -0.1, legA: [0.9, 1.6], legB: [0.4, 1.2], armA: [3.0, 0], armB: [2.8, 0], armC: [2.5, 0.3], armD: [2.3, 0.3] });
+    }
+    if (once('liftoff')) { dust(u.x, U.home.uy, 18, 2.4); ring(u.x, U.home.uy); sfx.whoosh(true); heelSay(u, 'shout'); }
+    if (Math.random() < dt * 40) ghosts.push({ fig: figureOf(u), life: 0.2, max: 0.2, color: '#ff8a3c' });
+    cam = { x: u.x, y: Math.min(u.y, v.y) - 60, z: 1.0, fast: true };
+  } else {
+    if (once('arrive')) { U.scene = true; U.ropes = { L: 0, R: 0 }; particles.length = 0; ghosts.length = 0; sfx.huge(); }
+    U.ropes.L = U.ropes.R = 0;
+    if (T < ENTRY.land) {                                          // 2. DOWN out of the sky onto the ring
+      const k = (T - ENTRY.up) / (ENTRY.land - ENTRY.up), y = lerp(gy - 900, gy, k * k);
+      if (spd) {
+        const c = Math.cos(T * Math.PI * 2 * 3);
+        u.x = cx - d * 10; u.y = y; v.x = u.x + d * 8 * c; v.y = y - 4; v.face = d; u.face = d;
+        U.userPose = wrap(c); U.victimPose = { ...limp(), spin: d * Math.PI, turnX: c, raw: true };
+      } else {                                                     // diving in flat, arm hooked round their head
+        v.x = cx + d * 30; v.y = y; v.face = -d; u.face = d;
+        u.x = v.x - d * 58; u.y = y - 6;
+        U.victimPose = { ...limp({ lean: 0.4 }), spin: d * (0.4 + 1.2 * k) };
+        U.userPose = rkoFly;
+      }
+      ghosts.push({ fig: figureOf(u), life: 0.15, max: 0.15, color: '#ff8a3c' });
+      if (once('falling')) sfx.whoosh(true);
+      U.caption = spd ? 'SPINNING PILEDRIVER...' : 'YAR...';
+      cam = { x: cx, y: Math.min(gy - 120, y - 40), z: 1.1, fast: true };   // (keeps right on them as they fall)
+    } else {                                                       // 3. IMPACT on the deck - then up, and on with the show
+      if (once('plant')) {
+        v.damage += 7 * AIDEN_POWER.dmg * U.power; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + 7);
+        v.hitFlash = 0.15; U.cheer = 2.4;
+        const hx = spd ? cx - d * 2 : cx + d * 40;
+        impactFrame = 0.16; impactAt = { x: hx, y: gy - 20, ang: Math.PI / 2, all: false, focus: true, invert: true, fire: true };
+        hitstop = Math.max(hitstop, 0.25); shake = 30; camPunch = 1;
+        burst(hx, gy - 10, FIRE, 30, Math.PI / 2, 1.1, 560, { grav: -250 });
+        dust(hx, gy, 24, 3); ring(hx, gy);
+        cracks.push({ x: hx, y: gy, life: 6, max: 6, seed: Math.random() * 1000, size: 1.8 });
+        sfx.slam(); sfx.huge(); sfx.hit(1); heelSay(u, 'roar');
+      }
+      const k = clamp((T - ENTRY.land) / (ENTRY.out - ENTRY.land), 0, 1);
+      if (k < 0.45) {                                              // the landing, held a beat
+        if (spd) {
+          u.x = cx - d * 10; u.y = gy; v.x = cx - d * 2; v.y = gy; v.face = d;
+          U.userPose = pose({ lean: 0.15, bob: -40, legA: [1.5, 0.25], legB: [1.3, 0.35], armA: [1.1, -1.2], armB: [0.9, -1.2], armC: [0.8, -0.9], armD: [0.6, -0.9] });
+          U.victimPose = { ...limp(), spin: d * Math.PI, raw: true };
+        } else {
+          v.x = cx + d * 40; v.y = gy + 38; v.face = -d; u.x = cx - d * 10; u.y = gy; u.face = d;
+          U.victimPose = { ...pose({ lean: 0, legA: [0.12, 0.1], legB: [-0.12, 0.1], armA: [2.6, 0.2], armB: [2.4, 0.2] }), spin: d * Math.PI / 2 };   // face-first
+          U.userPose = pose({ lean: 1.2, bob: -44, legA: [-1.3, 0.1], legB: [-1.55, 0.15], armA: [1.9, 0.2], armB: [2.3, 0.2], armC: [1.5, 0.2], armD: [1.8, 0.2] });
+        }
+      } else {                                                     // he springs up and backs off; they stagger up, dazed
+        const j = (k - 0.45) / 0.55;
+        u.x = lerp(cx - d * 10, cx - d * 60, j); u.y = gy; u.face = d;
+        U.userPose = pose({ lean: -0.2, bob: -8 * (1 - j), legA: [0.5, 0.4], legB: [-0.5, 0.3], armA: [2.5, -1.7], armB: [2.2, -1.8], armC: [1.4, -2.0], armD: [1.1, -2.1] });
+        v.x = lerp(spd ? cx - d * 2 : cx + d * 40, vx0, j); v.y = gy; v.face = -d;
+        U.victimPose = pose({ lean: -0.35 + j * 0.2, bob: -14 * (1 - j), legA: [0.6, 0.9], legB: [-0.5, 0.7], armA: [-0.6, 0.4], armB: [0.6, 0.4] });
+      }
+      U.caption = spd ? 'SPINNING PILEDRIVER!' : 'YARKO! OUTTA NOWHERE!';
+      cam = { x: cx, y: gy - 110, z: 1.3, fast: k < 0.2 };
+      if (T >= ENTRY.out) {                                        // hand over to the rope runs
+        U.entryDone = true; U.t = DT_.warpIn;
+        u.x = cx - d * 60; u.y = gy; v.x = vx0; v.y = gy;
+      }
+    }
+  }
+  U.cam = cam;
+}
+// --- the SKELETON CREW: deckhands all round the ring and up in the rigging, cheering for their captain ---
+const CREW_WORDS = ['YARRR!', 'CAPTAIN!!', 'HEEL! HEEL!', 'HOIST HIM!', 'BREAK IT!', 'HAR HAR!', 'AYE!!'];
+function drawCrewmate(x, y, s, k, hype, face) {
+  const bone = sketch ? '#1b1b1b' : '#e8e2cf', dark = '#1a1511';
+  const sp = 5 + hash(k * 1.3) * 4, ph = time * sp + k * 2.1;
+  const hop = Math.max(0, Math.sin(ph)) * (5 + 6 * hype) * s;
+  const by = y - hop;
+  ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = bone; ctx.lineWidth = 3.4 * s;
+  const hip = { x, y: by - 28 * s }, sh = { x, y: by - 52 * s };
+  const leg = (dx) => { ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(x + dx * s, by); ctx.stroke(); };
+  leg(-7); leg(7);
+  ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(sh.x, sh.y); ctx.stroke();               // spine
+  ctx.lineWidth = 1.8 * s; for (let r = 0; r < 3; r++) { const ry = sh.y + (5 + r * 5) * s; ctx.beginPath(); ctx.moveTo(x - 6 * s, ry); ctx.lineTo(x + 6 * s, ry); ctx.stroke(); }   // ribs
+  ctx.lineWidth = 3 * s;
+  const kind = Math.floor(hash(k * 5.9) * 3);                                                       // 0 = both fists up, 1 = waving one arm, 2 = pumping a cutlass / tankard
+  const pump = Math.sin(ph * 1.7) * (0.25 + 0.25 * hype);
+  const arm = (ang, len = 20) => { const ex = sh.x + Math.sin(ang) * len * s, ey = sh.y - Math.cos(ang) * len * s; ctx.beginPath(); ctx.moveTo(sh.x, sh.y); ctx.lineTo(ex, ey); ctx.stroke(); return { x: ex, y: ey }; };
+  let hand;
+  if (kind === 0) { arm(-0.45 + pump); hand = arm(0.45 - pump); }
+  else if (kind === 1) { arm(2.6); hand = arm(0.2 + Math.sin(ph * 2.4) * 0.6); }
+  else { arm(2.5); hand = arm(face * 0.3 + pump); }
+  if (kind === 2) {
+    if (hash(k * 2.2) < 0.5) { ctx.strokeStyle = '#b8c0c8'; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.moveTo(hand.x, hand.y); ctx.lineTo(hand.x + face * 4 * s, hand.y - 18 * s); ctx.stroke(); }   // cutlass
+    else { ctx.fillStyle = '#c99a3a'; ctx.fillRect(hand.x - 4 * s, hand.y - 9 * s, 8 * s, 10 * s); ctx.fillStyle = '#f4ecd8'; ctx.fillRect(hand.x - 4 * s, hand.y - 11 * s, 8 * s, 3 * s); }   // tankard of grog
+  }
+  const hx = x, hy = sh.y - 11 * s;                                                                 // the skull
+  ctx.fillStyle = bone; ctx.beginPath(); ctx.arc(hx, hy, 8 * s, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = dark;
+  ctx.beginPath(); ctx.arc(hx + face * 1 * s, hy - 1 * s, 2 * s, 0, Math.PI * 2); ctx.arc(hx + face * 5 * s, hy - 1 * s, 2 * s, 0, Math.PI * 2); ctx.fill();   // eye sockets
+  const mo = 2 + 2 * Math.abs(Math.sin(ph * 2));                                                    // jaw flapping (cheering)
+  ctx.fillRect(hx + face * 1 * s - (face < 0 ? 5 * s : 0), hy + 3 * s, 5 * s, mo * s);
+  const hat = Math.floor(hash(k * 8.3) * 3);
+  if (hat === 0) { ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.arc(hx, hy - 1 * s, 8.4 * s, Math.PI, 0); ctx.fill(); ctx.fillRect(hx - face * 10 * s, hy - 3 * s, 4 * s, 3 * s); }   // bandana
+  else if (hat === 1) { ctx.fillStyle = '#18161a'; ctx.beginPath(); ctx.moveTo(hx - 13 * s, hy - 6 * s); ctx.quadraticCurveTo(hx, hy - 20 * s, hx + 13 * s, hy - 6 * s); ctx.closePath(); ctx.fill(); }   // little tricorne
+  ctx.restore();
+  return hy;
+}
+function drawCrew(U) {
+  const cx = STAGE.x + STAGE.w / 2, gy = STAGE.y, hype = (U.cheer || 1) - 1;
+  const spots = [];
+  for (let k = 0; k < 9; k++) spots.push({ x: cx - DECK.half - 60 - k * 70 - hash(k) * 20, y: gy, s: 1.15 });          // deck, left of the ring
+  for (let k = 0; k < 9; k++) spots.push({ x: cx + DECK.half + 60 + k * 70 + hash(k + 20) * 20, y: gy, s: 1.15 });     // deck, right of the ring
+  for (const [mx, mh] of [[cx - 520, 760], [cx + 560, 680]]) {                                                     // up in the rigging
+    spots.push({ x: mx - 70, y: gy - mh * 0.9, s: 0.9 }, { x: mx + 70, y: gy - mh * 0.9, s: 0.9 }, { x: mx, y: gy - mh - 4, s: 0.9 });
+  }
+  spots.forEach((p, k) => {
+    const face = p.x < cx ? 1 : -1;
+    const hy = drawCrewmate(p.x, p.y, p.s, k, hype, face);
+    const slot = Math.floor(time * 1.4 + hash(k * 3.7) * 7);                                         // now and then one shouts something
+    if (hash(slot * 11.3 + k * 1.9) < 0.12 + 0.15 * hype) {
+      ctx.font = `bold ${Math.round(13 * p.s)}px "Arial Black", sans-serif`; ctx.textAlign = 'center';
+      ctx.fillStyle = sketch ? '#1b1b1b' : '#ffd23f'; ctx.fillText(CREW_WORDS[Math.floor(hash(slot + k) * CREW_WORDS.length)], p.x, hy - 16 * p.s);
+    }
+  });
+  ctx.textAlign = 'left';
+}
+// --- drawing the ship scene ---
+function drawDeckSky(U) {                                          // (screen space, behind everything)
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, sketch ? '#f4ecd8' : '#1a0f2e'); g.addColorStop(0.55, sketch ? '#f4ecd8' : '#6b2a3a'); g.addColorStop(1, sketch ? '#efe2c4' : '#f08a3c');
+  ctx.fillStyle = g; ctx.fillRect(-60, -60, W + 120, H + 120);
+  if (!sketch) { ctx.fillStyle = 'rgba(255,230,180,0.85)'; ctx.beginPath(); ctx.arc(W * 0.78, H * 0.22, 46, 0, Math.PI * 2); ctx.fill(); }   // the moon
+}
+function drawDeckWorld(U) {                                        // (world space)
+  const cx = STAGE.x + STAGE.w / 2, gy = STAGE.y, H_ = DECK.half, ink = sketch ? '#1b1b1b' : '#140c06';
+  const wood = sketch ? '#c9a77a' : '#6b3d1f', plank = sketch ? '#1b1b1b' : '#4e2b14', gold = '#e0b040';
+  // clouds all the way up (so the big jump feels high)
+  for (let k = 0; k < 14; k++) {
+    const x = cx + (hash(k * 3.3) - 0.5) * 2400, y = gy - 300 - hash(k * 7.1) * 1700, s = 60 + hash(k) * 90;
+    ctx.fillStyle = sketch ? 'rgba(30,30,30,0.12)' : 'rgba(255,220,200,0.18)';
+    for (let j = 0; j < 4; j++) { ctx.beginPath(); ctx.arc(x + (j - 1.5) * s * 0.6, y + Math.sin(j * 2) * s * 0.15, s * (0.5 + hash(k + j) * 0.3), 0, Math.PI * 2); ctx.fill(); }
+  }
+  // the sea
+  ctx.fillStyle = sketch ? 'rgba(31,58,147,0.25)' : '#0e2340';
+  ctx.fillRect(cx - 3000, gy + 170, 6000, 3000);
+  ctx.strokeStyle = sketch ? '#1f3a93' : '#2c5a8a'; ctx.lineWidth = 3;
+  for (let r = 0; r < 4; r++) {
+    ctx.beginPath();
+    for (let x = cx - 3000; x <= cx + 3000; x += 40) ctx.lineTo(x, gy + 175 + r * 40 + Math.sin(x * 0.02 + time * 2 + r) * 6);
+    ctx.stroke();
+  }
+  // masts + black sails behind the ring
+  for (const [mx, mh] of [[cx - 520, 760], [cx + 560, 680]]) {
+    ctx.fillStyle = ink; ctx.fillRect(mx - 9, gy - mh, 18, mh);
+    ctx.fillStyle = sketch ? '#f4ecd8' : '#18161c';
+    for (const [y0, w] of [[mh * 0.9, 260], [mh * 0.55, 220]]) {
+      ctx.beginPath(); ctx.moveTo(mx - w / 2, gy - y0); ctx.lineTo(mx + w / 2, gy - y0);
+      ctx.quadraticCurveTo(mx + w / 2 + 30, gy - y0 + 110, mx + w / 2 - 6, gy - y0 + 190); ctx.lineTo(mx - w / 2 + 6, gy - y0 + 190);
+      ctx.quadraticCurveTo(mx - w / 2 + 30, gy - y0 + 110, mx - w / 2, gy - y0); ctx.fill();
+      if (sketch) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }
+    }
+    const sy = gy - mh * 0.9 + 95;                                 // skull & crossbones on the top sail
+    ctx.fillStyle = '#f2efe6'; ctx.beginPath(); ctx.arc(mx, sy, 22, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(mx - 12, sy + 12, 24, 14);
+    ctx.strokeStyle = '#f2efe6'; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(mx - 40, sy + 50); ctx.lineTo(mx + 40, sy + 20); ctx.moveTo(mx - 40, sy + 20); ctx.lineTo(mx + 40, sy + 50); ctx.stroke();
+    ctx.fillStyle = '#18161c'; ctx.beginPath(); ctx.arc(mx - 8, sy - 2, 6, 0, Math.PI * 2); ctx.arc(mx + 8, sy - 2, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.moveTo(mx, gy - mh); ctx.lineTo(mx + 70, gy - mh + 14); ctx.lineTo(mx, gy - mh + 30); ctx.fill();   // flag
+  }
+  // the hull + deck
+  ctx.fillStyle = wood;
+  ctx.beginPath(); ctx.moveTo(cx - 1100, gy - 60); ctx.lineTo(cx + 1100, gy - 60); ctx.quadraticCurveTo(cx + 1040, gy + 140, cx + 860, gy + 200);
+  ctx.lineTo(cx - 860, gy + 200); ctx.quadraticCurveTo(cx - 1040, gy + 140, cx - 1100, gy - 60); ctx.fill();
+  ctx.strokeStyle = plank; ctx.lineWidth = 3;
+  for (const y of [gy + 40, gy + 90, gy + 140]) { ctx.beginPath(); ctx.moveTo(cx - 1030, y); ctx.lineTo(cx + 1030, y); ctx.stroke(); }
+  if (!sketch) { ctx.strokeStyle = gold; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cx - 1100, gy - 58); ctx.lineTo(cx + 1100, gy - 58); ctx.stroke(); }
+  ctx.fillStyle = '#16100a'; for (let x = cx - 900; x <= cx + 900; x += 120) ctx.fillRect(x, gy + 60, 26, 18);   // gun ports
+  ctx.fillStyle = sketch ? '#e8d6b0' : '#8a5a2e'; ctx.fillRect(cx - 1080, gy, 2160, 22);   // the deck boards
+  ctx.strokeStyle = plank; ctx.lineWidth = 1.5; for (let x = cx - 1080; x < cx + 1080; x += 54) { ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy + 22); ctx.stroke(); }
+  // railing along the back of the deck
+  ctx.strokeStyle = ink; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cx - 1080, gy - 70); ctx.lineTo(cx + 1080, gy - 70); ctx.stroke();
+  for (let x = cx - 1060; x <= cx + 1060; x += 70) { ctx.beginPath(); ctx.moveTo(x, gy - 70); ctx.lineTo(x, gy); ctx.stroke(); }
+  drawCrew(U);                                                     // the skeleton crew, cheering their captain on
+  // THE RING: apron, mat, posts, ropes (stretching when he bounces off them)
+  const R = U.ropes || { L: 0, R: 0 }, xL = cx - H_, xR = cx + H_;
+  ctx.fillStyle = sketch ? 'rgba(31,58,147,0.25)' : '#1d2a5e'; ctx.fillRect(xL - 10, gy - 4, xR - xL + 20, 18);
+  ctx.fillStyle = sketch ? '#ffffff' : '#d9d4c4'; ctx.fillRect(xL - 10, gy - 6, xR - xL + 20, 6);
+  const ropeCol = sketch ? '#c0392b' : '#d8262b', postCol = sketch ? '#1b1b1b' : '#2c2c34', pad = sketch ? '#1f3a93' : '#2c63d6';
+  for (const x of [xL, xR]) { ctx.fillStyle = postCol; ctx.fillRect(x - 6, gy - DECK.post, 12, DECK.post); ctx.fillStyle = pad; for (const h of [40, 72, 104]) ctx.fillRect(x - 8, gy - h - 6, 16, 10); }
+  ctx.strokeStyle = ropeCol; ctx.lineWidth = 3;
+  for (const h of [40, 72, 104]) { ctx.beginPath(); ctx.moveTo(xL - R.L, gy - h); ctx.quadraticCurveTo(cx, gy - h + 4, xR + R.R, gy - h); ctx.stroke(); }
+}
+function drawNuke(N) {                                             // the mushroom cloud (world space, in front of everyone)
+  const t = N.t, k = Math.min(1, t / 0.9), x = N.x, gy = N.y;
+  const h = 520 * easeOut(k), cap = 60 + 170 * easeOut(Math.min(1, t / 1.1)), fade = clamp(1 - (t - 1.1) / 0.5, 0, 1);
+  ctx.save(); ctx.globalAlpha = fade;
+  // shockwave rolling out along the deck
+  ctx.strokeStyle = 'rgba(255,240,200,0.8)'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.ellipse(x, gy, 80 + t * 1400, 20 + t * 120, 0, 0, Math.PI * 2); ctx.stroke();
+  // the stem
+  const stem = ctx.createLinearGradient(0, gy, 0, gy - h);
+  stem.addColorStop(0, '#ffd23f'); stem.addColorStop(0.5, '#ff6a1a'); stem.addColorStop(1, '#7a3a1a');
+  ctx.fillStyle = sketch ? '#1b1b1b' : stem;
+  ctx.beginPath(); ctx.moveTo(x - 70, gy); ctx.quadraticCurveTo(x - 30, gy - h * 0.5, x - 50, gy - h); ctx.lineTo(x + 50, gy - h); ctx.quadraticCurveTo(x + 30, gy - h * 0.5, x + 70, gy); ctx.fill();
+  // the cap: billowing puffs round a hot core
+  for (let j = 0; j < 12; j++) {
+    const a = j / 12 * Math.PI * 2, r = cap * (0.55 + hash(j * 5.7) * 0.25);
+    ctx.fillStyle = sketch ? (j % 2 ? '#2a2a2a' : '#444') : (j % 3 === 0 ? '#5a4a44' : j % 3 === 1 ? '#c2541a' : '#8a3a1a');
+    ctx.beginPath(); ctx.arc(x + Math.cos(a) * cap * 0.8, gy - h + Math.sin(a) * cap * 0.42, r * 0.6, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = sketch ? '#111' : '#ffb02e'; ctx.beginPath(); ctx.ellipse(x, gy - h, cap * 0.75, cap * 0.38, 0, 0, Math.PI * 2); ctx.fill();
+  if (!sketch) { ctx.fillStyle = '#fff3b0'; ctx.beginPath(); ctx.ellipse(x, gy - h + cap * 0.08, cap * 0.38, cap * 0.18, 0, 0, Math.PI * 2); ctx.fill(); }
+  // a ring of smoke round the stem
+  ctx.strokeStyle = sketch ? '#333' : 'rgba(120,100,90,0.9)'; ctx.lineWidth = 16;
+  ctx.beginPath(); ctx.ellipse(x, gy - h * 0.5, 90 + cap * 0.2, 22, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+function drawDeckScene(U) {                                        // replaces the stage while they're on the ship
+  drawDeckSky(U);
+  ctx.save(); applyCamera(ctx);
+  drawDeckWorld(U);
+  drawGhosts();
+  drawFighter(U.target); drawFighter(U.user);
+  if (U.nuke) drawNuke(U.nuke);
+  drawParticles();
+  ctx.restore();
 }
 
 // =====================================================================
@@ -4843,6 +5316,7 @@ const CHARACTERS = {
       fourArms: true,         // Machamp: two pairs of arms
       muscle: true,           // huge frame (big V-shaped ribcage, long arms)
       eyepatch: true,         // black eyepatch
+      beard: '#141414',       // a big black BLACKBEARD beard (with two braids)
       flameBelt: true,        // Incineroar's belt of fire
       scale: 1.12,            // a bigger guy than the others (drawn and hit 12% bigger)
       fireHits: true,         // his hits burst into flames
@@ -4945,6 +5419,12 @@ CHARACTERS.AIDEN.ult = {
   final: { dmg: 22, base: 620, growth: 7, angle: 65 },     // everyone on the ground under the ship
 };
 truckHit(CHARACTERS.AIDEN.ult.final);
+// His SECOND ultimate: press ULT while he has hold of someone (any grab or throw) - see updateDeckUlt
+CHARACTERS.AIDEN.grabUlt = {
+  name: "DEAD MAN'S DECK MATCH",
+  deck: true,
+  final: { dmg: 6, base: 640, growth: 7.2, angle: 60 },      // blasted away as they land back on the stage
+};
 for (const h of [CROSS_CHOP.held, CROSS_CHOP.near, CROSS_CHOP.drop, TURNBUCKLE.hit]) truckHit(h);   // (he hits like a truck)
 // Colbalias: LEGION OF HELL - he and his shadow clones tear into them from every side at once, then he
 // erupts upward through them in a pillar of hellfire
@@ -5425,6 +5905,15 @@ function loadShipUltSfx() {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   actx.decodeAudioData(bytes.buffer).then(b => { shipUltBuf = b; }).catch(() => {});
 }
+// ...and the GRAB ultimate's song: RUMAHOY - "Poop Deck Party" (sounds/deck-ult-sfx.js = 1:10-1:21.5), from 1:11
+let deckUltBuf = null;
+const DECK_SONG = { from: 1.0, vol: 0.85 };                 // (from: 1s into the cut = 1:11 in the song)
+function loadDeckUltSfx() {
+  if (!window.DECK_ULT_B64 || deckUltBuf || !actx) return;
+  const bin = atob(window.DECK_ULT_B64), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  actx.decodeAudioData(bytes.buffer).then(b => { deckUltBuf = b; }).catch(() => {});
+}
 function stopBuffer(h, fade = 0.12) {
   if (!h || !actx) return;
   const t = actx.currentTime;
@@ -5491,6 +5980,7 @@ function unlockAudio() {
     loadSmashSfx();
     loadHeelVoice();
     loadShipUltSfx();
+    loadDeckUltSfx();
     loadMyTurnSfx();
   }
   if (actx.state === 'suspended') actx.resume();
@@ -5590,6 +6080,8 @@ const sfx = {
   },
   // Footstep for the walk-away
   step() { if (!soundOn || !actx) return; tone('sine', 120, 70, 0.07, 0.25); noise('lowpass', 600, 1, 0.05, 0.12); },
+  // a bone SNAPPING (Captain Heel's arm bar): a dry crack + a crunch
+  snap() { if (!soundOn || !actx) return; noise('highpass', 2600, 0.9, 0.05, 0.6); tone('square', 900, 180, 0.04, 0.2); noise('bandpass', 1100, 3, 0.09, 0.4, 0.03); },
   ko() { if (!soundOn || !actx) return; if (smashClip('ko', 1)) return; tone('sine', 90, 25, 0.8, 0.8); noise('lowpass', 900, 0.5, 0.6, 0.5, 0, 150); tone('sawtooth', 300, 60, 0.4, 0.12); },
 };
 
@@ -6154,7 +6646,7 @@ const painTexts = [];
 // (SHOW_FIGHT_TEXT = true brings all the other pop-ups back: DODGED!, PERFECT!, CLASH!, CRITICAL!...)
 const SHOW_FIGHT_TEXT = false;
 // ...plus these, which always show: CLASH text (the clash and its power-bar duel) and CRITICAL hits
-const KEEP_TEXTS = new Set(['CRITICAL!', 'WIN!', 'CLASH WON!', 'BROKEN!']);
+const KEEP_TEXTS = new Set(['CRITICAL!', 'WIN!', 'CLASH WON!', 'BROKEN!', 'YARKO!']);
 const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'ultStart', 'ultSeq'].includes(f.action.type));
 painTexts.push = function (...items) { for (const p of items) if (p && p.ult === undefined) p.ult = ultRunning(); return Array.prototype.push.apply(this, items); };
 function drawCracks() {
@@ -6712,6 +7204,7 @@ function updateUlt(dt) {
   const U = ult, u = U.user, v = U.target;
   U.t += dt;
   if (U.def.wrestle) return updateWrestleUlt(U, dt);         // Aiden: Max Malicious Moonsault
+  if (U.def.deck) return updateDeckUlt(U, dt);               // Aiden (from a grab): Dead Man's Deck Match
   if (U.def.statue) return updateStatueUlt(U, dt);           // Colbalias: 100-Type Guanyin Bodhisattva
   if (U.def.greatsword) return updateSwordUlt(U, dt);        // Colten: Warlord's Judgment
   if (U.def.rush) return updateRushUlt(U, dt);               // Lance: It's My Turn
@@ -7780,6 +8273,12 @@ function stepAction(f, inp, dt) {
                 (f.weaponSpeed && f.weaponSpeed !== 1 && moveUsesScythe(a.move) ? f.weaponSpeed : 1));   // the rival's weapon (see RIVAL_WIELD)
 
   if (a.type === 'clash') return stepClash(f, a, dt, inp);
+  // Captain Heel: ULT while holding someone (any grab / throw) = DEAD MAN'S DECK MATCH. Works transformed (any meter
+  // left) OR straight from a FULL meter without transforming first. (ULT with nobody held = his normal ultimate.)
+  if (f.ultBuf > 0 && (f.transformed ? f.ult > 0 : f.ult >= ULT_MAX) && !ult && CHARACTERS[f.char].grabUlt) {
+    const v = heldVictim(f);
+    if (v) { startDeckUlt(f, v); return; }
+  }
   if (a.type === 'timeStop') return stepTimeStop(f, a, dt);
   if (a.type === 'ultBeam') return stepUltBeam(f, a, dt);
   if (a.type === 'shipUlt') return stepShipUlt(f, a, dt);
@@ -8217,7 +8716,7 @@ function updateFighter(f, inp, dt) {
   f.ultBuf   = inp.ultTap   ? BUFFER : Math.max(0, (f.ultBuf || 0) - dt);
   f.flyCD = Math.max(0, (f.flyCD || 0) - dt);
   if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
-  if (f.kaioken) f.damage += kaiokenLv(f).drain * dt;             // Kaioken strain: 1% / 2.5% / 5% per second (x1 / x2 / x3)
+  if (f.kaioken) f.damage += kaiokenLv(f).drain * dt;             // Kaioken strain: 1% / 2% / 4% per second (x1 / x2 / x3)
   updateBleed(f, dt);                                             // scythe wounds
   if (f.look && f.look.hype && !(f.action && f.action.type === 'taunt')) f.hype = Math.max(0, (f.hype || 0) - HYPE.drain * dt);   // Aiden's HYPE slowly drains (not while he's taunting)
   f.hypePulse = Math.max(0, (f.hypePulse || 0) - dt);
@@ -10359,6 +10858,27 @@ function drawFigure(fig, opts = {}) {
     ctx.strokeStyle = look.detail; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(head.x - f * 2, head.y + 2, 9, f > 0 ? 0.4 : Math.PI - 1.1, f > 0 ? 1.1 : Math.PI - 0.4); ctx.stroke();   // cheekbone
   }
+  // BLACK BEARD (Aiden): a big bushy beard off his jaw, a moustache over the teeth, and two braids with red ties
+  if (look.beard) {
+    const bc = opts.tint || (sketch ? main : look.beard), sway = Math.sin(time * 3) * 1.2;
+    ctx.fillStyle = bc;
+    ctx.beginPath();
+    ctx.moveTo(head.x - f * 9, head.y + 1);                                         // from under the ear...
+    ctx.quadraticCurveTo(head.x - f * 10, head.y + 16, head.x - f * 2 + sway, head.y + 25);   // ...down the jaw...
+    ctx.lineTo(head.x + f * 5 + sway, head.y + 29);                                 // ...the point of the beard...
+    ctx.quadraticCurveTo(head.x + f * 15, head.y + 18, head.x + f * 13, head.y + 8);    // ...up to the chin
+    ctx.lineTo(head.x + f * 2, head.y + 11);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();                                                                // moustache over the mouth
+    ctx.moveTo(head.x + f * 1, head.y + 7); ctx.quadraticCurveTo(head.x + f * 8, head.y + 3, head.x + f * 14, head.y + 9);
+    ctx.quadraticCurveTo(head.x + f * 8, head.y + 7, head.x + f * 1, head.y + 9); ctx.fill();
+    ctx.strokeStyle = bc; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    for (const [ox, len] of [[-1, 12], [7, 10]]) {                                  // two braids hanging off it
+      const bx = head.x + f * ox + sway, by = head.y + 25;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + sway * 0.6, by + len); ctx.stroke();
+      if (!opts.tint && !sketch) { ctx.fillStyle = '#c0392b'; ctx.fillRect(bx + sway * 0.6 - 2, by + len * 0.55, 4, 3); ctx.fillStyle = bc; }
+    }
+  }
   // PIRATE HAT (Aiden): a black tricorne - crown, a wide brim turned up at both ends, gold trim, skull & crossbones
   if (look.pirateHat) {
     const hc = opts.tint || (sketch ? main : '#18161a');
@@ -11161,7 +11681,7 @@ function drawImpactFrameWorld() {
         ctx.lineTo(impactAt.x + Math.cos(ang) * r2, impactAt.y + Math.sin(ang) * r2); ctx.stroke();
       }
     }
-    for (const f of fighters) if (f.respawnTimer <= 0) drawFigure(figureOf(f), { tint: inv ? PAPER : '#000000' });
+    for (const f of (ult && ult.scene ? [ult.target, ult.user] : fighters)) if (f.respawnTimer <= 0) drawFigure(figureOf(f), { tint: inv ? PAPER : '#000000' });
     return;
   }
   // Normal: black screen, white fighters. Inverted: white screen, black fighters (alternates on clash beats).
@@ -11185,7 +11705,7 @@ function drawImpactFrameWorld() {
       ctx.fill();
     }
   }
-  for (const f of fighters) if (f.respawnTimer <= 0) drawFigure(figureOf(f), { tint: fg });
+  for (const f of (ult && ult.scene ? [ult.target, ult.user] : fighters)) if (f.respawnTimer <= 0) drawFigure(figureOf(f), { tint: fg });
   if (impactAt) {
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     // Lightning: in one direction for normal hits, in every direction for clashes
@@ -11306,6 +11826,20 @@ function drawUltHUD() {
 const hudCardX = i => W / 2 - (REAL_FIGHTERS * 250 - 40) / 2 + i * 250;   // left edge of player i's damage card
 function drawHUD() {
   if (ult && ult.phase === 'cutscene') { drawUltHUD(); return; }   // cinematic: hide the HUD
+  if (ult && ult.def.deck && ult.t >= DT_.warp * 0.5) {             // the pirate ship: letterbox, the play-by-play, the white flashes
+    const U = ult;
+    if (U.scene) {
+      const bar = 64;
+      sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, bar); sctx.fillRect(0, H - bar, W, bar);
+      if (U.caption) {
+        const big = /SNAP|NUCLEAR/.test(U.caption);
+        text(U.caption, W / 2, H - 22, big ? 22 : 14, big ? '#ffd23f' : '#ffffff', 'center');
+      }
+    }
+    if (U.white > 0) { sctx.fillStyle = `rgba(255,255,255,${clamp(U.white, 0, 1)})`; sctx.fillRect(0, 0, W, H); }
+    if (ultBanner) drawUltHUD();
+    return;
+  }
   if (ult && ult.def.rush && ult.phase === 'talk') {                // Lance's line: cinematic bars + the line as a subtitle
     const k = Math.min(1, ult.t / 0.25), bar = 70 * k;
     sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, bar); sctx.fillRect(0, H - bar, W, bar);
@@ -11674,6 +12208,8 @@ function render() {
   sketchStroke = 0;
   if (impactFrame > 0) {
     drawImpactFrame();
+  } else if (ult && ult.scene) {
+    drawDeckScene(ult);                               // Captain Heel's grab ultimate: on board the pirate ship
   } else {
     // Background is drawn straight to the screen; everything in the world goes through the camera
     if (sketch) drawPaper(); else drawBackground();
