@@ -1088,7 +1088,11 @@ const LANCE_MOVES = {
     // Z VANISH WHILE CHARGING (block / dodge): he blinks away in any direction and KEEPS charging. With someone KI-MARKED,
     // it's an Instant Transmission right behind them - and the Kamehameha goes off point-blank, straight away.
     step(f, a, dt, inp) {
-      if (a.phase === 'charge' && inp.blockTap) { kameVanish(f, a, inp); return true; }
+      // (from the moment it starts - wind-up or charge - on a fresh OR buffered block press)
+      if ((a.phase === 'charge' || a.phase === 'startup') && (inp.blockTap || f.dodgeBuf > 0) && (a.vanishes || 0) < 3) {
+        if (a.phase === 'startup') { a.phase = 'charge'; a.t = 0; }   // (vanishing during the wind-up drops straight into the charge)
+        kameVanish(f, a, inp); return true;
+      }
       return false;
     } },
   // DESTRUCTO DISC (Krillin's Kienzan): K + direction. He raises his hand, a spinning PURPLE disc of ki forms
@@ -1382,8 +1386,8 @@ function kameVanish(f, a, inp) {
     painTexts.push({ x: f.x, y: f.y - 170, t: 0.8, max: 0.8, text: 'KAMEHAMEHA!', big: true });
     return;
   }
-  if (!canAirDodge(f)) return;                                      // (uses a Z-vanish dot, like any other)
-  f.dodgeCount = Math.min(AIR_DODGE_MAX + FATIGUE_MAX, f.dodgeCount + 1);
+  // (up to 3 vanishes per charge - they don't need a spare Z-vanish dot, so it still works after you've used them in the air)
+  a.vanishes = (a.vanishes || 0) + 1;
   let dx = inp.dir || 0, dy = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
   const len = Math.hypot(dx, dy);
   ghosts.push({ fig: figureOf(f), life: 0.3, max: 0.3, color: '#ffffff' });
@@ -2677,12 +2681,33 @@ const AIDEN_MOVES = {
     strike: pose({ lean: -0.85, bob: 4, legA: [1.65, 0], legB: [1.5, 0.08], armA: [-2.1, 0.2], armB: [-2.4, 0.2], armC: [-1.7, 0.3], armD: [-2.0, 0.3] }) },
   // BACK KICK: donkey kick straight out behind him - one of his strongest air hits
   // BACK DROPKICK (back air): both knees pulled in, then BOTH feet driven straight out behind him together
-  bair: { name: 'Back Dropkick', startup: 0.1, active: 0.08, endlag: 0.24, landLag: 0.14,
-    hitboxes: [{ x: -50, y: -46, r: 24, dmg: 14, base: 450, growth: 7.5, angle: 145 },
-               { x: -48, y: -30, r: 22, dmg: 14, base: 450, growth: 7.5, angle: 145 },
-               { x: -24, y: -42, r: 18, dmg: 12, base: 430, growth: 7, angle: 145 }],
-    wind: pose({ lean: 0.35, legA: [0.9, 2.2], legB: [0.8, 2.1], armA: [0.9, -1.7], armB: [0.6, -1.7], armC: [0.7, -1.4], armD: [0.5, -1.4] }),     // both knees tucked
-    strike: pose({ lean: 0.9, legA: [-1.72, 0.02], legB: [-1.5, 0.08], armA: [1.6, -0.6], armB: [1.3, -0.7], armC: [1.1, -0.8], armD: [0.9, -0.9] }) },   // both feet out behind
+  // It sells the hit: a deep coil, then he throws his whole body flat - fire after-images, a recoil shove forward,
+  // and a big thud + impact frame when both feet land on someone.
+  bair: { name: 'Back Dropkick', startup: 0.12, active: 0.09, endlag: 0.24, landLag: 0.14,
+    hitboxes: [{ x: -56, y: -44, r: 25, dmg: 14, base: 450, growth: 7.5, angle: 145 },
+               { x: -52, y: -28, r: 23, dmg: 14, base: 450, growth: 7.5, angle: 145 },
+               { x: -26, y: -40, r: 18, dmg: 12, base: 430, growth: 7, angle: 145 }],
+    wind: pose({ lean: -0.35, bob: 10, legA: [1.5, 2.6], legB: [1.3, 2.5], armA: [-0.6, -1.9], armB: [-0.9, -1.8], armC: [-0.5, -1.5], armD: [-0.8, -1.5] }),   // balled up tight, knees at his chest, leaning back into it
+    strike: pose({ lean: 1.4, bob: -4, legA: [-1.62, 0], legB: [-1.42, 0.04], armA: [2.2, -0.2], armB: [1.9, -0.3], armC: [1.6, -0.4], armD: [1.4, -0.5] }),   // body thrown FLAT, both legs locked straight out behind, arms flung forward
+    fire(f) {
+      sfx.whoosh(true); shake = Math.max(shake, 6);
+      burst(f.x - f.face * 40, f.y - 38, FIRE, 12, f.face > 0 ? Math.PI : 0, 0.5, 420, { grav: -120 });
+      f.vx += f.face * 160;                                                // the kick shoves him the other way
+    },
+    step(f, a, dt) {
+      if (a.phase === 'active') {
+        a.ghostT = (a.ghostT || 0) - dt;
+        if (a.ghostT <= 0) { a.ghostT = 0.025; ghosts.push({ fig: figureOf(f), life: 0.18, max: 0.18, color: '#ff8a3c' }); }
+      }
+      return false;
+    },
+    onHit(f, t, a, h, clean) {
+      if (!clean) return;
+      burst(t.x, t.y - 42, FIRE, 22, f.face > 0 ? Math.PI : 0, 0.8, 620, { grav: -180 });
+      impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: t.x, y: t.y - 42, ang: f.face > 0 ? Math.PI : 0, all: false, focus: true, fire: true };
+      hitstop = Math.max(hitstop, 0.18); shake = Math.max(shake, 18); camPunch = 1; sfx.huge();
+      painTexts.push({ x: t.x, y: t.y - 130, t: 0.6, max: 0.6, text: 'THUD!', big: true });
+    } },
   // ANCHOR ARC (up air): the anchor whipped up in a fast arc over his head, front to back - the whole anchor hits
   // (the air version of his up J - see stepAnchorArc)
   uair: { name: 'Anchor Arc', startup: 0.07, active: 0.2, endlag: 0.2, landLag: 0.14, noClash: true, arcTime: 0.2,
@@ -4965,11 +4990,11 @@ function stepHellwave(f, a) {
 // summon more (up to CLONE.max at once). They're deliberately beatable one at a time:
 //   - every clone attack has an extra wind-up (their eyes flash white just before it lands) so you can react
 //   - they hit for less than half his damage and much less knockback
-//   - they're light: they fly off from hits, and fall apart at CLONE.hp % or after CLONE.life seconds
+//   - they're light: they fly off from hits, and fall apart on their 3rd hit (CLONE.hits) or after CLONE.life seconds
 // ...but several at once slowly overwhelm you.
 // ONE clone at a time: HALF as strong as Colbalias (its power, below), JUST AS FAST (his stats, no extra
 // startup), a QUARTER as durable (bursts after 25% damage), and takes 1.5x knockback (lighter).
-const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5 };   // up to TWO clones at once
+const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5, hits: 3 };   // up to TWO clones at once; each one bursts on its 3rd hit
 const cloneStats = () => { const s = { ...DEFAULT_STATS, ...CHARACTERS.COLBALIAS.stats }; s.weight = (s.weight || 1) / CLONE.kbTaken; return s; };
 // While COLBALIAS IS TRANSFORMED his clones turn vicious: faster on their feet, faster attacks, and their
 // hits do more damage and knockback
@@ -5090,7 +5115,7 @@ function updateMinions(dt) {
     c.life -= dt;
     if (c.poofT > 0) { c.poofT -= dt; if (c.poofT <= 0) killMinion(c); continue; }   // smashed: flying away, then POOF
     const busy = c.action && ['grabbed', 'thrown', 'whipped', 'ultVictim', 'timeStop'].includes(c.action.type);
-    if (!busy && (c.damage >= ninjaLaw(c.owner).hp || c.life <= 0 || (c.owner && c.owner.out))) killMinion(c);
+    if (!busy && ((c.hitsTaken || 0) >= CLONE.hits || c.life <= 0 || (c.owner && c.owner.out))) killMinion(c);   // 3 hits and it's gone
   }
   for (let i = fighters.length - 1; i >= REAL_FIGHTERS; i--) {
     const c = fighters[i];
@@ -6812,6 +6837,7 @@ function knock(t, h, dirSign, mult, hx, hy) {
     return true;
   }
   t.damage += dmg;
+  if (t.minion) t.hitsTaken = (t.hitsTaken || 0) + 1;            // (Colbalias's clones burst on their CLONE.hits-th hit)
   if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + dmg * ULT_GAIN);   // getting hit charges your ultimate (not while transformed)
   // SUPER ARMOR (Colby's 7-hit string): he takes the damage but can't be knocked out of it
   if (t.action && t.action.type === 'attack' && t.action.move.armor && (t.action.phase !== 'end' || t.action.hit.size > 0)) {
