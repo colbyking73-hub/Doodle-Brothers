@@ -162,7 +162,7 @@ const DEFAULT_BINDINGS = {
 };
 // C-STICK (right stick) feel: flick = past `flick`, back to center = under `reset`. C-stick moves start up
 // faster (startup x `speed`), stay buffered a little longer, and can CANCEL the end of an attack that hit.
-const C_STICK = { flick: 0.5, reset: 0.3, speed: 0.75, buffer: 0.2 };
+const C_STICK = { flick: 0.5, reset: 0.22, speed: 0.75, buffer: 0.2 };
 const PAD_BTN_NAMES =['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'VIEW', 'MENU', 'L-STICK', 'R-STICK', 'D-UP', 'D-DOWN', 'D-LEFT', 'D-RIGHT', 'XBOX'];
 // ---------------- CONTROL PRESETS ----------------
 // Named control presets ("COLBY", "LANCE PAD"...), each a full set of key + controller bindings. Every player
@@ -1263,11 +1263,12 @@ function drawDisc(s) {
 const TAUNT = { dur: 0.95 };
 const TAUNT_LINES = { 1: 'COME ON!', 2: 'TOO SLOW!', 3: 'BORING...' };
 function startTaunt(f, kind) {
-  f.action = { type: 'taunt', t: 0, dur: TAUNT.dur, kind };
+  const D = CHARACTERS[f.char].tauntDur;                       // (some characters' taunts are longer little skits)
+  f.action = { type: 'taunt', t: 0, dur: (D && D[kind]) || TAUNT.dur, kind, x0: f.x, face0: f.face };
   f.running = false; f.vx *= 0.3;
   heelSay(f, kind === 1 ? 'roar' : 'shout');                // Captain Heel: up taunt ROARS, the others shout
   const lines = CHARACTERS[f.char].taunts || TAUNT_LINES;
-  painTexts.push({ x: f.x, y: f.y - 140, t: 0.8, max: 0.8, text: lines[kind] || TAUNT_LINES[kind], big: false });
+  if (lines[kind] !== '') painTexts.push({ x: f.x, y: f.y - 140, t: 0.8, max: 0.8, text: lines[kind] || TAUNT_LINES[kind], big: false });
 }
 function finishTaunt(f, a) {
   // AIDEN'S HYPE: it fills up WHILE he taunts (see stepAction); finishing one gives a big flare-up
@@ -1631,6 +1632,46 @@ for (let s = 1; s < CHAIN_LEN; s++) {
     chainLock: true, armor: true, electric: true, hitboxes: hit(58, -80), wind: KICK_POSES[j].wind, strike: KICK_POSES[j].strike };
   COLBY_PUNCHES['p' + s] = { name: PUNCH_NAMES[j], startup: 0.02, active: 0.045, endlag: 0.06, chain: s, lunge: 330, lungeFriction: 0.4,
     chainLock: true, armor: true, electric: true, hitboxes: hit(56, -70), wind: PUNCH_POSES[j].wind, strike: PUNCH_POSES[j].strike };
+}
+// THE BLINK STRING (bare-handed, NEUTRAL K over and over): the punches TELEPORT him round them - but every hit
+// keeps driving them the SAME way the string started:
+//   1. the opening punch (from where he stands)
+//   2. BLINK BEHIND them - a punch to the back of the head
+//   3. BLINK IN FRONT    - a kick in the gut
+//   4. BLINK BEHIND      - another to the back of the head
+//   5. BLINK IN FRONT    - (back where he started) a kick to the face
+//   6. the AIR TELEPORT finisher: Heaven's Axe (he vanishes, reappears above them and crashes down)
+// He can GRAB them at ANY point in it (see the grab-cancel in stepAction).
+const BLINK = { gap: 46, range: 260 };
+Object.assign(COLBY_PUNCHES.p2, { name: 'Blink: Back of the Head', blink: 'behind', hitboxes: [{ x: 50, y: -84, r: 26, dmg: 2.5, base: 110, growth: 0.2, angle: 50 }, { x: 20, y: -78, r: 24, dmg: 2.5, base: 110, growth: 0.2, angle: 50 }] });
+Object.assign(COLBY_PUNCHES.p3, { name: 'Blink: Gut Kick', blink: 'front',
+  hitboxes: [{ x: 54, y: -56, r: 26, dmg: 2.5, base: 110, growth: 0.2, angle: 45 }, { x: 22, y: -52, r: 24, dmg: 2.5, base: 110, growth: 0.2, angle: 45 }],
+  wind: pose({ lean: -0.1, legA: [1.5, 2.1], legB: [-0.2, 0.3], armA: [0.6, -1.7], armB: [-0.4, -1.5] }),          // knee chambered
+  strike: pose({ lean: -0.35, legA: [1.6, 0.05], legB: [-0.2, 0.25], armA: [-0.6, -1.2], armB: [0.5, -1.7] }) });   // heel driven into the gut
+Object.assign(COLBY_PUNCHES.p4, { name: 'Blink: Skull Knock', blink: 'behind', hitboxes: [{ x: 50, y: -84, r: 26, dmg: 2.5, base: 110, growth: 0.2, angle: 50 }, { x: 20, y: -78, r: 24, dmg: 2.5, base: 110, growth: 0.2, angle: 50 }],
+  wind: COLBY_PUNCHES.punch3.wind, strike: pose({ lean: 0.35, armA: [2.4, -0.6], armB: [0.4, -1.8], legA: [0.6, 0.4], legB: [-0.5, 0.15] }) });   // hammering down on the back of the head
+Object.assign(COLBY_PUNCHES.p5, { name: 'Blink: Face Kick', blink: 'front',
+  hitboxes: [{ x: 56, y: -86, r: 26, dmg: 2.5, base: 110, growth: 0.2, angle: 55 }, { x: 22, y: -80, r: 24, dmg: 2.5, base: 110, growth: 0.2, angle: 55 }],
+  wind: KICK_POSES[1].wind, strike: KICK_POSES[1].strike });
+// blink: teleport to the other side of whoever he's stringing (the hit's knockback keeps going the ORIGINAL way)
+function colbyBlink(f, a) {
+  const m = a.move;
+  if (/1$/.test(a.key) || !f.blinkDir) f.blinkDir = f.face;         // the string's direction is set by its first hit (kick or punch)
+  if (!m.blink) return;
+  const D = f.blinkDir;
+  const t = fighters.filter(o => o !== f && !allies(f, o) && o.respawnTimer <= 0 && !o.dead && Math.abs(o.x - f.x) < BLINK.range && Math.abs(o.y - f.y) < 160)
+    .sort((p, q) => Math.abs(p.x - f.x) - Math.abs(q.x - f.x))[0];
+  if (!t) return;
+  ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: '#7fd8ff' });
+  burst(f.x, f.y - 50, ['#7fd8ff', '#ffffff'], 8, 0, Math.PI, 300, { grav: 0 });
+  const side = m.blink === 'behind' ? D : -D;                       // behind = beyond them, the way they're being driven
+  const s = f.onPlatform || STAGE, onStage = t.x > s.x && t.x < s.x + s.w;
+  f.x = t.x + side * BLINK.gap;
+  if (onStage && f.ground) f.x = clamp(f.x, s.x + 8, s.x + s.w - 8);
+  f.face = Math.sign(t.x - f.x) || -side;
+  a.blink = true; a.pushDir = D;
+  burst(f.x, f.y - 50, ['#7fd8ff', '#ffffff'], 8, 0, Math.PI, 300, { grav: 0 });
+  if (typeof playTeleport === 'function' && teleportBuf && soundOn && actx) playTeleport(0.6); else sfx.vanish(0.6);
 }
 // K finisher: HUGE SUPERMAN PUNCH
 COLBY_PUNCHES.pFinish = { name: 'Superman Punch', startup: 0.055, active: 0.12, endlag: 0.3, chain: CHAIN_LEN, impactOnHit: true, armor: true, electric: true,
@@ -2140,7 +2181,26 @@ COLBY_PUNCHES.uair = { name: 'Dragon Bicycle', startup: 0.06, active: BICYCLE.ki
   onHit(f, t, a, h) { if (h.group < BICYCLE.kicks) (a.drag || (a.drag = new Set())).add(t); } };
 // Down air: DOUBLE KNEE DROP - knees tucked and driven straight down, he DROPS like a rock. Catch them right at the
 // start = a SPIKE with a crack of lightning; landing on the floor sends out a little shockwave.
-COLBY_PUNCHES.dair = { name: 'Double Knee Drop', startup: 0.1, active: 0.5, endlag: 0.16, landLag: 0.2, fastFall: true, slamLand: true,
+// Down air (bare-handed, new): METEOR PUNCH (Mario's forward air, but huge) - he winds a fist way up behind his back,
+// swings it over the top and hammers it straight DOWN in front of him. The middle of the swing SPIKES (lightning
+// crackles off it); the start and end of the swing just knock them away.
+COLBY_PUNCHES.dair = { name: 'Meteor Punch', startup: 0.15, active: 0.13, endlag: 0.24, landLag: 0.2, spike: true, impactOnHit: true, electric: true,
+  hitboxes: [{ x: 34, y: -76, r: 28, dmg: 8, base: 330, growth: 5, angle: 60, from: 0, to: 0.03, group: 0 },                        // early: over the top
+             { x: 42, y: -36, r: 36, dmg: 14, base: 480, growth: 7.4, angle: -82, from: 0.03, to: 0.09, group: 0, sweet: true },   // SWEET SPOT: the spike
+             { x: 30, y: -2, r: 28, dmg: 8, base: 310, growth: 4.6, angle: 45, from: 0.09, to: 0.13, group: 0 }],                  // late
+  wind: pose({ lean: -0.3, armA: [-2.5, -0.5], armB: [0.6, -1.6], legA: [0.8, 1.5], legB: [0.3, 1.2] }),          // fist cocked way up behind his back
+  strike: pose({ lean: 0.4, armA: [1.6, 0.05], armB: [-0.6, -1.0], legA: [0.75, 1.4], legB: [0.25, 1.1] }),       // swings over the top...
+  strike2: pose({ lean: 0.6, armA: [0.3, 0.02], armB: [-0.9, -0.8], legA: [0.7, 1.3], legB: [0.2, 1.0] }), strike2At: 0.04,   // ...and straight DOWN
+  fire() { sfx.whoosh(true); },
+  onHit(f, t, a, h, clean) {
+    if (!h.sweet || !clean) return;                           // METEOR: lightning off the fist, a big freeze
+    for (let k = 0; k < 6; k++) bolt(t.x, t.y - 30, Math.random() * Math.PI * 2, 40 + Math.random() * 50, 0.14, k % 2 ? '#ffffff' : '#7fd8ff');
+    impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: t.x, y: t.y - 40, ang: -Math.PI / 2, all: false, focus: true };
+    hitstop = Math.max(hitstop, 0.16); shake = Math.max(shake, 18); sfx.clash(true);
+    painTexts.push({ x: t.x, y: t.y - 130, t: 0.6, max: 0.6, text: 'METEOR!', big: true });
+  } };
+// (his previous bare-handed down air - DOUBLE KNEE DROP - kept here, not used)
+COLBY_PUNCHES.kneeDrop = { name: 'Double Knee Drop', startup: 0.1, active: 0.5, endlag: 0.16, landLag: 0.2, fastFall: true, slamLand: true,
   hitboxes: [{ x: 16, y: 4,  r: 30, dmg: 11, base: 470, growth: 6, angle: -84, from: 0, to: 0.1, sweet: true },   // the knees: SPIKE
              { x: 16, y: -14, r: 28, dmg: 8, base: 360, growth: 5, angle: -60, from: 0.1, to: 0.5 }],
   wind: pose({ lean: 0.1, bob: -6, legA: [1.7, 2.75], legB: [1.55, 2.7], armA: [0.55, -0.15], armB: [0.4, -0.2] }),   // knees pulled up
@@ -2246,7 +2306,7 @@ function lightningStrikeAt(x, gy) {
 // DASH CHOKESLAM (bare-handed down K, until his TIME meter is full - then it's Time Stop): he RUSHES at them, grabs
 // them by the throat, leaps up into the air with them held up high... and comes crashing down, driving them into
 // the floor - a big shockwave that hits everyone near the landing too. Misses = wide open.
-const CHOKE = { dash: 0.3, speed: 1350, grabR: 46, rise: 0.3, height: 250, hang: 0.08, fall: 2600, aoe: 170,
+const CHOKE = { dash: 0.3, speed: 1350, grabR: 54, rise: 0.3, height: 250, hang: 0.08, fall: 2600, aoe: 170,
                 held: { dmg: 13, base: 470, growth: 6.4, angle: 76 },   // the one he chokeslams
                 near: { dmg: 8,  base: 380, growth: 5,   angle: 60 },   // everyone else in the shockwave
                 drop: { dmg: 4,  base: 260, growth: 2,   angle: 80 } }; // never reached the floor (off stage): lets go
@@ -2388,6 +2448,8 @@ const FIRE = ['#ff5a1a', '#ffb02e', '#ffe066'];
 const INF_IDLE = pose({ lean: 0.2, bob: -10, legA: [0.78, 0.55], legB: [-0.6, 0.15],
                         armA: [1.35, -1.55], armB: [1.0, -1.7],      // upper pair: high grappling guard, fists up
                         armC: [0.75, -0.7], armD: [0.35, -0.9] });   // lower pair: fists cocked forward at the waist
+// ANCHOR SLAM timing (seconds into the active part): the front slam lands at `front`, the one behind him at `back`
+const ANCHOR = { front: 0.09, back: 0.32, end: 0.46, reach: 86 };
 const AIDEN_MOVES = {
   counter: STICKMAN_MOVES.counter,
 
@@ -2398,17 +2460,39 @@ const AIDEN_MOVES = {
   //   2. ROUNDHOUSE     - front leg whips a high roundhouse
   //   3. ROUNDHOUSE     - spins through and the back leg whips a second one
   //   4. MACH BREAKER   - he LEAPS forward fist-first, Superman punch, and blasts them away
-  jab: { name: 'Snake Bite', startup: 0.04, active: 0.06, endlag: 0.12, combo: 'jab2', lunge: 260, lungeFriction: 0.5, pullIn: 50, holdStun: 0.08,
+  // NEUTRAL J (new): THREE HITS, MARCHING FORWARD - both LEFT fists (upper + lower arm) hammer in together, then both
+  // RIGHT fists, then he rears his skull back and smashes a GIGANTIC HEADBUTT into them. He steps in on every hit and
+  // each one pulls them back in front of him, so the whole thing connects.
+  jab: { name: 'Left Double Hammer', startup: 0.05, active: 0.07, endlag: 0.13, combo: 'jab2', lunge: 320, lungeFriction: 0.45, pullIn: 54, holdStun: 0.13,
+    hitboxes: [{ x: 58, y: -74, r: 28, dmg: 4, base: 90, growth: 0.2, angle: 55 }, { x: 56, y: -46, r: 26, dmg: 4, base: 90, growth: 0.2, angle: 55 },
+               { x: 26, y: -62, r: 26, dmg: 4, base: 90, growth: 0.2, angle: 55 }],
+    wind: pose({ lean: -0.1, bob: -10, legA: [0.7, 0.6], legB: [-0.6, 0.2], armA: [-0.7, -1.5], armB: [1.0, -1.8], armC: [-0.5, -1.3], armD: [0.4, -1.0] }),   // left pair drawn back
+    strike: pose({ lean: 0.5, bob: -14, legA: [1.0, 0.8], legB: [-0.9, 0.15], armA: [1.6, 0], armB: [1.0, -1.8], armC: [1.4, 0.05], armD: [0.4, -1.0] }),     // ...both left fists slam out
+    fire(f) { burst(f.x + f.face * 56, f.y - 62, FIRE, 6, f.face > 0 ? 0 : Math.PI, 0.6, 220, { grav: -150 }); dust(f.x, f.y, 4, 1); sfx.whoosh(false); } },
+  jab2: { name: 'Right Double Hammer', startup: 0.045, active: 0.07, endlag: 0.13, combo: 'jab3', lunge: 300, lungeFriction: 0.45, pullIn: 54, holdStun: 0.15,
+    hitboxes: [{ x: 58, y: -74, r: 28, dmg: 4, base: 90, growth: 0.2, angle: 58 }, { x: 56, y: -46, r: 26, dmg: 4, base: 90, growth: 0.2, angle: 58 },
+               { x: 26, y: -62, r: 26, dmg: 4, base: 90, growth: 0.2, angle: 58 }],
+    wind: pose({ lean: 0.1, bob: -10, legA: [0.8, 0.7], legB: [-0.65, 0.2], armA: [1.2, -1.5], armB: [-0.8, -1.4], armC: [1.0, -1.2], armD: [-0.6, -1.2] }),  // right pair drawn back
+    strike: pose({ lean: 0.55, bob: -14, legA: [1.05, 0.8], legB: [-0.95, 0.15], armA: [0.6, -1.6], armB: [1.65, 0], armC: [0.5, -1.2], armD: [1.45, 0.05] }), // ...both right fists slam out
+    fire(f) { burst(f.x + f.face * 56, f.y - 62, FIRE, 6, f.face > 0 ? 0 : Math.PI, 0.6, 220, { grav: -150 }); dust(f.x, f.y, 4, 1); sfx.whoosh(false); } },
+  jab3: { name: 'Gigantic Headbutt', startup: 0.1, active: 0.1, endlag: 0.32, lunge: 520, lungeFriction: 0.4, impactOnHit: true,
+    hitboxes: [{ x: 56, y: -98, r: 40, dmg: 9, base: 470, growth: 6, angle: 40 }, { x: 28, y: -90, r: 32, dmg: 9, base: 470, growth: 6, angle: 40 }],
+    wind: pose({ lean: -0.75, bob: -12, legA: [0.85, 0.9], legB: [-0.7, 0.4], armA: [-1.3, -0.4], armB: [-1.6, -0.3], armC: [-1.0, -0.4], armD: [-1.3, -0.3] }),  // skull reared WAY back
+    strike: pose({ lean: 1.0, bob: -16, legA: [1.15, 0.9], legB: [-1.0, 0.1], armA: [-1.8, 0.2], armB: [-2.1, 0.2], armC: [-1.5, 0.2], armD: [-1.8, 0.2] }),    // ...and SMASHES it forward
+    fire(f) { dust(f.x, f.y, 10, 1.8); burst(f.x + f.face * 50, f.y - 96, FIRE, 14, f.face > 0 ? 0 : Math.PI, 0.6, 420, { grav: -200 }); shake = Math.max(shake, 6); sfx.whoosh(true); },
+    onHit(f, t) { painTexts.push({ x: t.x, y: t.y - 140, t: 0.6, max: 0.6, text: 'BONK!!', big: true }); shake = Math.max(shake, 18); ring(t.x, t.y - 90); sfx.huge(); } },
+  // (his previous string - Bryan Fury's - kept below, not used: snakeBite / roundhouse / roundhouse2 / jab4)
+  snakeBite: { name: 'Snake Bite', startup: 0.04, active: 0.06, endlag: 0.12, combo: 'jab2', lunge: 260, lungeFriction: 0.5, pullIn: 50, holdStun: 0.08,
     hitboxes: [{ x: 58, y: -62, r: 26, dmg: 3, base: 80, growth: 0.2, angle: 60 }, { x: 24, y: -62, r: 24, dmg: 3, base: 80, growth: 0.2, angle: 60 }],
     wind: pose({ lean: 0.35, bob: -16, legA: [0.95, 1.0], legB: [-0.75, 0.3], armA: [-0.5, -1.9], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [0.35, -0.9] }),   // coiled low, arm drawn back
     strike: pose({ lean: 0.6, bob: -18, legA: [1.1, 0.9], legB: [-0.95, 0.15], armA: [1.6, 0], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [0.35, -0.9] }),    // ...STRIKES out
     fire(f) { burst(f.x + f.face * 56, f.y - 62, FIRE, 4, f.face > 0 ? 0 : Math.PI, 0.6, 200, { grav: -150 }); sfx.whoosh(false); } },
-  jab2: { name: 'Roundhouse', startup: 0.045, active: 0.06, endlag: 0.12, combo: 'jab3', lunge: 140, lungeFriction: 0.5, pullIn: 52, holdStun: 0.1,
+  roundhouse: { name: 'Roundhouse', startup: 0.045, active: 0.06, endlag: 0.12, combo: 'jab3', lunge: 140, lungeFriction: 0.5, pullIn: 52, holdStun: 0.1,
     hitboxes: [{ x: 56, y: -78, r: 27, dmg: 4, base: 80, growth: 0.2, angle: 62 }, { x: 24, y: -70, r: 24, dmg: 4, base: 80, growth: 0.2, angle: 62 }],
     wind: pose({ bob: 2, lean: -0.2, legA: [1.6, 2.0], legB: [0.05, 0.15], armA: [1.35, -1.55], armB: [1.0, -1.7], armC: [0.75, -0.7], armD: [0.35, -0.9] }),
     strike: pose({ bob: 2, lean: -0.6, legA: [2.15, 0.05], legB: [-0.1, 0.15], armA: [1.1, -1.7], armB: [-0.8, -1.0], armC: [0.75, -0.7], armD: [-0.5, -0.8] }),
     fire(f) { sfx.whoosh(false); } },
-  jab3: { name: 'Spinning Roundhouse', startup: 0.045, active: 0.06, endlag: 0.12, combo: 'jab4', lunge: 140, lungeFriction: 0.5, pullIn: 54, holdStun: 0.12,
+  roundhouse2: { name: 'Spinning Roundhouse', startup: 0.045, active: 0.06, endlag: 0.12, combo: 'jab4', lunge: 140, lungeFriction: 0.5, pullIn: 54, holdStun: 0.12,
     hitboxes: [{ x: 56, y: -80, r: 27, dmg: 4, base: 80, growth: 0.2, angle: 64 }, { x: 24, y: -72, r: 24, dmg: 4, base: 80, growth: 0.2, angle: 64 }],
     wind: pose({ bob: 3, lean: -0.15, spin: -0.4, legB: [1.6, 2.0], legA: [0.1, 0.2], armA: [1.6, -0.3], armB: [-1.6, 0.3] }),
     strike: pose({ bob: 2, lean: -0.65, legB: [2.25, 0.05], legA: [-0.15, 0.1], armA: [-1.4, -0.4], armB: [1.2, -0.6], armC: [-0.6, -0.6], armD: [0.6, -0.8] }),
@@ -2478,7 +2562,19 @@ const AIDEN_MOVES = {
   // Down J: TURNBUCKLE ELBOW DROP (hold to charge) - a ring corner appears behind him and he climbs it. The longer
   // he charges, the HIGHER up the ropes he climbs - then he leaps off and drives his elbow into the mat: a big
   // shockwave that hits everyone near where he lands (bigger + harder from higher up). See stepTurnbuckle.
-  downGround: { name: 'Turnbuckle Elbow Drop', startup: 0.16, active: 1.2, endlag: 0.3, charge: true, noClash: true, hitboxes: [],
+  // Down J (new): ANCHOR SLAM (hold to charge) - he hauls a huge ship's anchor up over his head, SLAMS it into the floor
+  // in front of him, heaves it back up over the top and SLAMS it down behind him too, then puts it away. Each slam is
+  // a big crunching hit (it hits like a truck) and pops them up. See stepAnchorSlam.
+  downGround: { name: 'Anchor Slam', startup: 0.18, active: ANCHOR.end, endlag: 0.34, charge: true, noClash: true,
+    hitboxes: [{ x: 86, y: -26, r: 54, dmg: 14, base: 520, growth: 7, angle: 74, from: ANCHOR.front - 0.02, to: ANCHOR.front + 0.06, group: 0 },
+               { x: 44, y: -40, r: 34, dmg: 14, base: 520, growth: 7, angle: 74, from: ANCHOR.front - 0.04, to: ANCHOR.front + 0.04, group: 0 },
+               { x: -86, y: -26, r: 54, dmg: 14, base: 520, growth: 7, angle: 106, from: ANCHOR.back - 0.02, to: ANCHOR.back + 0.06, group: 1 },
+               { x: -44, y: -40, r: 34, dmg: 14, base: 520, growth: 7, angle: 106, from: ANCHOR.back - 0.04, to: ANCHOR.back + 0.04, group: 1 }],
+    wind: pose({ lean: -0.3, bob: -6, legA: [0.75, 0.6], legB: [-0.7, 0.3], grip: [-4, -118], lowFree: false }),
+    strike: pose({ lean: 0.5, bob: -16, legA: [1.0, 0.9], legB: [-0.85, 0.3], grip: [34, -56], lowFree: false }),
+    step(f, a, dt, inp) { return stepAnchorSlam(f, a, dt); } },
+  // (his previous down J, kept: TURNBUCKLE ELBOW DROP - not used any more)
+  turnbuckle: { name: 'Turnbuckle Elbow Drop', startup: 0.16, active: 1.2, endlag: 0.3, charge: true, noClash: true, hitboxes: [],
     wind: pose({ lean: 0.3, legA: [1.4, 2.2], legB: [1.0, 2.0], armA: [2.4, -0.5], armB: [2.0, -0.4] }),
     strike: pose({ lean: 1.25, legA: [-0.3, 0.5], legB: [-0.6, 0.4], armA: [0.1, -2.5], armB: [-0.4, -2.2], armC: [0.6, -1.4], armD: [0.3, -1.4] }),
     chargeRate: 0.9,
@@ -2501,8 +2597,24 @@ const AIDEN_MOVES = {
     wind: pose({ lean: 0.1, legA: [1.0, 1.8], legB: [0.6, 1.6], armA: [0.8, -1.7], armB: [0.5, -1.7], armC: [0.5, -1.5], armD: [0.3, -1.5] }),
     strike: pose({ lean: 0, legA: [0.7, 1.0], legB: [-0.5, 0.6], armA: [1.6, 0], armB: [-1.6, 0], armC: [1.35, 0.15], armD: [-1.35, -0.15] }),
     fire(f) { burst(f.x, f.y - 56, FIRE, 14, 0, Math.PI, 300, { grav: -250 }); } },
-  // FLYING DROPKICK (forward air)
-  fair: { name: 'Flying Dropkick', startup: 0.09, active: 0.1, endlag: 0.22, landLag: 0.14,
+  // GIANT FLYING KNEE (forward air) - Captain Falcon style: he drives one huge knee forward. Catch them with it in the
+  // VERY FIRST instant (the sweet spot) and it's a monster hit - fire, a freeze, an impact frame. Any later and it's a
+  // weak little bump (the sour spot).
+  fair: { name: 'Giant Flying Knee', startup: 0.08, active: 0.13, endlag: 0.22, landLag: 0.14,
+    hitboxes: [{ x: 38, y: -58, r: 32, dmg: 14, base: 500, growth: 7.4, angle: 38, from: 0, to: 0.03, group: 0, sweet: true },   // SWEET SPOT
+               { x: 32, y: -58, r: 28, dmg: 3.5, base: 180, growth: 2, angle: 60, from: 0.03, to: 0.13, group: 0 }],             // sour spot
+    wind: pose({ lean: -0.25, legA: [0.6, 1.6], legB: [0.2, 1.2], armA: [0.4, -1.6], armB: [0.2, -1.6], armC: [0.3, -1.3], armD: [0.1, -1.3] }),   // drawing the knee back
+    strike: pose({ lean: 0.25, bob: 2, legA: [1.85, 2.55], legB: [-0.5, 0.6], armA: [-1.9, 0.3], armB: [-2.2, 0.3], armC: [-1.6, 0.3], armD: [-1.9, 0.3] }),   // KNEE thrust out, arms flung back
+    fire(f) { sfx.whoosh(true); },
+    onHit(f, t, a, h, clean) {
+      if (!h.sweet || !clean) return;
+      burst(t.x, t.y - 58, FIRE, 30, f.face > 0 ? 0 : Math.PI, 0.9, 700, { grav: -200 });
+      impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: t.x, y: t.y - 58, ang: 0, all: true, focus: true, invert: true, fire: true };
+      hitstop = Math.max(hitstop, 0.24); shake = Math.max(shake, 24); camPunch = 1; sfx.huge(); sfx.clash(true);
+      painTexts.push({ x: t.x, y: t.y - 140, t: 0.7, max: 0.7, text: 'KNEE!!', big: true });
+    } },
+  // (his previous forward air - FLYING DROPKICK - kept, not used)
+  dropkickAir: { name: 'Flying Dropkick', startup: 0.09, active: 0.1, endlag: 0.22, landLag: 0.14,
     hitboxes: [{ x: 44, y: -42, r: 24, dmg: 11, base: 410, growth: 6.2, angle: 40 }],
     wind: pose({ lean: 0.3, legA: [1.2, 2.0], legB: [0.9, 1.8], armA: [0.6, -1.6], armB: [0.3, -1.6] }),
     strike: pose({ lean: -0.85, bob: 4, legA: [1.65, 0], legB: [1.5, 0.08], armA: [-2.1, 0.2], armB: [-2.4, 0.2], armC: [-1.7, 0.3], armD: [-2.0, 0.3] }) },
@@ -2753,14 +2865,14 @@ function endWhip(f, a, landed) {
 // ANYONE he touches at any point (as he starts it, on the way up, at the top, on the way down) gets GRABBED and
 // carried along with him. When he hits the floor: a big shockwave - the one he's holding takes the full slam,
 // and everyone else near the landing gets hit too. Once per trip in the air.
-const CROSS_CHOP = { grabR: 50, aoe: 140,
+const CROSS_CHOP = { grabR: 50, aoe: 140, maxDrop: 360,             // maxDrop: the furthest the dive carries him down
                      held: { dmg: 14, base: 460, growth: 6.6, angle: 70 },     // the one he carried down with him
                      near: { dmg: 10, base: 400, growth: 5.6, angle: 60 },     // everyone else in the shockwave
                      drop: { dmg: 4,  base: 260, growth: 2,   angle: 80 } };   // never reached the floor: let go
 const canBeGrabbed = (f, t) => t !== f && !allies(f, t) && t.respawnTimer <= 0 && !(t.halo > 0) && !isIntangible(t) && !t.dead && !(t.poofT > 0) &&
   !(t.action && ['grabbed', 'holding', 'thrown', 'whipped', 'impaled', 'ultVictim', 'ultSeq', 'timeStop', 'shipUlt'].includes(t.action.type));
-// Only someone STANDING ON THE GROUND gets grabbed (no escape). Someone IN THE AIR just gets HIT and dragged along
-// with him - and they can Z VANISH out of it at any moment (see 'whipped' in stepAction).
+// Only someone STANDING ON THE GROUND gets grabbed. Someone IN THE AIR just gets HIT and dragged along with him.
+// (Either way a well-timed Z vanish dodges it - you're intangible, so it can't catch you.)
 const CROSS_CHOP_AIR_HIT = 4;                                   // damage for clipping someone in the air
 function crossChopGrab(f, a) {
   if (a.held) return;
@@ -2814,7 +2926,15 @@ function stepCrossChop(f, a, dt, inp) {
                             : pose({ lean: 0.1, bob: -4, legA: [0.9, 1.5], legB: [0.4, 1.1], armA: [3.4, 0.9], armB: [2.4, -0.9], armC: [2.0, -1.2], armD: [1.6, -1.2] });
     carryHeld(f, a, false);
   } else {                                                     // DIVE
-    if (!a.dove) { a.dove = true; sfx.whoosh(true); }
+    if (!a.dove) { a.dove = true; a.diveY0 = f.y; sfx.whoosh(true); }
+    // (like Incineroar's: the dive only goes so far - from way up high it ends partway down instead of carrying him
+    //  all the way to the floor or the bottom of the screen)
+    if (!f.ground && f.y - a.diveY0 > CROSS_CHOP.maxDrop) {
+      if (a.held) { const v = a.held; v.action = null; knock(v, CROSS_CHOP.drop, f.face, powerOf(f), v.x, v.y - 40); a.held = null; a.whipVictim = null; }
+      f.vx *= 0.3; f.vy = 200;
+      a.phase = 'end'; a.t = 0; a.poseOverride = null;
+      return true;
+    }
     f.vx = f.face * 640; f.vy = 1500;
     a.ghostT = (a.ghostT || 0) - dt;
     if (a.ghostT <= 0) { a.ghostT = 0.025; ghosts.push({ fig: figureOf(f), life: 0.18, max: 0.18, color: '#ff8a3c' }); }
@@ -2861,6 +2981,65 @@ function crossChopSlam(f, a) {
 // Higher up = a longer leap, a bigger shockwave and more damage.
 const TURNBUCKLE = { low: 40, high: 112, dist: 150, distHigh: 230, dive: 0.36, aoe: 110, aoeHigh: 170,
                      hit: { dmg: 13, base: 440, growth: 6.4, angle: 68 } };
+// ---------------- ANCHOR SLAM (down J) ----------------
+// Where the anchor is: its GRIP (his hands) relative to him, and the angle its shaft points (from the grip to the
+// flukes), worked out in "facing" space (phi: 0 = straight ahead, -PI/2 = straight up) and mirrored when he faces left.
+function anchorPlace(f, a) {
+  const T = a.phase === 'active' ? a.t : -1, F = f.face, lerpG = (p, q, k) => [lerp(p[0], q[0], k), lerp(p[1], q[1], k)];
+  const UP = [-4, -118], FRONT = [34, -56], BACK = [-34, -56];
+  const phiUp = -Math.PI / 2 - 0.5, phiFront = Math.atan2(56, 52), phiBack = Math.atan2(56, -52) - Math.PI * 2;   // (back: the long way, OVER the top)
+  let g, phi, alpha = 1;
+  if (a.phase === 'startup' || a.phase === 'charge') { g = UP; phi = phiUp; }
+  else if (a.phase === 'active') {
+    if (T < ANCHOR.front) { const k = Math.pow(T / ANCHOR.front, 2); g = lerpG(UP, FRONT, k); phi = lerp(phiUp, phiFront, k); }                 // swing down in front
+    else if (T < ANCHOR.front + 0.1) { g = FRONT; phi = phiFront; }                                                                          // (stuck in the floor)
+    else if (T < ANCHOR.back) {                                                                                                              // heaved up and OVER to the back
+      const k = easeInOut((T - ANCHOR.front - 0.1) / (ANCHOR.back - ANCHOR.front - 0.1));
+      g = k < 0.5 ? lerpG(FRONT, UP, k * 2) : lerpG(UP, BACK, k * 2 - 1); phi = lerp(phiFront, phiBack, k);
+    } else { g = BACK; phi = phiBack; }
+  } else {                                                                                                                                   // putting it away
+    const k = clamp(a.t / 0.22, 0, 1); g = lerpG(BACK, [-10, -84], k); phi = lerp(phiBack, -Math.PI / 2 - Math.PI * 2 + 0.3, k); alpha = 1 - k;
+  }
+  const th = F > 0 ? phi : Math.PI - phi;
+  return { x: f.x + g[0] * F, y: f.y + g[1], gx: g[0], gy: g[1], th, alpha };
+}
+function stepAnchorSlam(f, a, dt) {
+  const A = anchorPlace(f, a);
+  a.anchor = A;                                                 // (drawn by drawAnchors)
+  const back = a.phase === 'active' && a.t > ANCHOR.front + 0.15, crouch = a.phase === 'active' && (Math.abs(a.t - ANCHOR.front) < 0.06 || a.t > ANCHOR.back - 0.02);
+  a.poseOverride = pose({ lean: back ? -0.45 : a.phase === 'active' ? 0.45 : -0.3, bob: crouch ? -18 : -6,
+                          legA: [0.85, 0.7], legB: [-0.8, 0.35], grip: [A.gx, A.gy + 4], lowFree: false });
+  if (a.phase === 'active') {
+    for (const [key, at, side] of [['slamF', ANCHOR.front, 1], ['slamB', ANCHOR.back, -1]]) {
+      if (a.t >= at && !a[key]) {                               // THUD - it hits the floor
+        a[key] = true;
+        const x = f.x + side * f.face * ANCHOR.reach;
+        dust(x, f.y, 18, 2.6); ring(x, f.y - 10);
+        burst(x, f.y - 8, FIRE, 16, Math.PI / 2, 0.8, 520, { grav: -200 });
+        burst(x, f.y - 6, ['#5a5a66', '#8a8a96', '#2a2a30'], 10, Math.PI / 2, 1.0, 420, { grav: 1400 });
+        cracks.push({ x, y: f.y, life: 3, max: 3, seed: Math.random() * 1000, size: 1.4 });
+        shake = Math.max(shake, 16); camPunch = 0.6; sfx.slam(); sfx.huge();
+      }
+    }
+    if (a.t > ANCHOR.front + 0.1 && a.t < ANCHOR.back && !a.swungOver) { a.swungOver = true; sfx.whoosh(true); }
+  }
+  return false;
+}
+// the anchor itself (world space): a big iron ship's anchor - ring at the top, a crossbar (stock), the long shank,
+// and the curved arms with spade flukes at the bottom
+function drawAnchorAt(x, y, th, alpha = 1, scale = 1) {
+  const iron = sketch ? '#1b1b1b' : '#3c3c46', hi = sketch ? '#1b1b1b' : '#8d8d9a';
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.translate(x, y); ctx.rotate(th); ctx.scale(scale, scale);
+  ctx.lineCap = 'round'; ctx.strokeStyle = iron;
+  ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(-16, 0, 6, 0, Math.PI * 2); ctx.stroke();            // the ring
+  ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(78, 0); ctx.stroke();           // the shank
+  ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(4, -15); ctx.lineTo(4, 15); ctx.stroke();           // the stock
+  ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(56, -30); ctx.quadraticCurveTo(90, 0, 56, 30); ctx.stroke();   // the arms
+  ctx.fillStyle = iron;
+  for (const s of [1, -1]) { ctx.beginPath(); ctx.moveTo(56, s * 30); ctx.lineTo(48, s * 40); ctx.lineTo(66, s * 34); ctx.closePath(); ctx.fill(); }   // flukes
+  if (!sketch) { ctx.strokeStyle = hi; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-4, -2); ctx.lineTo(70, -2); ctx.stroke(); }   // a glint along it
+  ctx.restore();
+}
 function stepTurnbuckle(f, a, dt, inp) {
   if (!a.tb) {                                                 // the ring corner pops up behind him
     const s = f.onPlatform || STAGE;
@@ -3058,7 +3237,7 @@ function trySPD(f) {
   f.action = { type: 'grab', t: GRAB.startup + GRAB.active, dur: GRAB.startup + GRAB.active + GRAB.whiffLag + 0.25, started: time };
   return true;
 }
-// ---------------- FORWARD THROW: the YARKO (a pirate's RKO - Randy Orton / Bryan Fury) ----------------
+// ---------------- FORWARD THROW: the YARRKO (a pirate's RKO - Randy Orton / Bryan Fury) ----------------
 // 1. He hauls them up onto his SHOULDERS (lying across them)...
 // 2. ...and HEAVES them straight up into the air, spinning.
 // 3. He JUMPS up after them and catches them round the NECK at the top ("OUTTA NOWHERE!")...
@@ -3141,7 +3320,7 @@ function stepRKO(f, a, dt) {
     if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += THROW_HITSTUN_BONUS;
     burst(v.x, a.gy0 - 10, FIRE, 20, Math.PI / 2, 1.0, 460, { grav: -250 });
     if (f.revenge > 0) consumeRevenge(f, v.x, a.gy0 - 30);
-    painTexts.push({ x: v.x, y: a.gy0 - 140, t: 0.8, max: 0.8, text: 'YARKO!', big: true });
+    painTexts.push({ x: v.x, y: a.gy0 - 140, t: 0.8, max: 0.8, text: 'YARRKO!', big: true });
     a.dur = a.t + 0.4;
     a.pose = pose({ lean: 1.2, bob: -44, legA: [-1.3, 0.1], legB: [-1.55, 0.15], armA: [1.9, 0.2], armB: [2.3, 0.2], armC: [1.5, 0.2], armD: [1.8, 0.2] });   // flat on the mat beside them
   }
@@ -3809,8 +3988,8 @@ function startDeckUlt(f, v) {
   U.userPose = pose({ lean: 0.2, bob: -6, legA: [0.7, 0.5], legB: [-0.6, 0.2], grip: [44, -58] });   // (drawn before its first update)
   U.victimPose = pose({ lean: -0.5, legA: [0.6, 0.6], legB: [-0.5, 0.4], armA: [-2.4, 0.3], armB: [2.3, -0.3] });
   U.home = { ux: f.x, uy: f.y, vx: v.x, vy: v.y };
-  // Straight out of the SPINNING PILEDRIVER or the YARKO: the throw carries on UP into the sky, and they come
-  // down out of it onto the ship - the piledriver / the YARKO lands on the deck, and the ult goes on from there
+  // Straight out of the SPINNING PILEDRIVER or the YARRKO: the throw carries on UP into the sky, and they come
+  // down out of it onto the ship - the piledriver / the YARRKO lands on the deck, and the ult goes on from there
   U.entry = a0 && a0.type === 'throw' && a0.kind === 'piledriver' ? 'spd' : a0 && a0.type === 'throw' && a0.kind === 'rko' ? 'rko' : null;
   if (!f.ground) {                                                 // (they come back down on the floor the throw started from)
     const floor = a0 && a0.gy0 !== undefined ? a0.gy0 : STAGE.y;
@@ -3828,7 +4007,7 @@ function updateDeckUlt(U, dt) {
   u.hitFlash = Math.max(0, u.hitFlash - dt); v.hitFlash = Math.max(0, v.hitFlash - dt);
   U.jolt = Math.max(0, U.jolt - dt);
   U.cheer = Math.max(1, (U.cheer || 1) - dt * 1.5);                // the crew goes wild on the big moments
-  if (U.entry && !U.entryDone) return stepDeckEntry(U, dt);        // (out of the piledriver / YARKO: they fall onto the ship)
+  if (U.entry && !U.entryDone) return stepDeckEntry(U, dt);        // (out of the piledriver / YARRKO: they fall onto the ship)
   // white-out flash in and out of the scene
   U.white = T < DT_.warp ? T / DT_.warp : T < DT_.warpIn ? 1 - (T - DT_.warp) / (DT_.warpIn - DT_.warp)
           : T > DT_.back ? Math.min(1, (T - DT_.back) / 0.2) * (T < DT_.back + 0.25 ? 1 : 1 - (T - DT_.back - 0.25) / 0.15) : 0;
@@ -4004,7 +4183,7 @@ function updateDeckUlt(U, dt) {
   if (!U.scene) { camX = v.x; camY = v.y - 70; camZ = 1.1; }
   U.cam = { x: camX, y: camY, z: camZ };
 }
-// --- out of the SPINNING PILEDRIVER / YARKO: up into the sky off the stage... and down out of it onto the ship ---
+// --- out of the SPINNING PILEDRIVER / YARRKO: up into the sky off the stage... and down out of it onto the ship ---
 const ENTRY = { up: 0.5, land: 1.0, out: 1.35 };
 function stepDeckEntry(U, dt) {
   const u = U.user, v = U.target, d = U.dir, T = U.t, once = k => !U.events.has(k) && U.events.add(k);
@@ -4022,7 +4201,7 @@ function stepDeckEntry(U, dt) {
       const c = Math.cos(T * Math.PI * 2 * 3);
       u.y = U.home.uy - 1100 * rise; v.x = u.x + d * 8 * c; v.y = u.y - 4; v.face = d;
       U.userPose = wrap(c); U.victimPose = { ...limp(), spin: d * Math.PI, turnX: c, raw: true };
-    } else {                                                       // the YARKO: hurled up, and he leaps up after them
+    } else {                                                       // the YARRKO: hurled up, and he leaps up after them
       v.x = U.home.ux + d * 30; v.y = U.home.vy - 1250 * Math.pow(k, 1.4); v.face = -d;
       u.y = U.home.uy - 1100 * rise;
       U.victimPose = { ...limp(), spin: d * T * 14 };
@@ -4080,7 +4259,7 @@ function stepDeckEntry(U, dt) {
         v.x = lerp(spd ? cx - d * 2 : cx + d * 40, vx0, j); v.y = gy; v.face = -d;
         U.victimPose = pose({ lean: -0.35 + j * 0.2, bob: -14 * (1 - j), legA: [0.6, 0.9], legB: [-0.5, 0.7], armA: [-0.6, 0.4], armB: [0.6, 0.4] });
       }
-      U.caption = spd ? 'SPINNING PILEDRIVER!' : 'YARKO! OUTTA NOWHERE!';
+      U.caption = spd ? 'SPINNING PILEDRIVER!' : 'YARRKO! OUTTA NOWHERE!';
       cam = { x: cx, y: gy - 110, z: 1.3, fast: k < 0.2 };
       if (T >= ENTRY.out) {                                        // hand over to the rope runs
         U.entryDone = true; U.t = DT_.warpIn;
@@ -4542,7 +4721,7 @@ function stepHellGrab(f, a) {
     if (t === f || allies(f, t) || t.respawnTimer > 0 || t.halo > 0 || isIntangible(t)) continue;
     const ta = t.action;
     if (ta && ['grabbed', 'holding', 'thrown', 'whipped', 'ultVictim', 'ultSeq', 'timeStop'].includes(ta.type)) continue;
-    if (!circleHitsFighter(gx, gy, 34, t)) continue;
+    if (!circleHitsFighter(gx, gy, 40, t)) continue;   // (Hell Grab reach: raised a bit, 34 -> 40)
     // CAUGHT: straight into a hold - now any direction throws them (shields don't stop it)
     t.shielding = false; t.face = -f.face; t.vx = t.vy = 0;
     t.action = { type: 'grabbed', t: 0, holder: f, escape: 1.2 + t.damage * 0.015 };
@@ -5362,7 +5541,7 @@ const CHARACTERS = {
     },
     grab: { reachX: 64, reachR: 42, startup: 0.045, whiffLag: 0.27 },   // four arms = a faster, longer, bigger grab
     // forward = RKO, back = Giant Swing, up = Spinning Piledriver, down = Body Slam + Elbow Drop
-    throwKinds: { forward: 'rko', back: 'giantSwing', up: 'piledriver', down: 'elbowDrop' },
+    throwKinds: { forward: 'elbowDrop', back: 'rko', up: 'piledriver', down: 'giantSwing' },   // (down = the Giant Swing, back = the YARRKO)
     transformName: 'CAGE MATCH',
   },
 };
@@ -5432,9 +5611,185 @@ CHARACTERS.LANCE.downThrow = 'broly';      // down throw = Broly-style ankle gra
 CHARACTERS.COLBY.transformName = 'REAPER FORM';
 CHARACTERS.COLBY.bareMoves = COLBY_PUNCHES;  // used while his scythe is thrown
 CHARACTERS.COLTEN.bareMoves = COLBY_PUNCHES; // Colten (Colby's echo): the same bare-handed string while his sword is thrown
-// AIDEN'S TAUNTS: KING's iconic poses (Tekken) - he's a wrestler too
-CHARACTERS.AIDEN.taunts = { 1: 'ROOOAR!', 2: 'COME HERE!', 3: 'HMPH.' };
+// AIDEN'S TAUNTS - three little skits (see HEEL_TAUNT / heelTauntStep / drawHeelTauntProps):
+//   UP   : RUM BARREL - hops up onto a barrel of rum, lights a cigar... puffs - and the smoke pours straight out of his
+//          ribcage (he's a SKELETON). Realises, hops down, flicks the cigar at the barrel: KA-BOOM.
+//   SIDE : ANCHOR SALUTE - slams a ship's anchor into the deck beside him and throws a sharp salute: "SHOW ME YER MOVES!"
+//   DOWN : FALLING APART - a huge four-arm flex with a big hearty "HAR HAR HAR!"... then he collapses into a pile of
+//          bones, and they rattle and clatter back together.
+CHARACTERS.AIDEN.taunts = { 1: '', 2: '', 3: '' };
+CHARACTERS.AIDEN.tauntDur = { 1: 2.45, 2: 1.6, 3: 2.8 };
+const HEEL_TAUNT = {
+  barrel: { up: 0.2, onTop: 0.5, light: 0.9, puff: 1.25, realize: 1.5, hopOff: 1.75, toss: 1.95, boom: 2.12, h: 44 },
+  anchor: { slam: 0.3, salute: 0.42 },
+  bones: { flexEnd: 0.95, fall: 1.25, pile: 1.75, back: 2.25 },
+};
+CHARACTERS.AIDEN.tauntStep = heelTauntStep;
+function heelTauntStep(f, a, dt) {
+  const T = a.t, F = a.face0, once = k => !(a.ev || (a.ev = new Set())).has(k) && a.ev.add(k);
+  f.face = F; f.vx = 0;
+  if (a.kind === 1) {                                              // ---- RUM BARREL ----
+    const B = HEEL_TAUNT.barrel;
+    a.bx = a.bx ?? clamp(a.x0 + F * 36, (f.onPlatform || STAGE).x + 30, (f.onPlatform || STAGE).x + (f.onPlatform || STAGE).w - 30);
+    if (T >= 0.02 && once('pop')) { dust(a.bx, f.y, 8, 1.4); sfx.slam(); }
+    if (T < B.up) f.x = a.x0;
+    else if (T < B.onTop) { const k = (T - B.up) / (B.onTop - B.up); f.x = lerp(a.x0, a.bx, k); if (once('hop')) sfx.whoosh(false); }
+    else if (T < B.hopOff) f.x = a.bx;
+    else if (T < B.toss) { const k = (T - B.hopOff) / (B.toss - B.hopOff); f.x = lerp(a.bx, a.bx - F * 70, k); if (once('hopOff')) sfx.whoosh(false); }
+    else f.x = a.bx - F * 70;
+    if (T >= B.light && once('match')) { if (soundOn && actx) noise('highpass', 3500, 0.8, 0.12, 0.25); sfx.blast(); }   // *scratch* - the match
+    if (T >= B.puff && T < B.realize && Math.random() < dt * 40) {     // the smoke comes out of his RIBS (and his eye socket)
+      const hy = f.y - HEEL_TAUNT.barrel.h * 1.25 - 70 - Math.random() * 20;
+      particles.push({ x: f.x + (Math.random() - 0.5) * 22, y: hy, vx: (Math.random() - 0.5) * 60, vy: -40 - Math.random() * 40, life: 0.9, max: 0.9, size: 3 + Math.random() * 3, color: Math.random() < 0.5 ? '#bdbdbd' : '#8e8e8e', type: 'bit', grav: -60 });
+    }
+    if (T >= B.puff + 0.12 && once('huh')) painTexts.push({ x: f.x, y: f.y - 200, t: 0.7, max: 0.7, text: '...?!', big: false });
+    if (T >= B.toss && once('toss')) a.cig = { x: f.x + F * 16, y: f.y - 100, vx: F * 260, vy: -260 };
+    if (a.cig) { a.cig.vy += 1400 * dt; a.cig.x += a.cig.vx * dt; a.cig.y += a.cig.vy * dt; }
+    if (T >= B.boom && once('boom')) {                             // KA-BOOM
+      a.cig = null; a.boomed = true;
+      const x = a.bx, y = f.y - 22;
+      for (let k = 0; k < 4; k++) burst(x + (k - 1.5) * 12, y, FIRE, 18, Math.PI / 2, 1.3, 520 + k * 80, { grav: -300 });
+      burst(x, y, ['#6b3d1f', '#8a5a2e', '#3b200e'], 18, Math.PI / 2, 1.4, 600, { grav: 1400 });   // barrel staves
+      ring(x, y); ring(x, y - 30); dust(x, f.y, 16, 2.4);
+      shake = Math.max(shake, 18); sfx.huge(); sfx.slam();
+      painTexts.push({ x, y: f.y - 120, t: 0.8, max: 0.8, text: 'KA-BOOM!', big: true });
+    }
+  } else if (a.kind === 2) {                                       // ---- ANCHOR SALUTE ----
+    const A = HEEL_TAUNT.anchor;
+    a.ax = a.ax ?? f.x + F * 44;
+    if (T >= A.slam && once('slam')) { dust(a.ax, f.y, 14, 2); ring(a.ax, f.y - 6); shake = Math.max(shake, 10); sfx.slam(); cracks.push({ x: a.ax, y: f.y, life: 1.6, max: 1.6, seed: Math.random() * 1000, size: 0.9 }); }
+    if (T >= A.salute && once('line')) painTexts.push({ x: f.x, y: f.y - 150, t: 0.9, max: 0.9, text: 'SHOW ME YER MOVES!', big: true });
+  } else {                                                         // ---- FALLING APART ----
+    const S = HEEL_TAUNT.bones;
+    if (T >= 0.1 && once('har')) painTexts.push({ x: f.x, y: f.y - 160, t: 0.9, max: 0.9, text: 'HAR HAR HAR!', big: true });
+    a.bones = T >= S.flexEnd && T < S.back;
+    if (T >= S.flexEnd && once('fall') && soundOn && actx) { for (let k = 0; k < 6; k++) noise('bandpass', 2400 + k * 300, 4, 0.03, 0.22, k * 0.05); }    // clatter...
+    if (T >= S.pile && once('rattle') && soundOn && actx) { for (let k = 0; k < 6; k++) noise('bandpass', 2600 + k * 250, 4, 0.03, 0.2, k * 0.06); }
+    if (T >= S.back && once('back')) { burst(f.x, f.y - 60, FIRE, 16, Math.PI / 2, 1.2, 360, { grav: -250 }); ring(f.x, f.y - 50); sfx.parry(); painTexts.push({ x: f.x, y: f.y - 160, t: 0.6, max: 0.6, text: 'HAR!', big: false }); }
+  }
+}
+// The props + the bone pile (world space; drawn in drawFighter before his body)
+function drawHeelTauntProps(p, a) {
+  const F = a.face0, T = a.t;
+  if (a.kind === 1) {
+    const B = HEEL_TAUNT.barrel;
+    if (a.bx !== undefined && !a.boomed) {                         // the RUM BARREL
+      const k = clamp(T / B.up, 0, 1), h = B.h * easeOut(k), x = a.bx, y = p.y, w = 34;
+      ctx.save();
+      ctx.fillStyle = sketch ? '#e8d6b0' : '#7a4a22';
+      ctx.beginPath(); ctx.moveTo(x - w / 2, y); ctx.quadraticCurveTo(x - w / 2 - 6, y - h / 2, x - w / 2, y - h); ctx.lineTo(x + w / 2, y - h);
+      ctx.quadraticCurveTo(x + w / 2 + 6, y - h / 2, x + w / 2, y); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = sketch ? '#1b1b1b' : '#2b2b30'; ctx.lineWidth = 3;               // iron hoops
+      for (const f of [0.2, 0.8]) { ctx.beginPath(); ctx.moveTo(x - w / 2 - 3, y - h * f); ctx.lineTo(x + w / 2 + 3, y - h * f); ctx.stroke(); }
+      if (!sketch) { ctx.strokeStyle = '#4e2b14'; ctx.lineWidth = 1; for (const dx of [-8, 0, 8]) { ctx.beginPath(); ctx.moveTo(x + dx, y - 2); ctx.lineTo(x + dx, y - h + 2); ctx.stroke(); } }
+      if (h > 20) { ctx.fillStyle = sketch ? '#1b1b1b' : '#f2efe6'; ctx.font = 'bold 9px "Arial Black", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('RUM', x, y - h * 0.42); ctx.textAlign = 'left'; }
+      ctx.restore();
+    }
+    // the CIGAR: in his teeth (lit from the match on), then flying at the barrel
+    const lit = T >= B.light;
+    let cx = null, cy = null, ang = 0;
+    if (a.cig) { cx = a.cig.x; cy = a.cig.y; ang = Math.atan2(a.cig.vy, a.cig.vx); }
+    else if (T >= B.light - 0.25 && T < B.toss) { cx = p.x + F * 18; cy = p.y - B.h * 1.25 * (T < B.hopOff ? 1 : 0) - 104; ang = F > 0 ? 0.15 : Math.PI - 0.15; }
+    if (cx !== null) {
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+      ctx.fillStyle = '#6b3d1f'; ctx.fillRect(-2, -2, 13, 4);
+      if (lit) { ctx.fillStyle = Math.floor(time * 12) % 2 ? '#ff7a1a' : '#ffd23f'; ctx.fillRect(11, -2, 3, 4); }
+      ctx.restore();
+      if (lit && Math.random() < 0.3) particles.push({ x: cx + Math.cos(ang) * 13, y: cy, vx: 0, vy: -30, life: 0.5, max: 0.5, size: 2, color: '#bdbdbd', type: 'bit', grav: -40 });
+    }
+  } else if (a.kind === 2) {
+    const A = HEEL_TAUNT.anchor;
+    if (a.ax !== undefined) {
+      if (T < A.slam) {                                            // hauled up overhead...
+        const k = T / A.slam;
+        drawAnchorAt(lerp(p.x - F * 4, a.ax, k * k), p.y - lerp(124, 84, k * k), lerp(-Math.PI / 2, Math.PI / 2, Math.min(1, k * 1.2)) * (F > 0 ? 1 : 1), 1, 0.9);
+      } else {                                                     // ...SLAMMED into the deck, standing upright
+        const out = T > a.dur - 0.2 ? (T - (a.dur - 0.2)) / 0.2 : 0;
+        drawAnchorAt(a.ax, p.y - 80, Math.PI / 2, 1 - out, 0.9);
+      }
+    }
+  }
+}
+// FALLING APART: his bones, from where they are on his body to a heap on the floor, and back again
+const BONE_PARTS = [   // [kind, x, y, angle, length]  (x is forward, y up from his feet; scaled by his size)
+  ['skull', 2, -104, 0, 0], ['ribs', 0, -76, 0, 0], ['pelvis', 0, -52, 0, 0],
+  ['bone', 14, -78, 0.9, 20], ['bone', 26, -64, 0.6, 18], ['bone', -14, -78, -0.9, 20], ['bone', -26, -64, -0.6, 18],   // upper arms
+  ['bone', 12, -66, 1.2, 16], ['bone', -12, -66, -1.2, 16],                                                             // lower arms
+  ['bone', 8, -38, 1.45, 24], ['bone', 10, -14, 1.6, 24], ['bone', -8, -38, 1.7, 24], ['bone', -10, -14, 1.5, 24],    // legs
+];
+function drawBonePile(p, a) {
+  const S = HEEL_TAUNT.bones, T = a.t, F = a.face0, sc = (p.look && p.look.scale) || 1;
+  const bone = sketch ? PAPER : (p.look.body || '#e8e2cf'), edge = sketch ? '#1b1b1b' : '#8f8670';
+  let k;                                                           // 0 = standing whole, 1 = in a heap
+  if (T < S.fall) k = easeIn2((T - S.flexEnd) / (S.fall - S.flexEnd));
+  else if (T < S.pile) k = 1;
+  else k = 1 - easeOut((T - S.pile) / (S.back - S.pile));
+  const rattle = T >= S.pile - 0.15 && T < S.pile + 0.1 ? Math.sin(time * 70) * 2 : 0;
+  ctx.save(); ctx.lineCap = 'round';
+  BONE_PARTS.forEach(([kind, bx, by, ang, len], i) => {
+    const sx = p.x + bx * F * sc, sy = p.y + by * sc;
+    const tx = p.x + (hash(i * 3.7) - 0.5) * 70 * sc, ty = p.y - (kind === 'skull' ? 9 : kind === 'ribs' ? 10 : 4) * sc;
+    const ta = (hash(i * 9.1) - 0.5) * 3 + Math.PI / 2;
+    const x = lerp(sx, tx, k) + (k > 0 && k < 1 ? 0 : rattle * hash(i)), y = lerp(sy, ty, k) - Math.sin(k * Math.PI) * 18 * sc;
+    const th = lerp(ang * F, ta, k) + Math.sin(k * Math.PI) * (hash(i) - 0.5) * 6;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(th);
+    ctx.fillStyle = bone; ctx.strokeStyle = edge; ctx.lineWidth = 1.2;
+    if (kind === 'bone') {
+      const L = len * sc / 2;
+      ctx.lineWidth = 4 * sc; ctx.strokeStyle = bone; ctx.beginPath(); ctx.moveTo(-L, 0); ctx.lineTo(L, 0); ctx.stroke();
+      for (const e of [-L, L]) { ctx.beginPath(); ctx.arc(e, -1.6 * sc, 2.4 * sc, 0, Math.PI * 2); ctx.arc(e, 1.6 * sc, 2.4 * sc, 0, Math.PI * 2); ctx.fill(); }   // knobbly ends
+    } else if (kind === 'ribs') {
+      ctx.rotate(-th + lerp(0, ta - Math.PI / 2, k));
+      ctx.lineWidth = 3 * sc; ctx.strokeStyle = bone;
+      ctx.beginPath(); ctx.moveTo(0, -14 * sc); ctx.lineTo(0, 12 * sc); ctx.stroke();                       // spine
+      for (let r = 0; r < 4; r++) { ctx.beginPath(); ctx.ellipse(0, (-10 + r * 6) * sc, (11 - r) * sc, 3 * sc, 0, 0, Math.PI); ctx.stroke(); }   // ribs
+    } else if (kind === 'pelvis') {
+      ctx.beginPath(); ctx.ellipse(0, 0, 10 * sc, 5 * sc, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    } else {                                                       // the skull - still in his hat
+      ctx.rotate(-th + lerp(0, (hash(5) - 0.5) * 1.2, k));
+      ctx.beginPath(); ctx.arc(0, 0, 11 * sc, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a1511';
+      ctx.beginPath(); ctx.arc(F * 4 * sc, -1 * sc, 2.6 * sc, 0, Math.PI * 2); ctx.arc(-F * 2 * sc, -1 * sc, 2.4 * sc, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(-4 * sc, 5 * sc, 8 * sc, 1.6 * sc);
+      ctx.fillStyle = sketch ? '#1b1b1b' : '#141215';                                                           // his hat
+      ctx.beginPath(); ctx.moveTo(-17 * sc, -8 * sc); ctx.quadraticCurveTo(0, -30 * sc, 17 * sc, -8 * sc); ctx.quadraticCurveTo(0, -3 * sc, -17 * sc, -8 * sc); ctx.fill();
+      if (!sketch) { ctx.fillStyle = '#141414'; ctx.beginPath(); ctx.moveTo(-6 * sc, 7 * sc); ctx.quadraticCurveTo(0, 19 * sc, 6 * sc, 7 * sc); ctx.fill(); }   // the black beard
+    }
+    ctx.restore();
+  });
+  ctx.restore();
+}
+const easeIn2 = k => clamp(k, 0, 1) * clamp(k, 0, 1);
 CHARACTERS.AIDEN.tauntPoses = {
+  // UP: RUM BARREL (see heelTauntStep for where he is)
+  1: (p, a, w) => {
+    const B = HEEL_TAUNT.barrel, T = a.t, onB = HEEL_TAUNT.barrel.h / LEG_SCALE;   // (bob that lifts him onto the barrel)
+    if (T < B.up) return pose({ lean: 0.1, bob: -8, legA: [0.6, 0.6], legB: [-0.5, 0.3], armA: [0.6, -0.8], armB: [-0.5, -0.8] });
+    if (T < B.onTop) { const k = (T - B.up) / (B.onTop - B.up); return { ...pose({ lean: 0.2, bob: onB * k + Math.sin(k * Math.PI) * 26, legA: [1.3, 1.9], legB: [0.6, 1.5], armA: [2.4, 0.2], armB: [-2.2, 0.2] }), raw: true }; }
+    if (T < B.light) return pose({ lean: -0.05, bob: onB, legA: [0.35, 0.2], legB: [-0.35, 0.15], armA: [2.1, 2.2], armB: [1.9, 2.4], armC: [-0.5, -1.4], armD: [0.5, -1.4] });   // cigar to his teeth, cupping the match
+    if (T < B.puff) return pose({ lean: -0.15, bob: onB, legA: [0.35, 0.2], legB: [-0.35, 0.15], armA: [2.1, 2.2], armB: [-0.4, -1.5], armC: [-0.5, -1.4], armD: [0.5, -1.4] });  // a big puff...
+    if (T < B.realize) return pose({ lean: 0.45, bob: onB - 4, legA: [0.4, 0.3], legB: [-0.4, 0.2], armA: [0.9, -1.2], armB: [-0.9, 1.2], armC: [0.6, -0.8], armD: [-0.6, 0.8] });   // ...looks down at his own ribs
+    if (T < B.hopOff) return pose({ lean: 0.1, bob: onB, legA: [0.35, 0.2], legB: [-0.35, 0.15], armA: [1.3, 0.4], armB: [-1.3, -0.4], armC: [0.9, 0.3], armD: [-0.9, -0.3] });   // shrug - "huh."
+    if (T < B.toss) { const k = (T - B.hopOff) / (B.toss - B.hopOff); return { ...pose({ lean: -0.3, bob: onB * (1 - k) + Math.sin(k * Math.PI) * 22, legA: [0.9, 1.5], legB: [0.4, 1.2], armA: [2.8, 0.2], armB: [-2.4, 0.2] }), raw: true }; }   // hops off backwards
+    if (T < HEEL_TAUNT.barrel.boom) return pose({ lean: 0.4, bob: -6, legA: [0.8, 0.6], legB: [-0.7, 0.3], armA: [1.4, 0], armB: [-0.8, -0.6] });   // FLICK
+    return pose({ lean: -0.35, bob: -4 + w * 2, legA: [0.5, 0.3], legB: [-0.5, 0.2], armA: [2.5, -1.7], armB: [2.2, -1.8], armC: [1.4, -2.0], armD: [1.1, -2.1] });   // flexes in the blast
+  },
+  // SIDE: ANCHOR SALUTE - the anchor slammed in beside him, one hand snapped to his brow, the other on his hip, the
+  // lower hands resting on the anchor
+  2: (p, a, w) => {
+    if (a.t < HEEL_TAUNT.anchor.slam) return pose({ lean: -0.35 + a.t, bob: -8, legA: [0.7, 0.5], legB: [-0.6, 0.3], armA: [2.9, 0.3], armB: [2.7, 0.3], armC: [2.5, 0.4], armD: [2.3, 0.4] });
+    if (a.t < HEEL_TAUNT.anchor.salute) return pose({ lean: 0.45, bob: -16, legA: [0.9, 0.8], legB: [-0.8, 0.3], armA: [1.3, 0.2], armB: [1.1, 0.3], armC: [1.0, 0.3], armD: [0.9, 0.3] });
+    return pose({ lean: -0.1, bob: -4, legA: [0.55, 0.25], legB: [-0.5, 0.15],
+                  armA: [2.0, -1.9], armB: [-0.55, -1.55], armC: [1.25, 0.25], armD: [1.05, 0.35] });   // (A: elbow up and out, hand snapped back to his brim)
+  },
+  // DOWN: the huge flex (then he falls to bits - drawBonePile - and pops back together)
+  3: (p, a, w) => {
+    const S = HEEL_TAUNT.bones;
+    if (a.t < S.flexEnd) { const laugh = Math.sin(a.t * 30) * 2; return pose({ lean: -0.25, bob: -6 + laugh, legA: [0.6, 0.4], legB: [-0.6, 0.3], armA: [2.5, -1.7], armB: [2.2, -1.8], armC: [1.4, -2.0], armD: [1.1, -2.1] }); }
+    return pose({ lean: 0.05, bob: -2, legA: [0.45, 0.2], legB: [-0.45, 0.1], armA: [1.2, 2.5], armB: [1.0, 2.6], armC: [1.0, 2.2], armD: [0.8, 2.3] });   // back together, arms crossed
+  },
+};
+CHARACTERS.AIDEN.oldTauntPoses = {
   // UP: King's victory pose - stands tall and thrusts one fist straight up at the sky, the other arms flexed
   1: (p, a, w) => pose({ lean: -0.18, bob: -2, legA: [0.45, 0.2], legB: [-0.45, 0.1],
                         armA: [3.1, 0.05], armB: [-1.57, 1.57], armC: [1.4, -1.5], armD: [-1.4, 1.5] }),
@@ -6497,7 +6852,7 @@ function critKO(t, h, dirSign, dmg, hx, hy) {
 //  ← / → / ↑ / ↓ = back/forward/up/down throw, J = pummel. The grabbed player mashes any button to
 //  break free (it takes longer the more damage they have). Hold too long and they slip out.
 // =====================================================================
-const GRAB = { startup: 0.07, active: 0.08, whiffLag: 0.3, reachX: 40, reachY: -50, reachR: 28 };
+const GRAB = { startup: 0.07, active: 0.08, whiffLag: 0.3, reachX: 50, reachY: -50, reachR: 34 };   // (reach raised a bit: 40/28 -> 50/34. Captain Heel has his own, unchanged)
 const HOLD_TIME = 1.6;            // holder must throw within this long or the victim slips free
 const THROWS = {
   // growth = how much more they fly per % of damage (raised so throws become kill options at high %)
@@ -6524,7 +6879,8 @@ function stepGrab(f, a, dt) {
     if (t === f || allies(f, t) || t.respawnTimer > 0 || t.halo > 0) continue;
     const ta = t.action;
     if (isIntangible(t)) continue;                                        // dodges beat grabs
-    if (ta && ['grabbed', 'holding', 'hitstun', 'clash'].includes(ta.type)) continue;
+    if (ta && ['grabbed', 'holding', 'clash'].includes(ta.type)) continue;
+    if (ta && ta.type === 'hitstun' && !a.chainGrab) continue;            // (stunned = can't be grabbed - except out of Colby's string)
     if (!circleHitsFighter(gx, gy, G.reachR, t)) continue;
     // Both grabbed at the same moment: hands lock = CLASH (a shoving match), then both spring apart
     if (ta && ta.type === 'grab' && Math.abs((ta.started ?? -9) - (a.started ?? 9)) <= CLASH_WINDOW) {
@@ -6730,7 +7086,7 @@ const painTexts = [];
 // (SHOW_FIGHT_TEXT = true brings all the other pop-ups back: DODGED!, PERFECT!, CLASH!, CRITICAL!...)
 const SHOW_FIGHT_TEXT = false;
 // ...plus these, which always show: CLASH text (the clash and its power-bar duel) and CRITICAL hits
-const KEEP_TEXTS = new Set(['CRITICAL!', 'WIN!', 'CLASH WON!', 'BROKEN!', 'YARKO!']);
+const KEEP_TEXTS = new Set(['CRITICAL!', 'WIN!', 'CLASH WON!', 'BROKEN!', 'YARRKO!']);
 const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'ultStart', 'ultSeq'].includes(f.action.type));
 painTexts.push = function (...items) { for (const p of items) if (p && p.ult === undefined) p.ult = ultRunning(); return Array.prototype.push.apply(this, items); };
 function drawCracks() {
@@ -6761,7 +7117,9 @@ function drawCracks() {
 function doThrow(f, v, kind) {
   if (kind === 'down' && CHARACTERS[f.char].downThrow === 'broly') kind = 'broly';   // Lance's down throw
   const own = CHARACTERS[f.char].throwKinds;                                          // Aiden's own throws
+  const asked = kind;
   if (own && own[kind]) kind = own[kind];
+  if (asked === 'back' && kind === 'rko') { f.face = -f.face; v.face = -v.face; }   // (BACK throw = the YARRKO: he spins round to do it the other way)
   if (kind === 'harvest' && (f.noScythe || (f.weapon && f.weapon !== 'scythe'))) kind = 'up';   // (Colby's up throw needs his scythe)
   const A = THROW_ANIM[kind];
   f.action = { type: 'throw', t: 0, dur: A.dur, rel: A.rel, kind, victim: v, face0: f.face, released: false };
@@ -7928,6 +8286,7 @@ function startDodge(f, dir, down, up) {
 // Bare-handed Colby's shared string: which hit comes next ('k' = kick button, 'p' = punch button)
 function nextChainKey(f, kind) {
   const step = f.comboTimer > 0 && f.chainStep >= 1 && f.chainStep < CHAIN_LEN ? f.chainStep : 0;
+  if (kind === 'p' && step === 5) return 'kFinish';             // THE BLINK STRING: the 6th K = the air-teleport finisher (Heaven's Axe)
   if (step === CHAIN_LEN - 1) return kind + 'Finish';            // 7th hit = the finisher for that button
   return kind + (step + 1);
 }
@@ -8016,6 +8375,7 @@ function startAttack(f, inp, btn) {
                charge: 0, mult: 1, hit: new Set(), air: !f.ground, started: time, cStick: fromC && f.ground, fromC,
                startupMul: fromC ? C_STICK.speed : 1 };              // C-stick moves come out faster
   if (btn === 'atk' && f.look && f.look.trackDash) startTrackDash(f, f.action);
+  if (f.noScythe && /^(p[1-5]|k1)$/.test(key) && f.action.move.chain) colbyBlink(f, f.action);   // bare Colby's K string: BLINK round them
   // CAPTAIN HEEL'S VOICE: specials and smash attacks get a yell, normal attacks a grunt now and then
   if (f.char === 'AIDEN') heelSay(f, /Ranged$/.test(key) ? 'effort' : move.charge ? 'effort' : 'grunt', /Ranged$/.test(key) ? 1 : move.charge ? 0.75 : 0.35);
 }
@@ -8333,7 +8693,7 @@ function beginActive(f, a) {
   a.t = 0;
   if (a.track) { f.vx *= 0.1; a.track = null; }      // tracking dash ends when the hit comes out
   const m = a.move;
-  if (m.lunge && f.ground) f.vx = f.face * m.lunge * Math.sqrt(a.mult);
+  if (m.lunge && f.ground && !a.blink) f.vx = f.face * m.lunge * Math.sqrt(a.mult);   // (a BLINK hit - Colby teleported - doesn't lunge)
   if (a.powered) {                                   // charged power jab: explodes forward
     f.vx = f.face * m.chargedHit.lunge;
     burst(f.x + f.face * 30, f.y - 66, ['#ff8a3c', '#ffd23f', '#ffffff'], 20, f.face > 0 ? 0 : Math.PI, 0.5, 700, { grav: 0 });
@@ -8385,14 +8745,8 @@ function stepAction(f, inp, dt) {
   if (a.type === 'thrown') return stepThrown(f, a, dt);
   if (a.type === 'whipped') {                                     // moved by the whip / carried by him
     if (!a.holder.action || a.holder.action.whipVictim !== f) { f.action = null; return; }
-    // DRAGGED through the air (Captain Heel's Cross Chop caught them in the air): Z VANISH out of it any time
-    if (a.drag && (inp.blockTap || f.dodgeBuf > 0) && canAirDodge(f)) {
-      const ha = a.holder.action;
-      (ha.escaped || (ha.escaped = new Set())).add(f);
-      ha.held = null; ha.whipVictim = null;
-      f.action = null; f.ground = false;
-      startDodge(f, inp.dir, inp.down, inp.up);
-    }
+    // (No Z-vanishing OUT of a grab once you're caught - a well-timed Z vanish DODGES it instead: you're intangible
+    //  for a moment, and grabs pass straight through you - see canBeGrabbed / isIntangible.)
     return;
   }
   if (a.type === 'impaled') {                                     // on Colby's scythe (Reaper's Aether): he moves them
@@ -8474,6 +8828,11 @@ function stepAction(f, inp, dt) {
 
     // held = the button, or (for a ground C-stick move) the right stick still pushed
     const btnHeld = (a.btn === 'atk' ? inp.atkHeld : inp.spcHeld) || (a.cStick && inp.cHeld);
+    // BARE-HANDED COLBY: GRAB at any point in his punch/kick string (even with them stunned from it)
+    if (f.noScythe && m.chain && f.grabBuf > 0 && f.ground && CHARACTERS[f.char].bareMoves) {
+      f.action = null; startGrab(f); f.action.chainGrab = true;
+      return;
+    }
     // C-STICK COMBO CANCEL: once an attack has HIT someone, a C-stick flick cuts its recovery short
     // and goes straight into the next move (ground or air) - for quick combos
     if (a.phase === 'end' && a.hit.size > 0 && f.cFlick && a.t >= 0.03) {
@@ -8587,8 +8946,10 @@ function stepAction(f, inp, dt) {
     if (f.look && f.look.hype) {
       f.hype = Math.min(100, (f.hype || 0) + HYPE.perTaunt * dt / a.dur);
       f.hypePulse = 0.25;
-      if (Math.random() < dt * 30) burst(f.x + (Math.random() - 0.5) * 40, f.y - Math.random() * 80, FIRE, 1, Math.PI / 2, 0.4, 220, { grav: -320 });
+      if (Math.random() < dt * 30 && !a.bones) burst(f.x + (Math.random() - 0.5) * 40, f.y - Math.random() * 80, FIRE, 1, Math.PI / 2, 0.4, 220, { grav: -320 });
     }
+    const tStep = CHARACTERS[f.char].tauntStep;                 // (character skits: Captain Heel's barrel / anchor / bones)
+    if (tStep) tStep(f, a, dt);
     // AIDEN ONLY: TAUNT CANCEL - any attack, special, grab, jump or dodge cuts the taunt short and comes out
     // straight away. He keeps the HYPE for however much of the taunt he got through.
     if (f.look && f.look.hype && (f.atkBuf > 0 || f.spcBuf > 0 || f.grabBuf > 0 || f.jumpBuf > 0 || f.dodgeBuf > 0 || inp.taunt)) {
@@ -9177,7 +9538,8 @@ function padInput(i, binds = bindings) {                  // (binds = that playe
   }
   ps.cDir = cMag > C_STICK.reset ? (cDir || ps.cDir) : null;
   if (cMag < C_STICK.reset) ps.cHold = false;
-  inp.cHeld = !!ps.cHold && cMag >= 0.4;        // keep the right stick pushed = charge it (ground moves)
+  inp.cHeld = !!ps.cHold && cMag >= C_STICK.reset;   // keep the right stick pushed = charge it (ground moves) - any push past
+                                                     // the reset point counts (GameCube C-sticks sag a lot while held)
   ps.cMag = cMag;
   ps.prev = s;
   return inp;
@@ -9718,7 +10080,7 @@ function update(dt) {
         const crit = GC && a.groundStart && a.t <= GC.window && t.ground && Math.abs(t.x - f.x) <= GC.range && !t.shielding;
         const wieldPow = f.weaponPower && f.weaponPower !== 1 && moveUsesScythe(a.move) ? f.weaponPower : 1;   // rival's weapon (Colten + scythe hits harder)
         const ia0 = impactAt;                         // (to tell if this hit made a new impact frame)
-        if (applyHit(t, crit ? { ...GC.hit } : h, f.face, a.mult * powerOf(f) * demonBoost * wieldPow, hx, hy, { fighter: f })) {
+        if (applyHit(t, crit ? { ...GC.hit } : h, a.pushDir || f.face, a.mult * powerOf(f) * demonBoost * wieldPow, hx, hy, { fighter: f })) {   // (pushDir: Colby's blink string keeps driving them one way)
           a.hit.add(key);
           if (t.damage > d0 && moveUsesScythe(a.move) && !f.noScythe) sfx.cut(0.5);   // a blade biting in
           if (crit) {
@@ -9743,7 +10105,8 @@ function update(dt) {
           if (a.move.chainLock && clean && !t.action.crit && !a.powered) {
             t.action.dur = Math.max(t.action.dur, 0.5); t.action.locked = true;
             t.vx = 0; if (t.ground) t.vy = 0; else t.vy = Math.min(t.vy, 0) * 0.2;
-            t.x = f.x + f.face * 50;
+            if (a.pushDir) t.x += a.pushDir * 22;                 // (blink string: nudged on the original way, wherever he hit from)
+            else t.x = f.x + f.face * 50;
           }
           // ELECTRIC: blue-white lightning cracks off every hit
           if (a.move.electric) {
@@ -10988,9 +11351,21 @@ function drawFigure(fig, opts = {}) {
     ctx.fillRect(head.x + (f > 0 ? 2 : -11), head.y + 7, 9, 1.6);                         // mouth line
     ctx.strokeStyle = sketch ? main : '#1a1511'; ctx.lineWidth = 1;
     for (let k = 0; k < 4; k++) { const x = head.x + f * (3.5 + k * 2.2); ctx.beginPath(); ctx.moveTo(x, head.y + 5.5); ctx.lineTo(x, head.y + 10); ctx.stroke(); }   // teeth
-    if (!look.beard) {                                   // cheekbone (left off under Captain Heel's beard - it read as a grey moustache)
+    if (!look.beard) {                                   // cheekbone line
       ctx.strokeStyle = look.detail; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(head.x - f * 2, head.y + 2, 9, f > 0 ? 0.4 : Math.PI - 1.1, f > 0 ? 1.1 : Math.PI - 0.4); ctx.stroke();
+    } else {
+      // CAPTAIN HEEL: proper SKULL cheekbones - a sunken hollow tucked in UNDER a sharp cheekbone ridge (high up on
+      // the face, well clear of the beard), and a hollow at the temple behind the eye
+      const boneC = sketch ? PAPER : (look.body || '#e8e2cf'), hol = sketch ? '#bdbdbd' : shade(boneC, 0.74);
+      ctx.fillStyle = hol;
+      ctx.beginPath(); ctx.ellipse(head.x - f * 3, head.y + 0.5, 3.6, 4.4, f * 0.5, 0, Math.PI * 2); ctx.fill();   // the cheek hollow (beside the eye, going back to the jaw hinge)
+      ctx.fillStyle = boneC;
+      ctx.beginPath(); ctx.ellipse(head.x - f * 1.4, head.y - 1.6, 3.6, 3.2, f * 0.5, 0, Math.PI * 2); ctx.fill();   // (the cheekbone over it cuts it into a crescent)
+      ctx.strokeStyle = sketch ? main : shade(boneC, 0.6); ctx.lineWidth = 1.1; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(head.x + f * 2.5, head.y + 0.5); ctx.quadraticCurveTo(head.x - f * 2, head.y + 1.2, head.x - f * 6.5, head.y - 2.5); ctx.stroke();   // the cheekbone's edge, sweeping back to the ear
+      ctx.fillStyle = hol;
+      ctx.beginPath(); ctx.ellipse(head.x - f * 6, head.y - 4, 2.6, 3.4, 0, 0, Math.PI * 2); ctx.fill();          // temple hollow
     }
   }
   // BLACK BEARD (Aiden): a big bushy beard off his jaw, a moustache over the teeth, and two braids with red ties
@@ -11044,6 +11419,7 @@ function drawFigure(fig, opts = {}) {
       ctx.quadraticCurveTo(X(-11 * k), Y(-8 + dy), X(-22 * k), Y(-17 + dy));
       ctx.closePath();
     };
+    ctx.save(); ctx.translate(0, 4);                                // (the hat sits a little LOWER on his skull - snug over the bandana)
     ctx.fillStyle = hc; hatPath(); ctx.fill();
     if (sketch && !opts.tint) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }
     if (!opts.tint && !sketch) {
@@ -11069,6 +11445,7 @@ function drawFigure(fig, opts = {}) {
       ctx.beginPath(); ctx.arc(sx - 1.7, sy - 1.2, 1.3, 0, Math.PI * 2); ctx.arc(sx + 1.7, sy - 1.2, 1.3, 0, Math.PI * 2); ctx.fill();   // eye sockets
       ctx.restore();
     }
+    ctx.restore();                                                  // (end of the lowered hat)
   }
   // COLTEN: brown hair spiked up only at the forehead (a short cap of hair, spikes at the front)
   if (look.foreSpikes) {
@@ -11318,6 +11695,10 @@ function drawSmear(p) {
 
 function drawFighter(p) {
   const a = p.action;
+  if (a && a.type === 'taunt' && p.look && p.look.pirateHat) {         // Captain Heel's taunt skits: barrel / anchor / bones
+    drawHeelTauntProps(p, a);
+    if (a.bones) { drawBonePile(p, a); return; }
+  }
   const tired = a && a.level > 0;
   const intangible = isIntangible(p) && p.invuln <= 0 && !(a && ['clash', 'thrown', 'ultSeq', 'ultVictim', 'ultBeam'].includes(a.type));   // not dodging
   const blink = p.invuln > 0 && Math.floor(p.invuln * 12) % 2 === 0;
@@ -12415,6 +12796,7 @@ function render() {
       const order = fighters.filter(f => f.respawnTimer <= 0).sort((a, b) => (a.drawZ || 0) - (b.drawZ || 0));
       for (const f of order) drawFighter(f);
       for (const f of order) drawSmear(f);              // attack smears on top of the bodies
+      for (const f of order) if (f.action && f.action.anchor && f.action.type === 'attack') { const A = f.action.anchor; drawAnchorAt(A.x, A.y, A.th, A.alpha); }   // Captain Heel's anchor (in his hands)
       drawCage();                                       // Aiden's steel cage (the bars in front)
       drawShipUlts(true);                               // Aiden's pirate ship crashing down on them
       if (ult && ult.statue) drawGuanyinFront(ult);    // the statue's palms flying in + the Zero Hand beam

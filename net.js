@@ -421,7 +421,17 @@
     toHost({ k: 'addlocal' });
     flash((dev === 'keyboard' ? 'KEYBOARD' : 'CONTROLLER ' + (+dev.slice(3) + 1)) + ' IS JOINING THE ROOM...');
   }
+  // INVITE (in a room): opens your friends list - one click invites a friend (see FRIENDS). Copying the code is still there.
   function invite() {
+    const N = netplay;
+    if (!N) return;
+    menuSfx('pick');
+    lastFriendsOpen = performance.now();
+    ui.show('friends');
+    checkFriends();
+  }
+  let lastFriendsOpen = 0;
+  function copyRoomInvite() {
     const N = netplay;
     if (!N) return;
     const msg = 'Come fight me in Doodle Brothers! Open the game, click ONLINE, then JOIN with CODE: ' + N.code;
@@ -673,6 +683,138 @@
   }
 
   // =====================================================================
+  //  FRIENDS: no more passing codes around every time.
+  //  Everyone has a permanent FRIEND CODE (8 characters, made once and kept on this computer). While the game is
+  //  open it listens on that code (a small always-on PeerJS "presence" connection). Add friends by their friend
+  //  code; the list shows who's online right now. In a room, INVITE opens your friends list: one click sends that
+  //  friend an invite, it pops up in THEIR game, and ACCEPT drops them straight into your room.
+  // =====================================================================
+  const FRIEND_PREFIX = 'doodle-brothers-friend-v1-';
+  const FCODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const fstore = LOCAL_TEST ? sessionStorage : localStorage;      // (local test: each tab is its own "player")
+  const fmtCode = c => c.slice(0, 4) + '-' + c.slice(4);
+  const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const escH = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  function myFriendCode() {
+    let c = null;
+    try { c = fstore.getItem('db-friend-code'); } catch (e) {}
+    if (!/^[A-Z2-9]{8}$/.test(c || '')) {
+      c = Array.from({ length: 8 }, () => FCODE_CHARS[Math.floor(realRandom() * FCODE_CHARS.length)]).join('');
+      try { fstore.setItem('db-friend-code', c); } catch (e) {}
+    }
+    return c;
+  }
+  function loadFriends() {
+    try { const l = JSON.parse(fstore.getItem('db-friends') || '[]'); return Array.isArray(l) ? l.filter(f => f && /^[A-Z2-9]{8}$/.test(f.code)) : []; }
+    catch (e) { return []; }
+  }
+  const friends = { list: loadFriends(), status: {}, peer: null, ready: false, dup: false, toasts: [] };
+  function saveFriends() { try { fstore.setItem('db-friends', JSON.stringify(friends.list)); } catch (e) {} }
+  // the always-on presence connection (so friends can reach you)
+  function startPresence() {
+    if (friends.peer) return;
+    let p;
+    try { p = makePeer(FRIEND_PREFIX + myFriendCode()); } catch (e) { return; }
+    friends.peer = p;
+    p.on('open', () => { friends.ready = true; ui.render(); checkFriends(); });
+    p.on('connection', c => { c.on('data', m => presenceData(c, m)); });
+    p.on('disconnected', () => { friends.ready = false; setTimeout(() => { try { if (p.reconnect) p.reconnect(); } catch (e) {} }, 3000); });
+    p.on('error', err => {
+      if (err && err.type === 'unavailable-id') { friends.dup = true; friends.peer = null; try { p.destroy(); } catch (e) {} }   // (the game's already open somewhere else)
+    });
+  }
+  function presenceData(c, m) {
+    if (!m || typeof m !== 'object') return;
+    const reply = r => { try { c.send(r); } catch (e) {} };
+    if (m.k === 'ping') reply({ k: 'pong', name: loadName(), code: myFriendCode() });
+    else if (m.k === 'invite' && /^[A-Z]{5}$/.test(String(m.room || ''))) {
+      reply({ k: 'got', name: loadName() });
+      receiveInvite({ name: String(m.name || 'A FRIEND').slice(0, 12).toUpperCase(), code: cleanCode(m.from).slice(0, 8), room: m.room });
+    }
+  }
+  // send one message to a friend's presence and wait for the reply (null = offline / no answer)
+  function contactFriend(code, msg, done, timeoutMs = 6000) {
+    if (!friends.peer || !friends.ready) return done(null);
+    let c, over = false;
+    const fin = r => { if (over) return; over = true; try { c && c.close(); } catch (e) {} done(r); };
+    try { c = friends.peer.connect(FRIEND_PREFIX + code, { reliable: true, serialization: 'json' }); } catch (e) { return fin(null); }
+    c.on('open', () => { try { c.send(msg); } catch (e) { fin(null); } });
+    c.on('data', r => fin(r));
+    c.on('error', () => fin(null));
+    setTimeout(() => fin(null), timeoutMs);
+  }
+  // who's online? (asked when the ONLINE window / friends list is open, and every 15 s while it stays open)
+  function checkFriends() {
+    for (const f of friends.list) {
+      if (friends.status[f.code] === 'checking') continue;
+      friends.status[f.code] = friends.status[f.code] === 'online' ? 'online' : 'checking';
+      contactFriend(f.code, { k: 'ping', name: loadName(), code: myFriendCode() }, r => {
+        friends.status[f.code] = r && r.k === 'pong' ? 'online' : 'offline';
+        if (r && r.name && r.name !== f.name) { f.name = String(r.name).slice(0, 12).toUpperCase(); saveFriends(); }
+        ui.render();
+      });
+    }
+    ui.render();
+  }
+  function addFriend(raw) {
+    const code = cleanCode(raw);
+    if (!/^[A-Z2-9]{8}$/.test(code)) { flash('Friend codes are 8 letters/numbers, like ' + fmtCode(myFriendCode())); return false; }
+    if (code === myFriendCode()) { flash("That's YOUR friend code - give it to your friends"); return false; }
+    if (friends.list.some(f => f.code === code)) { flash('Already on your friends list'); return false; }
+    friends.list.push({ code, name: '...' });
+    saveFriends(); flash('FRIEND ADDED'); checkFriends();
+    return true;
+  }
+  function removeFriend(code) { friends.list = friends.list.filter(f => f.code !== code); saveFriends(); ui.render(); }
+  function inviteFriend(code) {
+    const N = netplay, f = friends.list.find(x => x.code === code);
+    if (!N || !N.code || !N.inRoom) { flash('Host a room first - then invite'); return; }
+    friends.status[code] = 'inviting'; ui.render();
+    contactFriend(code, { k: 'invite', room: N.code, name: loadName(), from: myFriendCode() }, r => {
+      const who = f ? f.name : fmtCode(code);
+      if (r && r.k === 'got') { friends.status[code] = 'online'; flash('INVITE SENT TO ' + who + '!'); menuSfx('pick'); }
+      else { friends.status[code] = 'offline'; flash(who + ' IS OFFLINE (the game has to be open to get invites)'); }
+      ui.render();
+    });
+  }
+  // ---- an invite arrives: a pop-up in the corner (works on any screen) ----
+  const toastBox = document.createElement('div');
+  toastBox.id = 'sbInvites';
+  document.body.appendChild(toastBox);
+  for (const ev of ['keydown', 'keyup', 'mousedown', 'mouseup', 'click', 'wheel']) toastBox.addEventListener(ev, e => e.stopPropagation());
+  function receiveInvite(inv) {
+    friends.toasts = friends.toasts.filter(t => t.room !== inv.room);
+    friends.toasts.push({ ...inv, at: performance.now() });
+    renderToasts();
+    menuSfx('go');
+  }
+  function renderToasts() {
+    const now = performance.now();
+    friends.toasts = friends.toasts.filter(t => now - t.at < 60000);              // (invites expire after a minute)
+    toastBox.innerHTML = friends.toasts.map((t, i) => {
+      const known = friends.list.some(f => f.code === t.code);
+      const busy = netplay && netplay.active;
+      return `<div class="inv"><b>${escH(t.name)}</b> invited you to fight!<br><span>ROOM ${escH(t.room)}</span>
+        <div><button data-i="${i}" data-a="accept" class="go" ${busy ? 'disabled' : ''}>${busy ? 'FINISH YOUR MATCH' : 'ACCEPT'}</button>
+        <button data-i="${i}" data-a="decline">DECLINE</button>${!known && t.code ? `<button data-i="${i}" data-a="addfriend">ADD FRIEND</button>` : ''}</div></div>`;
+    }).join('');
+  }
+  setInterval(renderToasts, 2000);
+  toastBox.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    const t = friends.toasts[+b.dataset.i]; if (!t) return;
+    if (b.dataset.a === 'accept') {
+      friends.toasts = [];
+      if (netplay) { if (netplay.role === 'guest') toHost({ k: 'leave' }); leave(false); }
+      if (scene !== 'select') { scene = 'select'; }
+      join(t.room);
+    } else if (b.dataset.a === 'decline') friends.toasts.splice(+b.dataset.i, 1);
+    else if (b.dataset.a === 'addfriend') { if (addFriend(t.code)) { const f = friends.list.find(x => x.code === t.code); if (f) f.name = t.name; saveFriends(); } }
+    renderToasts();
+  });
+  setTimeout(startPresence, 1500);                                  // (listen for friends from the moment the game opens)
+
+  // =====================================================================
   //  The ONLINE window (plain HTML over the game): HOST / JOIN. Once you're in a room, the room
   //  itself is the normal character select screen.
   // =====================================================================
@@ -697,7 +839,25 @@
       #sbNet .row { margin: 10px 0; }
       #sbNet .lbl { color: #8f8278; display: block; margin-bottom: 4px; }
       #sbNet .flash { color: #ff7a5c; min-height: 1.7em; }
-      #sbNet .ver { color: #6d5f57; font-size: 9px; margin-top: 10px; }`;
+      #sbNet .ver { color: #6d5f57; font-size: 9px; margin-top: 10px; }
+      #sbNet .fcode { color: #ffd23f; font-size: 14px; letter-spacing: 2px; margin-right: 8px; }
+      #sbNet .friends { border: 2px solid #3a302c; padding: 6px 8px; margin: 6px 0; max-height: 220px; overflow: auto; }
+      #sbNet .fr { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+      #sbNet .fr .nm { flex: 1; }
+      #sbNet .fr .cd { color: #6d5f57; font-size: 9px; }
+      #sbNet .dot { width: 10px; height: 10px; border-radius: 50%; background: #5a504a; display: inline-block; }
+      #sbNet .dot.on { background: #4cd964; box-shadow: 0 0 6px #4cd964; }
+      #sbNet .dot.wait { background: #ffd23f; }
+      #sbNet button.x { padding: 4px 7px; }
+      #sbInvites { position: fixed; right: 14px; bottom: 14px; z-index: 40; display: flex; flex-direction: column; gap: 8px;
+        font: 10px/1.7 "Press Start 2P", monospace; color: #f3ece4; }
+      #sbInvites .inv { background: #1d1716; border: 3px solid #ffd23f; padding: 10px 12px; box-shadow: 4px 4px 0 #000; max-width: 360px; }
+      #sbInvites .inv b { color: #ffd23f; }
+      #sbInvites .inv span { color: #8f8278; }
+      #sbInvites button { font: 9px "Press Start 2P", monospace; padding: 7px 9px; margin: 6px 5px 0 0; cursor: pointer;
+        background: #3a302c; color: #f3ece4; border: 2px solid #6d5f57; }
+      #sbInvites button.go { background: #d63a2a; border-color: #ff7a5c; color: #fff; }
+      #sbInvites button:disabled { opacity: 0.5; cursor: default; }`;
     const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
     const btn = document.createElement('button'); btn.id = 'sbNetBtn'; btn.textContent = 'ONLINE';
     const wrap = document.createElement('div'); wrap.id = 'sbNet';
@@ -735,7 +895,25 @@
       const fl = flashMsg && performance.now() - flashT < 8000 ? `<p class="flash">${esc(flashMsg)}</p>` : '<p class="flash"></p>';
       const ver = `<div class="ver">VERSION ${esc(APP_VERSION)} · BUILD ${esc(BUILD)}${LOCAL_TEST ? ' · LOCAL TEST MODE' : ''}</div>`;
       let h = '';
-      if (N && !N.inRoom) {
+      // the friends list (online dots; INVITE buttons when you're in a room)
+      const inRoom = !!(N && N.inRoom);
+      const friendRows = friends.list.length ? friends.list.map(f => {
+        const st = friends.status[f.code];
+        return `<div class="fr"><span class="dot ${st === 'online' ? 'on' : st === 'checking' || st === 'inviting' ? 'wait' : ''}"></span>
+          <span class="nm">${esc(f.name || '...')} <span class="cd">${fmtCode(f.code)}</span></span>
+          ${inRoom ? `<button data-a="invite" data-c="${f.code}" ${st === 'inviting' ? 'disabled' : ''}>${st === 'inviting' ? 'SENDING...' : 'INVITE'}</button>` : ''}
+          <button class="x" data-a="unfriend" data-c="${f.code}" title="remove">X</button></div>`;
+      }).join('') : '<p>No friends added yet. Swap friend codes with your friends and add them here.</p>';
+      const myCodeRow = `<div class="row"><span class="lbl">YOUR FRIEND CODE ${friends.dup ? '(the game is open in another window - friends reach that one)' : friends.ready ? '' : '(connecting...)'}</span>
+        <span class="fcode">${fmtCode(myFriendCode())}</span><button data-a="copycode">COPY</button></div>`;
+      const addRow = `<div class="row"><span class="lbl">ADD A FRIEND (THEIR FRIEND CODE)</span><input id="sbFriend" maxlength="12" placeholder="ABCD-1234"> <button data-a="addfriend">ADD</button></div>`;
+      if (view === 'friends' && inRoom) {
+        h = `<h2>INVITE FRIENDS TO ROOM ${esc(N.code)}</h2>
+          <p>Click INVITE next to a friend - it pops up in their game, and ACCEPT brings them straight here. (Green = online now.)</p>
+          <div class="friends">${friendRows}</div>${addRow}
+          <div class="row"><button data-a="copyinvite">COPY ROOM CODE INSTEAD</button> <button data-a="refresh">REFRESH</button></div>
+          ${fl}<div class="row"><button data-a="closefriends">BACK TO THE ROOM</button></div>${myCodeRow}${ver}`;
+      } else if (N && !N.inRoom) {
         h = `<h2>JOINING ${esc(N.code)}</h2><p>Connecting...</p>${fl}<div class="row"><button data-a="cancel">CANCEL</button></div>${ver}`;
       } else {
         const couch = players.filter(localHuman).length;
@@ -745,6 +923,9 @@
           <div class="row"><span class="lbl">YOUR NAME</span><input id="sbName" maxlength="12" value="${esc(loadName())}"></div>
           <div class="row"><button class="go" data-a="host">HOST A ROOM</button></div>
           <div class="row"><span class="lbl">JOIN WITH A CODE (OR PASTE AN INVITE)</span><input id="sbCode" maxlength="200" placeholder="ABCDE"> <button data-a="join">JOIN</button></div>
+          ${myCodeRow}
+          <div class="row"><span class="lbl">FRIENDS (GREEN = ONLINE - HOST A ROOM, THEN INVITE THEM)</span><div class="friends">${friendRows}</div></div>
+          ${addRow}
           ${fl}<div class="row"><button data-a="close">BACK</button></div>${ver}`;
       }
       box.innerHTML = h;
@@ -752,7 +933,12 @@
       if (nameIn) nameIn.addEventListener('input', () => saveName(nameIn.value.trim().toUpperCase().slice(0, 12) || 'PLAYER'));
       const codeIn = box.querySelector('#sbCode');
       if (codeIn) codeIn.addEventListener('keydown', e => { if (e.key === 'Enter') join(codeIn.value); });
+      const frIn = box.querySelector('#sbFriend');
+      if (frIn) frIn.addEventListener('keydown', e => { if (e.key === 'Enter' && addFriend(frIn.value)) frIn.value = ''; });
     }
+    // while the window's open, keep the online dots fresh
+    let lastCheck = 0;
+    setInterval(() => { if (open && performance.now() - lastCheck > 15000) { lastCheck = performance.now(); checkFriends(); } }, 1000);
     box.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b || b.disabled) return;
       const a = b.dataset.a, N = netplay;
@@ -760,6 +946,13 @@
       else if (a === 'join') join(box.querySelector('#sbCode').value);
       else if (a === 'close') { open = false; render(); }
       else if (a === 'cancel') { if (N && N.role === 'guest') toHost({ k: 'leave' }); leave(false); show('menu'); }
+      else if (a === 'invite') inviteFriend(b.dataset.c);
+      else if (a === 'unfriend') removeFriend(b.dataset.c);
+      else if (a === 'addfriend') { const i = box.querySelector('#sbFriend'); if (i && addFriend(i.value)) i.value = ''; }
+      else if (a === 'copycode') { try { navigator.clipboard.writeText(fmtCode(myFriendCode())); flash('FRIEND CODE COPIED - SEND IT TO YOUR FRIENDS'); } catch (e) { flash('YOUR FRIEND CODE: ' + fmtCode(myFriendCode())); } }
+      else if (a === 'copyinvite') copyRoomInvite();
+      else if (a === 'refresh') { lastCheck = performance.now(); checkFriends(); }
+      else if (a === 'closefriends') show('room');
     });
     return { show, hide, flash, render, isOpen: () => open };
   })();
