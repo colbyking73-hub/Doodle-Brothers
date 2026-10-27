@@ -11308,8 +11308,13 @@ function drawFigure(fig, opts = {}) {
       ctx.fillStyle = sketch ? PAPER : 'rgba(26,21,17,0.88)'; ctx.fill();
       ctx.strokeStyle = main; ctx.lineCap = 'round';
       ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(shoulder.x, shoulder.y); ctx.stroke();                  // spine
-      ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(shoulder.x - px * 19 * TW + ux * 2, shoulder.y - py * 19 * TW + uy * 2); ctx.lineTo(shoulder.x + px * 19 * TW + ux * 2, shoulder.y + py * 19 * TW + uy * 2); ctx.stroke();   // collarbone
       ctx.lineWidth = 3;
+      for (const sd of [-1, 1]) {                                  // collarbone: curved out from the top of the spine, shaped like the ribs under it
+        const w = 19 * TW, bx = shoulder.x + ux * 1, by = shoulder.y + uy * 1;
+        ctx.beginPath(); ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(bx + px * w * sd + ux * 3, by + py * w * sd + uy * 3, bx + px * w * 0.85 * sd - ux * 5, by + py * w * 0.85 * sd - uy * 5);
+        ctx.stroke();
+      }
       for (let k = 0; k < 4; k++) {
         const s = 0.18 + k * 0.17, bx = lerp(shoulder.x, hip.x, s), by = lerp(shoulder.y, hip.y, s), w = (17 - k * 2.6) * TW;
         for (const sd of [-1, 1]) {
