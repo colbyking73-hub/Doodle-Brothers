@@ -5,3 +5,5 @@ screenshots/
 # original audio files (the game uses the sounds/*-sfx.js versions)
 sounds/*.mp3
 sounds/*.wav
+# ...except the menu music, which the game loads directly
+!sounds/menu-music.mp3

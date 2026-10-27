@@ -1,9 +1,11 @@
 // =====================================================================
-//  DOODLE BROTHERS - ONLINE PLAY (up to 4 players, teams)
+//  DOODLE BROTHERS - ONLINE PLAY (up to 4 players, teams, couch players + online friends together)
 //
-//  Peer-to-peer: one player HOSTS (gets a 5-letter code), up to 3 friends JOIN with that code. Everyone
-//  connects to the host (WebRTC, through PeerJS's free matchmaking server). The host runs the lobby:
-//  4 player slots (P1 = host), which can also be filled with CPUs, plus stage / stocks / TEAMS.
+//  Peer-to-peer: one player HOSTS (gets a 5-letter code), friends JOIN with that code. Everyone connects
+//  to the host (WebRTC, through PeerJS's free matchmaking server). The online lobby IS the normal character
+//  select screen: the 4 player cards are the room's 4 seats. Each computer can bring more than one player
+//  (couch players: press A on another controller), friends online fill the other seats, and the host
+//  fills any empty seat with a CPU. The host picks stage / stocks / TEAMS.
 //
 //  Netcode = LOCKSTEP with input delay: only button presses are sent, never positions. Every game runs
 //  the exact same fight from the exact same inputs (and the same shared random numbers), so they stay
@@ -72,9 +74,11 @@
     if (!m.taunt && a.taunt) m.taunt = a.taunt;
     return m;
   }
-  function sampleLocal(N) {
-    if (N.dev && N.dev.startsWith('pad')) return padInput(+N.dev.slice(3));
-    return keyboardInput();
+  // one of THIS computer's players: their own device + their own CONTROLS PRESET
+  function sampleLocal(p) {
+    const binds = profileOf(p.profile);
+    if (p.dev && p.dev.startsWith('pad')) return padInput(+p.dev.slice(3), binds);
+    return keyboardInput(binds);
   }
 
   // A checksum of everything that matters in the fight (positions, damage, lives, meters, the random numbers)
@@ -91,19 +95,23 @@
   }
   const simRngState = () => (netplay && netplay.rng ? netplay.rng.state() : 0);
 
-  // ---------- the lobby: 4 slots ----------
-  // slot = { kind: 'human' | 'cpu' | 'empty', name, char, ready, team, level, build, ping }
-  const emptySlot = i => ({ kind: 'empty', name: 'P' + (i + 1), char: null, ready: false, team: i % 2, level: 'AI NORMAL', build: null, ping: 0 });
+  // ---------- the room: 4 seats ----------
+  // slot = { kind: 'human' | 'cpu' | 'empty', owner (which computer: 0 = host), name, char, team, level, build, ping }
+  const emptySlot = i => ({ kind: 'empty', owner: null, name: 'P' + (i + 1), char: null, team: i % 4, level: 'AI NORMAL', build: null, ping: 0 });
   function newState(role) {
     return {
-      role, me: role === 'host' ? 0 : -1, peer: null, conn: null, conns: new Map(), connected: false, active: false,
-      code: '', ping: 0, name: loadName(), dev: 'keyboard',
+      role, mid: role === 'host' ? 0 : -1, me: role === 'host' ? 0 : -1, inRoom: false,
+      peer: null, conn: null, conns: new Map(), nextMid: 1, connected: false, active: false,
+      code: '', ping: 0, name: loadName(),
       slots: Array.from({ length: SLOTS }, (_, i) => emptySlot(i)),
       opts: { stage: gameOptions.stage || 0, stocks: gameOptions.stocks || 3, teams: !!gameOptions.teams },
+      pendingDevs: [], sent: {}, lastRoster: '',
     };
   }
   function loadName() { try { return (localStorage.getItem('stickman-brawl-name') || 'PLAYER').slice(0, 12); } catch (e) { return 'PLAYER'; } }
   function saveName(n) { try { localStorage.setItem('stickman-brawl-name', n); } catch (e) {} }
+  const isMine = (N, s) => s.kind === 'human' && s.owner === N.mid;
+  const mySlots = N => N.slots.map((s, i) => isMine(N, s) ? i : -1).filter(i => i >= 0);
 
   // Local test mode (?nettest in the address): tabs / frames on this computer talk through BroadcastChannels
   const LOCAL_TEST = /[?&]nettest/.test(location.search);
@@ -141,106 +149,174 @@
   }
   const randomCode = () => Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(realRandom() * CODE_CHARS.length)]).join('');
 
+  // Your own couch setup + options are kept while you're online, and put back when you leave the room
+  let saved = null;
+  function saveLocalSetup() {
+    if (saved) return;
+    saved = { turbo, gore, stage: gameOptions.stage, stocks: gameOptions.stocks, teams: gameOptions.teams,
+              players: players.map(p => ({ ...p, cur: { ...p.cur } })), showControls };
+    if (watchMode) setWatchMode(false);
+  }
+
   // ---------- HOST ----------
   function host() {
     leave(true);
+    saveLocalSetup();
     netplay = newState('host');
     const N = netplay;
     N.code = randomCode();
-    N.connected = true;                                   // (the host is "in" its own room straight away)
-    Object.assign(N.slots[0], { kind: 'human', name: N.name, build: BUILD });
-    ui.show('lobby');
+    N.connected = true; N.inRoom = true;                  // (the host is "in" its own room straight away)
+    // everyone already sitting at this computer keeps their seat; CPUs stay too (friends who join take a CPU's seat)
+    syncFromPlayers();
+    ui.show('room');
     let peer;
     try { peer = makePeer(PREFIX + N.code); } catch (e) { return fail('Could not start online play: ' + e.message); }
     N.peer = peer;
-    peer.on('open', () => ui.render());
+    peer.on('open', () => flash('ROOM ' + N.code + ' IS OPEN - CLICK INVITE TO COPY AN INVITE FOR YOUR FRIENDS'));
     peer.on('connection', conn => {
-      const slot = N.slots.findIndex((s, i) => i > 0 && s.kind === 'empty');
+      const slot = freeSeat();
       if (slot < 0 || N.active) {                         // room full (or mid-match)
-        conn.on('open', () => { try { conn.send({ k: 'full' }); } catch (e) {} setTimeout(() => { try { conn.close(); } catch (e) {} }, 300); });
+        conn.on('open', () => { try { conn.send({ k: 'full', why: N.active ? 'busy' : 'full' }); } catch (e) {} setTimeout(() => { try { conn.close(); } catch (e) {} }, 300); });
         return;
       }
-      N.slots[slot] = { ...emptySlot(slot), kind: 'human', name: 'P' + (slot + 1) };   // reserve it
-      N.conns.set(slot, conn);
-      conn.on('open', () => { conn.send({ k: 'welcome', slot }); broadcastRoster(); menuSfx('pick'); });
-      conn.on('data', m => hostData(slot, m));
-      const gone = () => { if (netplay === N && N.conns.get(slot) === conn) guestLeft(slot); };
+      const mid = N.nextMid++;
+      N.slots[slot] = { ...emptySlot(slot), kind: 'human', owner: mid, name: 'P' + (slot + 1), team: N.slots[slot].team };   // reserve a seat
+      N.conns.set(mid, conn);
+      roomChanged();
+      // a connection that never finishes opening gives the seat back (the guest will retry on a new one)
+      setTimeout(() => {
+        if (netplay === N && N.conns.get(mid) === conn && !conn.open && !N.active) machineLeft(mid, true);
+      }, 8000);
+      conn.on('data', m => hostData(mid, m));
+      const gone = () => { if (netplay === N && N.conns.get(mid) === conn) machineLeft(mid); };
       conn.on('close', gone); conn.on('error', gone);
     });
     peer.on('error', err => {
-      if (err && err.type === 'unavailable-id') { leave(true); return host(); }   // code already taken: make a new one
+      if (err && err.type === 'unavailable-id') { const keep = saved; saved = null; leave(true); saved = keep; return host(); }   // code taken: new one
       if (err && err.type === 'peer-unavailable') return;                         // (a guest that vanished)
       fail(netError(err));
     });
-    N.pinger = setInterval(() => { for (const c of N.conns.values()) try { c.send({ k: 'ping', t: performance.now() }); } catch (e) {} }, 1000);
+    N.pinger = setInterval(() => { for (const c of N.conns.values()) if (c.open !== false) try { c.send({ k: 'ping', t: performance.now() }); } catch (e) {} }, 1000);
   }
-  function sendTo(slot, m) { const c = netplay && netplay.conns.get(slot); if (c) { try { c.send(m); } catch (e) {} } }
-  function broadcast(m, except = -1) { const N = netplay; if (!N) return; for (const [slot, c] of N.conns) if (slot !== except) { try { c.send(m); } catch (e) {} } }
+  // a seat for someone joining: an empty one first, otherwise a CPU's
+  function freeSeat() {
+    const N = netplay;
+    const e = N.slots.findIndex(s => s.kind === 'empty');
+    return e >= 0 ? e : N.slots.findIndex(s => s.kind === 'cpu');
+  }
+  function sendTo(mid, m) { const c = netplay && netplay.conns.get(mid); if (c) { try { c.send(m); } catch (e) {} } }
+  function broadcast(m, exceptMid = -1) { const N = netplay; if (!N) return; for (const [mid, c] of N.conns) if (mid !== exceptMid && c.open !== false) { try { c.send(m); } catch (e) {} } }
   function broadcastRoster() {
     const N = netplay;
+    N.lastRoster = JSON.stringify([N.slots, N.opts]);
     broadcast({ k: 'roster', slots: N.slots.map(s => ({ ...s })), opts: { ...N.opts } });
-    ui.render();
   }
-  function hostData(slot, m) {
+  function hostData(mid, m) {
     const N = netplay;
     if (!N || !m || typeof m !== 'object') return;
-    const S = N.slots[slot];
+    const owned = i => N.slots[i] && N.slots[i].kind === 'human' && N.slots[i].owner === mid;
     switch (m.k) {
-      case 'hello': S.name = String(m.name || 'P' + (slot + 1)).slice(0, 12); S.build = m.build; broadcastRoster(); break;
-      case 'ping': sendTo(slot, { k: 'pong', t: m.t }); break;
-      case 'pong': S.ping = Math.round(performance.now() - m.t); ui.render(); break;
-      case 'pick':
-        if (N.active) break;
-        S.char = ROSTER.includes(m.char) ? m.char : null; S.ready = !!m.ready && !!S.char;
-        if (m.team === 0 || m.team === 1) S.team = m.team;
-        broadcastRoster(); break;
-      case 'in':                                          // a guest's presses: keep them, and pass them on to everyone else
-        storeInputs(slot, m.t0, m.list);
-        broadcast({ k: 'in', p: slot, t0: m.t0, list: m.list }, slot);
+      case 'hello': {
+        const name = String(m.name || '').toUpperCase().slice(0, 12) || 'PLAYER';
+        N.slots.forEach((s, i) => { if (owned(i)) { s.name = name; s.build = m.build; } });
+        // more players at that computer (couch players): give them seats too, while there are any
+        for (let k = 0; k < Math.min(3, m.extra | 0); k++) {
+          const i = freeSeat(); if (i < 0) break;
+          N.slots[i] = { ...emptySlot(i), kind: 'human', owner: mid, name: 'P' + (i + 1), build: m.build, team: N.slots[i].team };
+        }
+        sendTo(mid, { k: 'welcome', mid });
+        roomChanged(); broadcastRoster(); menuSfx('pick');
+        flash(name + ' JOINED THE ROOM');
         break;
+      }
+      case 'addlocal': {                                  // another controller at that computer wants in
+        const i = N.active ? -1 : freeSeat();
+        if (i < 0) { sendTo(mid, { k: 'flash', text: 'THE ROOM IS FULL' }); break; }
+        const b = N.slots.find((s, k) => owned(k));
+        N.slots[i] = { ...emptySlot(i), kind: 'human', owner: mid, name: 'P' + (i + 1), build: b ? b.build : null, team: N.slots[i].team };
+        roomChanged(); broadcastRoster(); break;
+      }
+      case 'droplocal':                                   // a couch player at that computer stepped out
+        if (!N.active && owned(m.p) && N.slots.filter((s, k) => owned(k)).length > 1) { N.slots[m.p] = emptySlot(m.p); roomChanged(); broadcastRoster(); }
+        break;
+      case 'ping': sendTo(mid, { k: 'pong', t: m.t }); break;
+      case 'pong': { const ping = Math.round(performance.now() - m.t); N.slots.forEach((s, i) => { if (owned(i)) s.ping = ping; }); break; }
+      case 'pick':
+        if (N.active || !owned(m.p)) break;
+        N.slots[m.p].char = ROSTER.includes(m.char) ? m.char : null;
+        if ([0, 1, 2, 3].includes(m.team)) N.slots[m.p].team = m.team;
+        roomChanged(); broadcastRoster(); break;
+      case 'in': {                                        // a guest's presses: keep them, and pass them on to everyone else
+        const ps = {};
+        for (const k in m.ps) if (owned(+k)) ps[k] = m.ps[k];
+        storeInputs(m.t0, ps);
+        broadcast({ k: 'in', t0: m.t0, ps }, mid);
+        break;
+      }
       case 'hash': if (N.active) checkHash(m.t, m.h); break;
-      case 'lobby': S.ready = false; broadcastRoster(); break;
-      case 'leave': guestLeft(slot); break;
+      case 'leave': machineLeft(mid); break;
     }
   }
-  function guestLeft(slot) {
+  // a whole computer left (closed the game / lost the connection): its seats empty out
+  function machineLeft(mid, quiet) {
     const N = netplay;
-    const c = N.conns.get(slot);
-    N.conns.delete(slot);
+    const c = N.conns.get(mid);
+    N.conns.delete(mid);
     if (c) { try { c.close(); } catch (e) {} }
-    const name = N.slots[slot].name;
-    N.slots[slot] = emptySlot(slot);
+    const theirs = N.slots.map((s, i) => s.kind === 'human' && s.owner === mid ? i : -1).filter(i => i >= 0);
+    const name = theirs.length ? N.slots[theirs[0]].name : 'A player';
+    for (const i of theirs) N.slots[i] = emptySlot(i);
     if (N.active) {                                       // mid-match: the match is over for everyone
       broadcast({ k: 'abort', why: name + ' left the match.' });
       endMatchBack(name + ' left the match.');
-    } else { broadcastRoster(); ui.flash(name + ' left.'); }
+    } else { roomChanged(); broadcastRoster(); if (!quiet) flash(name + ' LEFT THE ROOM'); }
   }
 
   // ---------- GUEST ----------
   function join(code) {
-    code = (code || '').toUpperCase().replace(/[^A-Z]/g, '');
-    if (code.length !== 5) { ui.flash('Codes are 5 letters'); return; }
+    // accepts the bare code, or a whole pasted invite ("...CODE: ABCDE")
+    const up = String(code || '').toUpperCase();
+    const m = up.match(/CODE[^A-Z]*([A-Z]{5})\b/);
+    code = m ? m[1] : up.replace(/[^A-Z]/g, '');
+    if (code.length !== 5) { flash('Codes are 5 letters'); return; }
     leave(true);
+    saveLocalSetup();
     netplay = newState('guest');
     const N = netplay;
     N.code = code;
+    // everyone at this computer comes along (couch players), each with their own controller + preset
+    N.pendingDevs = players.filter(localHuman).map(p => ({ dev: p.dev, profile: p.profile }));
+    if (!N.pendingDevs.length) N.pendingDevs = [{ dev: 'keyboard', profile: 'DEFAULT' }];
     ui.show('connecting');
     let peer;
     try { peer = makePeer(null); } catch (e) { return fail('Could not start online play: ' + e.message); }
     N.peer = peer;
-    peer.on('open', () => {
+    // Connecting peer-to-peer sometimes needs a second try: if we're not in the room after a few seconds,
+    // drop that attempt and try again (5 tries before giving up)
+    const attempt = n => {
+      if (netplay !== N || N.inRoom) return;
       const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
       N.conn = conn;
+      const mine = () => netplay === N && N.conn === conn;
       conn.on('open', () => {
+        if (!mine()) return;
         N.connected = true;
-        conn.send({ k: 'hello', build: BUILD, version: APP_VERSION, name: N.name });
+        conn.send({ k: 'hello', build: BUILD, version: APP_VERSION, name: N.name, extra: N.pendingDevs.length - 1 });
+        if (N.pinger) clearInterval(N.pinger);
         N.pinger = setInterval(() => { try { conn.send({ k: 'ping', t: performance.now() }); } catch (e) {} }, 1000);
       });
-      conn.on('data', guestData);
-      conn.on('close', () => { if (netplay === N) dropped('The host closed the room.'); });
-      conn.on('error', () => { if (netplay === N) dropped('Lost the connection to the host.'); });
-      setTimeout(() => { if (netplay === N && N.me < 0) fail('Could not reach that room. Check the code, and that your friend is still hosting.'); }, 12000);
-    });
+      conn.on('data', m => { if (mine()) guestData(m); });
+      conn.on('close', () => { if (mine() && N.inRoom) dropped('The host closed the room.'); });
+      conn.on('error', () => { if (mine() && N.inRoom) dropped('Lost the connection to the host.'); });
+      setTimeout(() => {
+        if (!mine() || N.inRoom) return;
+        try { conn.close(); } catch (e) {}
+        N.connected = false;
+        if (n < 5) { flash('Still connecting... (try ' + (n + 1) + ' of 5)'); attempt(n + 1); }
+        else fail('Could not reach that room. Check the code, and that your friend is still hosting.');
+      }, 6000);
+    };
+    peer.on('open', () => attempt(1));
     peer.on('error', err => fail(netError(err)));
   }
   function toHost(m) { const N = netplay; if (N && N.conn && N.connected) { try { N.conn.send(m); } catch (e) {} } }
@@ -248,13 +324,14 @@
     const N = netplay;
     if (!N || !m || typeof m !== 'object') return;
     switch (m.k) {
-      case 'welcome': N.me = m.slot; ui.show('lobby'); menuSfx('pick'); sendPick(); break;
-      case 'full': fail('That room is full (4 players).'); break;
-      case 'roster': N.slots = m.slots; N.opts = m.opts; ui.render(); break;
+      case 'welcome': N.mid = m.mid; N.inRoom = true; ui.show('room'); menuSfx('pick'); flash('YOU JOINED ROOM ' + N.code + ' - PICK YOUR FIGHTER'); break;
+      case 'full': fail(m.why === 'busy' ? 'That room is in the middle of a match - try again in a minute.' : 'That room is full (4 players).'); break;
+      case 'roster': N.slots = m.slots; N.opts = m.opts; if (N.inRoom && !N.active) roomChanged(); break;
+      case 'flash': flash(m.text); break;
       case 'ping': toHost({ k: 'pong', t: m.t }); break;
-      case 'pong': N.ping = Math.round(performance.now() - m.t); ui.render(); break;
+      case 'pong': N.ping = Math.round(performance.now() - m.t); break;
       case 'start': beginMatch(m); break;
-      case 'in': storeInputs(m.p, m.t0, m.list); break;
+      case 'in': storeInputs(m.t0, m.ps); break;
       case 'hash': if (N.active) checkHash(m.t, m.h); break;
       case 'abort': endMatchBack(m.why || 'The match was stopped.'); break;
     }
@@ -266,31 +343,106 @@
     if (t === 'browser-incompatible') return 'Online play is not supported here.';
     return 'Connection problem' + (t ? ' (' + t + ')' : '') + '.';
   }
-  // my lobby choices -> the host (the host just changes its own slot)
-  function sendPick() {
-    const N = netplay, S = N.slots[N.me];
-    if (!S) return;
-    if (N.role === 'host') broadcastRoster();
-    else toHost({ k: 'pick', char: S.char, ready: S.ready, team: S.team });
+
+  // ---------- keeping the select screen and the room in step ----------
+  // room -> the select screen's 4 player cards
+  function roomChanged() {
+    const N = netplay;
+    if (!N) return;
+    const fresh = [];
+    N.slots.forEach((s, i) => {
+      const p = players[i];
+      if (isMine(N, s)) {
+        if (N.role === 'host') return;                    // (the host's own seats are driven by its select screen)
+        if (!p.mineSeat) {                                 // a seat that just became ours: hand it a controller
+          fresh.push(i);
+          Object.assign(p, { mineSeat: true, remote: false, off: false, cpu: false, char: s.char, team: s.team, carry: i,
+                             cur: { x: cardRect(i).x + cardRect(i).w / 2, y: 300 } });
+        }
+        p.name = s.name;
+        return;
+      }
+      p.mineSeat = false;
+      if (s.kind === 'human') {
+        Object.assign(p, { remote: true, cpu: false, off: false, dev: null, char: s.char, team: s.team, name: s.name, carry: i });
+      } else if (N.role === 'host') {
+        if (p.remote) Object.assign(p, { remote: false, cpu: true, off: s.kind === 'empty', dev: null, char: s.char, name: 'P' + (i + 1), carry: i });
+      } else {
+        Object.assign(p, { remote: false, cpu: true, off: s.kind === 'empty', dev: null, char: s.char, team: s.team, level: s.level,
+                           name: s.kind === 'cpu' ? 'CPU' : 'P' + (i + 1), carry: i });
+      }
+    });
+    for (const i of fresh) {                                // our new seats get the controllers waiting for them
+      const d = N.pendingDevs.shift() || { dev: players.some(q => q.dev === 'keyboard' && localHuman(q)) ? null : 'keyboard', profile: 'DEFAULT' };
+      players[i].dev = d.dev; players[i].profile = d.profile || 'DEFAULT';
+      if (!d.dev) players[i].off = true;                    // (nothing left to play it with)
+    }
+    N.me = mySlots(N)[0] !== undefined ? mySlots(N)[0] : N.me;
+    if (N.role === 'guest') { gameOptions.stage = N.opts.stage; gameOptions.stocks = N.opts.stocks; gameOptions.teams = !!N.opts.teams; }
+  }
+  // the select screen -> the room (run every frame on the select screen while in a room)
+  function syncFromPlayers() {
+    const N = netplay;
+    if (!N || !N.inRoom || N.active) return;
+    if (N.role === 'host') {
+      let firstLocal = true;
+      players.forEach((p, i) => {
+        const s = N.slots[i];
+        if (s.kind === 'human' && s.owner !== 0) return;  // a guest's seat: theirs to change
+        if (p.off) { if (s.kind !== 'empty') N.slots[i] = emptySlot(i); N.slots[i].team = p.team || 0; return; }
+        if (p.cpu) { N.slots[i] = { ...emptySlot(i), kind: 'cpu', name: 'CPU', char: p.char, team: p.team || 0, level: p.level }; return; }
+        const name = firstLocal ? N.name : 'P' + (i + 1);
+        firstLocal = false;
+        p.name = name;
+        N.slots[i] = { ...emptySlot(i), kind: 'human', owner: 0, name, char: p.char, team: p.team || 0, build: BUILD };
+      });
+      N.opts = { stage: gameOptions.stage || 0, stocks: gameOptions.stocks, teams: !!gameOptions.teams };
+      if (JSON.stringify([N.slots, N.opts]) !== N.lastRoster) broadcastRoster();
+    } else {
+      for (const i of mySlots(N)) {
+        const p = players[i];
+        if (p.off) { if (!N.sent[i] || !N.sent[i].drop) { N.sent[i] = { drop: true }; toHost({ k: 'droplocal', p: i }); } continue; }
+        const want = { char: p.char || null, team: p.team || 0 };
+        const was = N.sent[i];
+        if (!was || was.char !== want.char || was.team !== want.team) { N.sent[i] = want; toHost({ k: 'pick', p: i, ...want }); }
+      }
+    }
+  }
+  // a new controller pressed A on a guest's computer: ask the host for another seat
+  function addLocal(dev) {
+    const N = netplay;
+    if (!N || N.role !== 'guest' || !N.inRoom) return;
+    if (N.pendingDevs.some(d => d.dev === dev)) return;
+    N.pendingDevs.push({ dev, profile: 'DEFAULT' });
+    toHost({ k: 'addlocal' });
+    flash((dev === 'keyboard' ? 'KEYBOARD' : 'CONTROLLER ' + (+dev.slice(3) + 1)) + ' IS JOINING THE ROOM...');
+  }
+  function invite() {
+    const N = netplay;
+    if (!N) return;
+    const msg = 'Come fight me in Doodle Brothers! Open the game, click ONLINE, then JOIN with CODE: ' + N.code;
+    try { navigator.clipboard.writeText(msg); flash('INVITE COPIED - PASTE IT TO YOUR FRIENDS (ROOM CODE ' + N.code + ')'); }
+    catch (e) { flash('ROOM CODE: ' + N.code + ' - SEND IT TO YOUR FRIENDS'); }
+    menuSfx('pick');
+  }
+  function leaveRoom() {
+    const N = netplay;
+    if (!N) return;
+    if (N.role === 'guest') toHost({ k: 'leave' });
+    leave(false);
+    flash('YOU LEFT THE ONLINE ROOM');
+    menuSfx('back');
   }
 
   // ---------- the match ----------
-  function canStart() {
-    const N = netplay;
-    if (!N || N.role !== 'host') return false;
-    const inMatch = N.slots.filter(s => s.kind !== 'empty');
-    if (inMatch.length < 2) return false;
-    if (!inMatch.every(s => s.char)) return false;
-    if (!N.slots.every(s => s.kind !== 'human' || s.ready || s === N.slots[0])) return false;
-    if (N.opts.teams && new Set(inMatch.map(s => s.team)).size < 2) return false;
-    return true;
-  }
   function versionProblem() { const N = netplay; return N.slots.find(s => s.kind === 'human' && s.build && s.build !== BUILD); }
   function hostStart() {
     const N = netplay;
-    if (!canStart()) return;
+    if (!N || N.role !== 'host' || N.active) return;
+    syncFromPlayers();
+    if (!allReady()) return;
     const bad = versionProblem();
-    if (bad) { ui.flash(bad.name + ' has a different version of the game - everyone update first'); return; }
+    if (bad) { flash(bad.name + ' HAS A DIFFERENT VERSION OF THE GAME - EVERYONE UPDATE FIRST'); return; }
     // input delay: a guest's presses go guest -> host -> other guests, so allow for the worst round trip
     const worst = Math.max(80, ...N.slots.filter(s => s.kind === 'human').map(s => s.ping || 0));
     const relay = N.conns.size > 1 ? worst : worst / 2;
@@ -299,13 +451,11 @@
     broadcast(m);
     beginMatch(m);
   }
-  let saved = null;                                 // your own settings, put back after playing online
   function beginMatch(m) {
     const N = netplay;
-    if (!saved) saved = { turbo, gore, stage: gameOptions.stage, stocks: gameOptions.stocks, teams: gameOptions.teams,
-                          players: players.map(p => ({ ...p })), showControls };
     N.slots = m.slots; N.opts = m.opts;
     N.humans = m.slots.map((s, i) => s.kind === 'human' ? i : -1).filter(i => i >= 0);
+    N.mine = mySlots(N);
     // rebuild every fighter from scratch, so nothing left over from earlier games can differ
     fighterPool.forEach((f, i) => {
       for (const k of Object.keys(f)) delete f[k];
@@ -314,7 +464,8 @@
     m.slots.forEach((s, i) => {
       const p = players[i];
       p.off = s.kind === 'empty'; p.char = s.char; p.team = s.team;
-      p.cpu = s.kind === 'cpu'; p.level = s.level || 'AI NORMAL'; p.dev = s.kind === 'human' ? 'net' : null;
+      p.cpu = s.kind === 'cpu'; p.level = s.level || 'AI NORMAL';
+      if (!N.mine.includes(i)) p.dev = s.kind === 'human' ? 'net' : null;   // (our own players keep their controllers)
       p.name = String(s.kind === 'cpu' ? 'CPU' : s.name || 'P' + (i + 1)).slice(0, 12);
     });
     gameOptions.stage = m.opts.stage; gameOptions.stocks = m.opts.stocks; gameOptions.teams = !!m.opts.teams; gore = !!m.gore;
@@ -327,27 +478,33 @@
     for (const i of N.humans) { inputs[i] = new Map(); carry[i] = null; for (let t = 0; t < m.delay; t++) inputs[i].set(t, emptyInput()); }
     Object.assign(N, {
       active: true, tick: 0, delay: m.delay, rng: makeRng(m.seed),
-      inputs, carry, sentUpTo: m.delay - 1, outbox: [], outStart: null,
+      inputs, carry, sentUpTo: m.delay - 1, outbox: {}, outStart: null,
       cur: null, hashes: new Map(), theirHashes: new Map(), desynced: false,
       stalledSince: 0, escAt: 0, waitingOn: null,
     });
     ui.hide();
   }
-  function storeInputs(slot, t0, list) {
-    const N = netplay, map = N && N.inputs && N.inputs[slot];
-    if (!map) return;
-    list.forEach((e, i) => { const t = t0 + i; if (t >= N.tick) map.set(t, dec(e)); });
+  function storeInputs(t0, ps) {
+    const N = netplay;
+    if (!N || !N.inputs || !ps) return;
+    for (const k in ps) {
+      const map = N.inputs[k];
+      if (!map) continue;
+      ps[k].forEach((e, i) => { const t = t0 + i; if (t >= N.tick) map.set(t, dec(e)); });
+    }
   }
   // One game step online. Returns false (and the game waits) if someone's inputs aren't here yet.
   function netTick() {
     const N = netplay, t = N.tick;
-    while (N.sentUpTo < t + N.delay) {                 // record + send your own input for a step a little in the future
+    while (N.sentUpTo < t + N.delay) {                 // record + send our players' inputs for a step a little in the future
       const ti = ++N.sentUpTo;
-      const e = enc(sampleLocal(N));
-      for (const k in pressed) delete pressed[k];
-      N.inputs[N.me].set(ti, dec(e));                  // (decoded, exactly like everyone else will see it)
       if (N.outStart === null) N.outStart = ti;
-      N.outbox.push(e);
+      for (const i of N.mine) {
+        const e = enc(sampleLocal(players[i]));
+        N.inputs[i].set(ti, dec(e));                   // (decoded, exactly like everyone else will see it)
+        (N.outbox[i] || (N.outbox[i] = [])).push(e);
+      }
+      for (const k in pressed) delete pressed[k];
     }
     const missing = N.humans.find(i => !N.inputs[i].has(t));
     if (missing !== undefined) {
@@ -388,14 +545,14 @@
   }
   function netAfterFrame() {
     const N = netplay;
-    if (N.outbox.length) {
-      const m = { k: 'in', t0: N.outStart, list: N.outbox };
-      if (N.role === 'host') broadcast({ ...m, p: 0 }); else toHost(m);
-      N.outbox = []; N.outStart = null;
+    if (N.outStart !== null) {
+      const m = { k: 'in', t0: N.outStart, ps: N.outbox };
+      if (N.role === 'host') broadcast(m); else toHost(m);
+      N.outbox = {}; N.outStart = null;
     }
     if (N.stalledSince && performance.now() - N.stalledSince > STALL_DROP * 1000) {
-      const who = N.slots[N.waitingOn] ? N.slots[N.waitingOn].name : 'a player';
-      if (N.role === 'host') { if (N.waitingOn > 0) guestLeft(N.waitingOn); }
+      const s = N.slots[N.waitingOn], who = s ? s.name : 'a player';
+      if (N.role === 'host') { if (s && s.owner) machineLeft(s.owner); }
       else dropped('Lost the connection to ' + who + '.');
     }
   }
@@ -412,38 +569,43 @@
   function netEscape() {
     const N = netplay, now = performance.now();
     if (now - N.escAt < 1500) {
-      if (N.role === 'host') { broadcast({ k: 'abort', why: 'The host left the match.' }); endMatchBack('You left the match'); }
-      else { toHost({ k: 'leave' }); leave(false); backToSelect(); ui.show('menu'); ui.flash('You left the match'); }
+      if (N.role === 'host') { broadcast({ k: 'abort', why: 'The host stopped the match.' }); endMatchBack('You stopped the match'); }
+      else { toHost({ k: 'leave' }); leave(false); backToSelect(); flash('You left the match'); }
       return;
     }
     N.escAt = now;
   }
-  // after the results screen (or a stopped match): everyone goes back to the online lobby
+  // after the results screen (or a stopped match): everyone goes back to the room's character select
   function netBackToLobby() {
     const N = netplay;
     if (!N) return;
     N.active = false;
     if (!N.connected) { leave(false); return; }
-    for (const s of N.slots) s.ready = false;
-    if (N.role === 'host') broadcastRoster(); else toHost({ k: 'lobby' });
-    ui.show('lobby');
+    N.sent = {};
+    afterMatch();
+  }
+  function afterMatch() {
+    const N = netplay;
+    for (const p of players) p.mineSeat = false;           // re-hand our seats their controllers below
+    const devs = (N.mine || []).map(i => ({ dev: players[i].dev, profile: players[i].profile }));
+    N.pendingDevs = devs.concat(N.pendingDevs);
+    roomChanged();
+    if (N.role === 'host') { N.lastRoster = ''; syncFromPlayers(); }
   }
   function endMatchBack(why) {
     const N = netplay;
     if (N && N.active) { N.active = false; backToSelect(); }
-    if (N) for (const s of N.slots) s.ready = false;
-    ui.show('lobby'); ui.flash(why);
-    if (N && N.role === 'host') broadcastRoster();
+    if (N) afterMatch();
+    flash(why);
   }
   // Lost the room
   function dropped(why) {
     const wasActive = netplay && netplay.active;
     leave(false);
     if (wasActive) backToSelect();
-    ui.show('menu');
-    ui.flash(why);
+    flash(why);
   }
-  function fail(why) { leave(false); ui.show('menu'); ui.flash(why); }
+  function fail(why) { leave(false); ui.show('menu'); flash(why); }
   // Close the connections and put your own settings back
   function leave(quiet) {
     const N = netplay;
@@ -454,15 +616,17 @@
       if (N.peer) { try { N.peer.destroy(); } catch (e) {} }
     }
     netplay = null;
-    if (saved) {
+    if (saved && !quiet) {
       turbo = saved.turbo; gore = saved.gore; gameOptions.stage = saved.stage; gameOptions.stocks = saved.stocks; gameOptions.teams = saved.teams;
-      saved.players.forEach((p, i) => Object.assign(players[i], p, { char: null }));
+      saved.players.forEach((p, i) => Object.assign(players[i], p, { char: null, remote: false, mineSeat: false }));
       showControls = saved.showControls;
       saved = null;
       for (const f of fighterPool) if (f.controller === 'net') f.controller = 'dummy';
     }
     if (!quiet) ui.render();
   }
+  // messages: on the select screen (or in the ONLINE window while it's open)
+  function flash(msg) { if (ui.isOpen()) ui.flash(msg); else selMsg = { text: String(msg).toUpperCase(), t: 4 }; }
 
   // On-screen extras during an online match: waiting message, ping, desync warning
   function netDrawOverlay() {
@@ -490,7 +654,8 @@
   }
 
   // =====================================================================
-  //  The ONLINE screens (plain HTML over the game)
+  //  The ONLINE window (plain HTML over the game): HOST / JOIN. Once you're in a room, the room
+  //  itself is the normal character select screen.
   // =====================================================================
   const ui = (() => {
     const css = `
@@ -499,33 +664,21 @@
       #sbNetBtn:hover { background: #ffe27a; }
       #sbNet { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center;
         background: rgba(8,6,6,0.72); font: 11px/1.7 "Press Start 2P", monospace; color: #f3ece4; }
-      #sbNet .box { background: #1d1716; border: 3px solid #ffd23f; padding: 18px 20px; width: min(760px, calc(100vw - 32px));
+      #sbNet .box { background: #1d1716; border: 3px solid #ffd23f; padding: 18px 20px; width: min(640px, calc(100vw - 32px));
         max-height: calc(100vh - 32px); overflow: auto; box-shadow: 6px 6px 0 #000; }
       #sbNet h2 { margin: 0 0 10px; font-size: 16px; color: #ffd23f; }
       #sbNet p { margin: 8px 0; color: #cbbfb1; }
       #sbNet button { font: 10px "Press Start 2P", monospace; padding: 8px 10px; margin: 3px 5px 3px 0; cursor: pointer;
         background: #3a302c; color: #f3ece4; border: 2px solid #6d5f57; }
       #sbNet button:hover:not(:disabled) { border-color: #ffd23f; }
-      #sbNet button.on { background: #ffd23f; color: #1a1408; border-color: #ffd23f; }
       #sbNet button.go { background: #d63a2a; border-color: #ff7a5c; color: #fff; }
-      #sbNet button.red { background: #e8433a; border-color: #e8433a; color: #fff; }
-      #sbNet button.blue { background: #3a8ee8; border-color: #3a8ee8; color: #fff; }
       #sbNet button:disabled { opacity: 0.4; cursor: default; }
       #sbNet input { font: 14px "Press Start 2P", monospace; padding: 8px; width: 9em; text-transform: uppercase;
         background: #0e0b0b; color: #ffd23f; border: 2px solid #6d5f57; }
-      #sbNet .code { font-size: 26px; color: #ffd23f; letter-spacing: 6px; user-select: all; }
       #sbNet .row { margin: 10px 0; }
       #sbNet .lbl { color: #8f8278; display: block; margin-bottom: 4px; }
       #sbNet .flash { color: #ff7a5c; min-height: 1.7em; }
-      #sbNet .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
-      #sbNet .slot { background: #120e0d; border: 2px solid #3a302c; padding: 8px 10px; min-height: 76px; }
-      #sbNet .slot.mine { border-color: #ffd23f; }
-      #sbNet .slot .nm { font-size: 11px; }
-      #sbNet .ok { color: #7be08a; }
-      #sbNet .warn { color: #ff7a5c; }
-      #sbNet .dim { color: #6d5f57; }
-      #sbNet .ver { color: #6d5f57; font-size: 9px; margin-top: 10px; }
-      @media (max-width: 620px) { #sbNet .slots { grid-template-columns: 1fr; } }`;
+      #sbNet .ver { color: #6d5f57; font-size: 9px; margin-top: 10px; }`;
     const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
     const btn = document.createElement('button'); btn.id = 'sbNetBtn'; btn.textContent = 'ONLINE';
     const wrap = document.createElement('div'); wrap.id = 'sbNet';
@@ -536,120 +689,63 @@
       wrap.addEventListener(ev, e => e.stopPropagation());
       btn.addEventListener(ev, e => e.stopPropagation());
     }
-    btn.addEventListener('click', () => { open = true; show(netplay ? (netplay.connected ? 'lobby' : view) : 'menu'); });
+    btn.addEventListener('click', () => show(netplay && !netplay.inRoom ? 'connecting' : 'menu'));
 
     let view = 'menu', open = false, flashMsg = '', flashT = 0;
-    function show(v) { view = v; open = true; render(); }
+    function show(v) {
+      view = v;
+      if (v === 'room') { open = false; if (scene !== 'fight' && scene !== 'controls') scene = 'select'; }   // the room = the select screen
+      else open = true;
+      render();
+    }
     function hide() { open = false; render(); }
-    function flash(msg) { flashMsg = msg; flashT = performance.now(); open = true; render(); }
-    // the ONLINE button only on the character select screen
+    function flash(msg) { flashMsg = msg; flashT = performance.now(); render(); }
+    // the ONLINE button: only on the character select screen, and not while you're in a room
     (function tick() {
-      btn.style.display = scene === 'select' && !open ? 'block' : 'none';
+      btn.style.display = scene === 'select' && !open && !(netplay && netplay.inRoom) ? 'block' : 'none';
       window.sbNetOpen = open && scene !== 'fight';
-      if (open && scene === 'fight') { wrap.style.display = 'none'; } else wrap.style.display = open ? 'flex' : 'none';
+      wrap.style.display = open && scene !== 'fight' ? 'flex' : 'none';
+      // in a room: keep the room and the select screen in step
+      if (netplay && netplay.inRoom && !netplay.active && scene !== 'fight') syncFromPlayers();
       requestAnimationFrame(tick);
     })();
 
     const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-    const SLOT_COL = ['#f0a818', '#45b6e8', '#5fd068', '#e85ad6'];
-    function slotHtml(N, s, i) {
-      const isHost = N.role === 'host', mine = i === N.me, teams = N.opts.teams;
-      const tag = `<span style="color:${SLOT_COL[i]}">P${i + 1}</span>`;
-      if (s.kind === 'empty') {
-        return `<div class="slot">${tag} <span class="dim">EMPTY</span><br>
-          ${isHost ? `<button data-a="addcpu" data-v="${i}">ADD CPU</button>` : '<span class="dim">waiting for a player...</span>'}</div>`;
-      }
-      const team = teams ? `<button data-a="team" data-v="${i}" class="${s.team ? 'blue' : 'red'}" ${(mine || (isHost && s.kind === 'cpu')) ? '' : 'disabled'}>${s.team ? 'BLUE' : 'RED'}</button>` : '';
-      if (s.kind === 'cpu') {
-        return `<div class="slot">${tag} <span class="nm">CPU</span> ${team}<br>
-          ${isHost ? `<button data-a="cpuchar" data-v="${i}">${esc(s.char || 'PICK')} ></button><button data-a="cpulv" data-v="${i}">${esc(s.level.slice(3))} ></button><button data-a="remove" data-v="${i}">X</button>`
-                   : `${esc(s.char || '...')} <span class="dim">${esc(s.level.slice(3))}</span>`}</div>`;
-      }
-      const ping = i === 0 ? '' : ` <span class="${s.ping > 150 ? 'warn' : 'ok'}">${s.ping ? s.ping + 'ms' : ''}</span>`;
-      const ver = s.build && s.build !== BUILD ? ' <span class="warn">OLD VERSION</span>' : '';
-      return `<div class="slot ${mine ? 'mine' : ''}">${tag} <span class="nm">${esc(s.name)}${mine ? ' (YOU)' : ''}</span>${i === 0 ? ' <span class="dim">HOST</span>' : ''}${ping}${ver} ${team}<br>
-        ${s.char ? esc(s.char) : '<span class="dim">picking...</span>'} ${s.ready || i === 0 && s.char ? '<span class="ok">READY</span>' : ''}</div>`;
-    }
     function render() {
       const N = netplay;
       const fl = flashMsg && performance.now() - flashT < 8000 ? `<p class="flash">${esc(flashMsg)}</p>` : '<p class="flash"></p>';
       const ver = `<div class="ver">VERSION ${esc(APP_VERSION)} · BUILD ${esc(BUILD)}${LOCAL_TEST ? ' · LOCAL TEST MODE' : ''}</div>`;
       let h = '';
-      if (view === 'menu' || !N) {
-        h = `<h2>ONLINE PLAY</h2>
-          <p>Fight up to 3 friends over the internet. One of you hosts and gets a code; the others join with it.</p>
-          <div class="row"><span class="lbl">YOUR NAME</span><input id="sbName" maxlength="12" value="${esc(loadName())}"></div>
-          <div class="row"><button class="go" data-a="host">HOST A GAME</button></div>
-          <div class="row"><span class="lbl">JOIN WITH A CODE</span><input id="sbCode" maxlength="5" placeholder="ABCDE"> <button data-a="join">JOIN</button></div>
-          ${fl}<div class="row"><button data-a="close">BACK</button></div>${ver}`;
-      } else if (view === 'connecting' || N.me < 0) {
+      if (N && !N.inRoom) {
         h = `<h2>JOINING ${esc(N.code)}</h2><p>Connecting...</p>${fl}<div class="row"><button data-a="cancel">CANCEL</button></div>${ver}`;
       } else {
-        const isHost = N.role === 'host', me = N.slots[N.me] || {};
-        const chars = ROSTER.filter(Boolean).map(c => `<button data-a="char" data-v="${c}" class="${me.char === c ? 'on' : ''}">${c}</button>`).join('');
-        const stages = STAGE_LIST.map((s, i) => `<button data-a="stage" data-v="${i}" class="${N.opts.stage === i ? 'on' : ''}" ${isHost ? '' : 'disabled'}>${s.name}</button>`).join('');
-        const pads = getPads().map((g, k) => g && g.connected ? 'pad' + k : null).filter(Boolean);
-        const devs = ['keyboard', ...pads].map(d => `<button data-a="dev" data-v="${d}" class="${N.dev === d ? 'on' : ''}">${d === 'keyboard' ? 'KEYBOARD' : 'CONTROLLER ' + (+d.slice(3) + 1)}</button>`).join('');
-        const ready = N.me === 0 ? '' : `<button data-a="ready" class="${me.ready ? 'on' : ''}" ${me.char ? '' : 'disabled'}>${me.ready ? 'READY!' : 'READY?'}</button>`;
-        h = `<h2>ONLINE LOBBY</h2>
-          <p>Room <span class="code">${esc(N.code)}</span> ${isHost ? '<button data-a="copy">COPY</button>' : ''}
-             ${isHost ? '<br>Send the code to up to 3 friends.' : ` · ping <span class="${N.ping > 150 ? 'warn' : 'ok'}">${N.ping ? N.ping + 'ms' : '...'}</span>`}</p>
-          <div class="slots">${N.slots.map((s, i) => slotHtml(N, s, i)).join('')}</div>
-          <div class="row"><span class="lbl">YOUR FIGHTER</span>${chars}</div>
-          <div class="row"><span class="lbl">STAGE ${isHost ? '' : '(HOST PICKS)'}</span>${stages}</div>
-          <div class="row"><span class="lbl">STOCKS / TEAMS ${isHost ? '' : '(HOST PICKS)'}</span>
-            <button data-a="stocks" data-v="-1" ${isHost ? '' : 'disabled'}>-</button> ${N.opts.stocks > 0 ? N.opts.stocks : 'FREE PLAY'} <button data-a="stocks" data-v="1" ${isHost ? '' : 'disabled'}>+</button>
-            &nbsp; <button data-a="teams" class="${N.opts.teams ? 'on' : ''}" ${isHost ? '' : 'disabled'}>TEAMS ${N.opts.teams ? 'ON' : 'OFF'}</button></div>
-          <div class="row"><span class="lbl">YOUR CONTROLS</span>${devs}</div>
-          ${fl}
-          <div class="row">${ready}
-            ${isHost ? `<button class="go" data-a="start" ${canStart() ? '' : 'disabled'}>START MATCH</button>` : '<span class="lbl" style="display:inline">the host starts the match</span>'}
-            <button data-a="leave">LEAVE</button></div>
-          <p>Online tip: ESC twice leaves a match.</p>${ver}`;
+        const couch = players.filter(localHuman).length;
+        h = `<h2>ONLINE PLAY</h2>
+          <p>Fight friends over the internet - up to 4 players. Host a room and send the invite, or join a friend's room with their code.</p>
+          <p>Couch players come too: ${couch > 1 ? `the <b style="color:#ffd23f">${couch} players</b> on this computer` : 'anyone on this computer'} can join the room (press A on another controller once you're in).</p>
+          <div class="row"><span class="lbl">YOUR NAME</span><input id="sbName" maxlength="12" value="${esc(loadName())}"></div>
+          <div class="row"><button class="go" data-a="host">HOST A ROOM</button></div>
+          <div class="row"><span class="lbl">JOIN WITH A CODE (OR PASTE AN INVITE)</span><input id="sbCode" maxlength="200" placeholder="ABCDE"> <button data-a="join">JOIN</button></div>
+          ${fl}<div class="row"><button data-a="close">BACK</button></div>${ver}`;
       }
       box.innerHTML = h;
       const nameIn = box.querySelector('#sbName');
-      if (nameIn) nameIn.addEventListener('input', () => saveName(nameIn.value.trim().slice(0, 12) || 'PLAYER'));
+      if (nameIn) nameIn.addEventListener('input', () => saveName(nameIn.value.trim().toUpperCase().slice(0, 12) || 'PLAYER'));
       const codeIn = box.querySelector('#sbCode');
       if (codeIn) codeIn.addEventListener('keydown', e => { if (e.key === 'Enter') join(codeIn.value); });
     }
-    const cycle = (list, v) => list[(list.indexOf(v) + 1) % list.length];
     box.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b || b.disabled) return;
-      const a = b.dataset.a, v = b.dataset.v, N = netplay;
+      const a = b.dataset.a, N = netplay;
       if (a === 'host') host();
       else if (a === 'join') join(box.querySelector('#sbCode').value);
       else if (a === 'close') { open = false; render(); }
-      else if (a === 'cancel' || a === 'leave') {
-        if (N && N.role === 'guest') toHost({ k: 'leave' });
-        leave(false); show('menu');
-      }
-      else if (a === 'copy') { try { navigator.clipboard.writeText(N.code); flash('Code copied'); } catch (err) {} }
-      else if (!N || N.me < 0) return;
-      else if (a === 'char') { const S = N.slots[N.me]; S.char = v; if (N.me !== 0) S.ready = false; sendPick(); menuSfx('pick'); render(); }
-      else if (a === 'ready') { const S = N.slots[N.me]; S.ready = !S.ready && !!S.char; sendPick(); menuSfx('move'); render(); }
-      else if (a === 'team') {
-        const i = +v, S = N.slots[i];
-        if (i === N.me) { S.team = 1 - S.team; sendPick(); }
-        else if (N.role === 'host' && S.kind === 'cpu') { S.team = 1 - S.team; broadcastRoster(); }
-        render();
-      }
-      else if (N.role !== 'host') { if (a === 'dev') { N.dev = v; render(); } return; }
-      // ----- host-only controls -----
-      else if (a === 'stage') { N.opts.stage = +v; broadcastRoster(); }
-      else if (a === 'stocks') { N.opts.stocks = (N.opts.stocks + (+v) + 100) % 100; broadcastRoster(); }
-      else if (a === 'teams') { N.opts.teams = !N.opts.teams; broadcastRoster(); }
-      else if (a === 'addcpu') { const i = +v; N.slots[i] = { ...emptySlot(i), kind: 'cpu', char: ROSTER.filter(Boolean)[i % ROSTER.filter(Boolean).length] }; broadcastRoster(); }
-      else if (a === 'cpuchar') { const S = N.slots[+v]; S.char = cycle(ROSTER.filter(Boolean), S.char); broadcastRoster(); }
-      else if (a === 'cpulv') { const S = N.slots[+v]; S.level = cycle(CPU_LEVELS, S.level); broadcastRoster(); }
-      else if (a === 'remove') { N.slots[+v] = emptySlot(+v); broadcastRoster(); }
-      else if (a === 'dev') { N.dev = v; render(); }
-      else if (a === 'start') hostStart();
+      else if (a === 'cancel') { if (N && N.role === 'guest') toHost({ k: 'leave' }); leave(false); show('menu'); }
     });
-    return { show, hide, flash, render };
+    return { show, hide, flash, render, isOpen: () => open };
   })();
 
   // hooks the game calls
   Object.assign(window, { netTick, netAfterFrame, netInputFor, netEscape, netBackToLobby, netDrawOverlay,
-                          sbNet: { host, join, leave, BUILD, ui, enc, dec, simHash } });
+                          sbNet: { host, join, leave, leaveRoom, invite, addLocal, hostStart, BUILD, ui, enc, dec, simHash } });
 })();
