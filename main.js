@@ -21,6 +21,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,   // keep the game running (and online matches in sync) when the window isn't focused
+      autoplayPolicy: 'no-user-gesture-required',   // the menu music can start on the title screen straight away
       additionalArguments: ['--app-version=' + app.getVersion()],
     },
   });
