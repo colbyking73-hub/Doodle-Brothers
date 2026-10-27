@@ -21,7 +21,6 @@
 <!-- "RKO! OUTTA NOWHERE!" - Aiden's RKO throw -->
 <script src="sounds/rko-sfx.js"></script>
 <script src="sounds/smash-hits-sfx.js"></script>
-<script src="sounds/heel-voice-sfx.js"></script>
 <script src="sounds/ship-ult-sfx.js"></script>
 <script src="sounds/deck-ult-sfx.js"></script>
 <script src="sounds/lance-my-turn-sfx.js"></script>
@@ -383,7 +382,7 @@ const CLASH_CHIP   = 0.15;  // damage BOTH fighters take on each exchanged blow 
 // attack (J or K) to lock it in - the HIGHER bar wins that exchange and hits the loser for extra damage. Wait for the
 // top and you risk it resetting! Didn't press = only half of wherever it was. Whoever wins the LAST one breaks out of
 // the clash first while the loser is left stunned right in front of them: a free combo.
-const CLASH_BAR = { period: 0.42, winDmg: 2.2, finalStun: 0.6, missMul: 0.5,
+const CLASH_BAR = { period: 0.34,                                 // (how long the bar takes to fill: a bit quicker than before) winDmg: 2.2, finalStun: 0.6, missMul: 0.5,
                     cpu: { EASY: [30, 75], NORMAL: [50, 88], HARD: [66, 95], MASTER: [80, 99] } };
 const MAX_CHARGE   = 1.0;   // seconds of holding for a full charge
 const CHARGE_BONUS = 0.8;   // full charge = +80% damage and knockback
@@ -5773,43 +5772,8 @@ function loadSmashSfx() {
 }
 const smashClip = (kind, vol = 1, rate = 1) => { if (!smashBuf) return false; playClip(pickClip(SMASH_CLIPS[kind]), vol, rate, 0, smashBuf); return true; };
 
-// ---- CAPTAIN HEEL'S VOICE (sounds/heel-voice.mp3 via sounds/heel-voice-sfx.js - Incineroar's Smash Ultimate voice) ----
-// 50 lines in one file (the first is left out, as asked). Sorted by length / loudness into:
-//   grunt  = quick "hup!"s for normal attacks         effort = bigger yells for specials and smash attacks
-//   shout  = big shouts for throws, slams, counters    roar   = his three loudest roars (taunts, transform, ultimate)
-//   ko     = the long cry when he's launched off the stage
-let heelBuf = null;
-const HEEL_VOICE = {
-  grunt:  [[11.86, 0.27], [12.85, 0.26], [13.83, 0.36], [15.07, 0.42], [16.22, 0.53], [20.05, 0.53], [23.78, 0.37], [25.97, 0.25],
-           [28.16, 0.32], [32.5, 0.42], [33.67, 0.4], [34.74, 0.3], [35.92, 0.36], [40.88, 0.57], [45.0, 0.47], [46.21, 0.36], [49.77, 0.47]],
-  effort: [[3.28, 0.48], [4.45, 0.97], [6.0, 0.57], [17.4, 0.69], [21.23, 0.65], [22.5, 0.75], [24.78, 0.66], [26.9, 0.73],
-           [31.22, 0.58], [39.55, 0.79], [52.45, 0.67]],
-  shout:  [[18.63, 0.96], [29.35, 1.19], [36.96, 0.88], [38.35, 0.85], [42.17, 1.29], [50.88, 0.92], [53.85, 1.06]],
-  roar:   [[7.15, 1.15], [8.85, 0.91], [10.36, 0.96]],
-  ko:     [[47.37, 1.74]],
-};
-function loadHeelVoice() {
-  if (!window.HEEL_VOICE_B64 || heelBuf || !actx) return;
-  const bin = atob(window.HEEL_VOICE_B64), bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  actx.decodeAudioData(bytes.buffer).then(b => { heelBuf = b; }).catch(() => {});
-}
-// Captain Heel says something. One line at a time (a new important line cuts the old one off), and the little
-// grunts don't fire on every single swing (chance) so it doesn't turn into constant yelling.
-const VOICE_LEVEL = { grunt: 0.85, effort: 0.95, shout: 1.0, roar: 1.1, ko: 1.15 };
-const VOICE_RANK = { grunt: 0, effort: 1, shout: 2, roar: 3, ko: 4 };
-function heelSay(f, kind, chance = 1) {
-  if (!heelBuf || !soundOn || !actx || !f || f.char !== 'AIDEN' || f.minion) return;
-  if (chance < 1 && realRandom() > chance) return;
-  const now = actx.currentTime, v = f.voice;
-  if (v && now < v.until) {                                   // still talking
-    if (VOICE_RANK[kind] <= VOICE_RANK[v.kind]) return;       // (only something bigger interrupts)
-    stopBuffer(v.h, 0.05);
-  }
-  const clip = pickClip(HEEL_VOICE[kind]);
-  const h = playClipH(clip, VOICE_LEVEL[kind], 1, heelBuf);
-  if (h) f.voice = { h, kind, until: now + clip[1] * 0.85 };
-}
+// CAPTAIN HEEL'S VOICE: removed (no voice clips). heelSay is kept as a do-nothing so his moves don't need changing.
+function heelSay() {}
 // like playClip, but returns a handle (so a line can be cut off)
 function playClipH([start, dur], vol, rate, buf) {
   if (!soundOn || !actx || !buf) return null;
@@ -5978,7 +5942,6 @@ function unlockAudio() {
     loadSlashSfx();
     loadRkoSfx();
     loadSmashSfx();
-    loadHeelVoice();
     loadShipUltSfx();
     loadDeckUltSfx();
     loadMyTurnSfx();
@@ -6080,6 +6043,16 @@ const sfx = {
   },
   // Footstep for the walk-away
   step() { if (!soundOn || !actx) return; tone('sine', 120, 70, 0.07, 0.25); noise('lowpass', 600, 1, 0.05, 0.12); },
+  // locking in your CLASH power bar: a sharp click + a ping that's higher the fuller you stopped it (a bright double
+  // chime right at the top)
+  clashLock(v = 50) {
+    if (!soundOn || !actx) return;
+    const k = clamp(v / 100, 0, 1), f0 = 380 + 900 * k;
+    noise('highpass', 3000, 0.8, 0.03, 0.35);
+    tone('square', f0, f0 * 1.02, 0.09, 0.16);
+    tone('sine', f0 * 2, f0 * 2, 0.18, 0.18);
+    if (k >= 0.88) { tone('sine', 2093, 2093, 0.35, 0.2, 0.06); tone('sine', 3136, 3136, 0.3, 0.12, 0.06); }
+  },
   // a bone SNAPPING (Captain Heel's arm bar): a dry crack + a crunch
   snap() { if (!soundOn || !actx) return; noise('highpass', 2600, 0.9, 0.05, 0.6); tone('square', 900, 180, 0.04, 0.2); noise('bandpass', 1100, 3, 0.09, 0.4, 0.03); },
   ko() { if (!soundOn || !actx) return; if (smashClip('ko', 1)) return; tone('sine', 90, 25, 0.8, 0.8); noise('lowpass', 900, 0.5, 0.6, 0.5, 0, 150); tone('sawtooth', 300, 60, 0.4, 0.12); },
@@ -6959,9 +6932,11 @@ function clashLockInput(f, a, inp) {
   const i = D.p.indexOf(f); if (i < 0 || D.lock[i] !== null) return;
   const v = clashBarVal(D, i);
   const cpu = f.controller === 'dummy';
-  if (cpu ? (v >= D.target[i] && time - D.stopStart > 0.06) : (inp && (inp.atkTap || inp.spcTap))) {
+  // ONE press of the PHYSICAL (attack) button stops your bar where it is - no mashing, it fills on its own
+  if (cpu ? (v >= D.target[i] && time - D.stopStart > 0.06) : (inp && inp.atkTap)) {
     D.lock[i] = v;
-    if (!cpu) sfx.whoosh(false);
+    f.atkBuf = 0;                                                    // (the press is used up - no stray attack after the clash)
+    sfx.clashLock(v);
   }
 }
 function clashResolve(D, k) {                                       // who won the exchange at spot k
@@ -8817,10 +8792,16 @@ function updateFighter(f, inp, dt) {
   const vyBefore = f.vy;
 
   // Move X vs the solid stage
+  const prevX = f.x;
   f.x += f.vx * dt;
-  if (overlapsStage(f)) {
-    if (f.vx > 0) f.x = STAGE.x - f.w / 2;
-    else if (f.vx < 0) f.x = STAGE.x + STAGE.w + f.w / 2;
+  if (f.vx !== 0 && overlapsStage(f)) {
+    // pushed back out the side they came in from - or, if they were already inside the block (e.g. right at a
+    // corner), out the NEAREST side. (It used to go by which way they were moving, so moving right just inside the
+    // RIGHT edge threw them all the way over to the LEFT ledge.)
+    const L = STAGE.x - f.w / 2, R = STAGE.x + STAGE.w + f.w / 2;
+    if (prevX <= L) f.x = L;
+    else if (prevX >= R) f.x = R;
+    else f.x = (f.x - L < R - f.x) ? L : R;
     f.vx = 0;
   }
 
@@ -9020,11 +9001,27 @@ function keyboardInput(binds = bindings) {                // (binds = that playe
 }
 // Xbox controller -> the same input object. Left stick or D-pad moves; buttons follow your bindings.
 const padPrev = [];
+// Hit-freezes (and clashes are full of them) pause the game's steps, so a quick controller tap could start AND end
+// between two steps and never be seen. Every screen frame, catch any button that's just gone down and keep it until
+// the next step reads it.
+function latchPadTaps() {
+  padPrev.forEach((ps, i) => {
+    if (!ps || !ps.binds) return;
+    const s = padRaw(i, ps.binds); if (!s) return;
+    const seen = ps.seen || (ps.seen = { ...ps.prev });            // (what the last real step saw, then what this caught)
+    for (const a of ['attack', 'special', 'jump', 'shield', 'grab', 'ult']) {
+      if (s[a] && !seen[a] && !ps.prev[a]) (ps.latch || (ps.latch = {}))[a] = true;
+      seen[a] = s[a];
+    }
+  });
+}
 function padInput(i, binds = bindings) {                  // (binds = that player's control preset)
   const s = padRaw(i, binds);
   const ps = padPrev[i] || (padPrev[i] = { prev: {}, l: -9, r: -9 });
-  if (!s) { ps.prev = {}; return emptyInput(); }
-  const prev = ps.prev, tp = a => s[a] && !prev[a];
+  ps.binds = binds;
+  if (!s) { ps.prev = {}; ps.latch = null; return emptyInput(); }
+  const prev = ps.prev, latch = ps.latch || {}, tp = a => (s[a] && !prev[a]) || !!latch[a];   // (latch: tapped during a freeze - see latchPadTaps)
+  ps.latch = null; ps.seen = null;
   // (in a fight: the LEFT STICK moves (+ any buttons you put on the move rows), and the D-PAD is for taunts)
   let flyTap = 0;
   if (tp('left'))  { if (time - ps.l < DOUBLE_TAP) flyTap = -1; ps.l = time; }
@@ -12099,7 +12096,7 @@ function drawClashBars() {
       }
     });
     if (D.stop === 0 && !D.lock.every(l => l !== null) && g0Human(D))
-      text('PRESS ATTACK AT THE TOP!', W / 2, H - 96 - 74, 9, '#ffffff', 'center');   // (just above the power bars)
+      text('TAP ATTACK ONCE AT THE TOP!', W / 2, H - 96 - 74, 9, '#ffffff', 'center');   // (just above the power bars)
   }
 }
 const g0Human = D => D.p.some(g => g.controller !== 'dummy');
@@ -13873,6 +13870,7 @@ let last = performance.now(), acc = 0;
 function frame(now) {
   const elapsed = Math.min(0.1, (now - last) / 1000);
   last = now;
+  if (scene === 'fight' && hitstop > 0) latchPadTaps();   // (taps during a hit-freeze aren't lost)
   updateMenuMusic(elapsed);                          // menu music: on in menus, fades out for fights
   // Menus run at screen rate, outside the fight
   if (scene !== 'fight') {
