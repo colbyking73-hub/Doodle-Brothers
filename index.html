@@ -982,25 +982,34 @@ const LANCE_MOVES = {
   // Down (on the ground): HEADSPIN - flips upside down onto his head like a breakdancer and SPINS, legs split wide
   // and whirling round, hitting both sides over and over; the last spin launches them.
   // (The spike stays in the air: down air is still his Meteor Fist.)
+  // (a real B-boy HEADSPIN: upside down, legs held out in a wide V, the whole body SPINNING round like a top - then the
+  //  legs snap shut and drive STRAIGHT UP: the last hit launches whoever's above him)
   downGround: { name: 'Headspin', startup: 0.1, active: 0.5, endlag: 0.2,
     hitboxes: (() => {
       const hb = [];
       for (let i = 0; i < 5; i++) for (const s of [1, -1])
-        hb.push({ x: 40 * s, y: -66, r: 34, dmg: 1.6, base: 120, growth: 0, angle: s > 0 ? 75 : 105, from: i * 0.08, to: i * 0.08 + 0.06, group: i, pullIn: 0 });
-      for (const s of [1, -1]) hb.push({ x: 42 * s, y: -66, r: 38, dmg: 6, base: 380, growth: 5, angle: s > 0 ? 62 : 118, from: 0.42, to: 0.5, group: 5 });
+        hb.push({ x: 38 * s, y: -80, r: 34, dmg: 1.6, base: 120, growth: 0, angle: s > 0 ? 80 : 100, from: i * 0.08, to: i * 0.08 + 0.06, group: i, pullIn: 0 });
+      hb.push({ x: 0, y: -126, r: 40, dmg: 6, base: 400, growth: 5, angle: 88, from: 0.42, to: 0.5, group: 5 });      // legs shut: straight UP
+      for (const s of [1, -1]) hb.push({ x: 22 * s, y: -100, r: 30, dmg: 6, base: 400, growth: 5, angle: s > 0 ? 82 : 98, from: 0.42, to: 0.5, group: 5 });
       return hb;
     })(),
     wind: pose({ bob: -30, lean: 0.6, legA: [1.0, 1.6], legB: [-0.6, 1.4], armA: [0.5, -0.4] }),              // ducks down, hand to the floor
     strike: pose({ spin: Math.PI, bob: 2, lean: 0, legA: [1.3, 0.1], legB: [-1.3, 0.1], armA: [2.7, 0.3] }),   // upside down on his head, legs split
     step(f, a, dt) {
       if (a.phase !== 'active') { a.poseOverride = null; return false; }   // (flips back onto his feet afterwards)
-      // the spin: legs whirl round (in side view: each leg swings from front to back and round again), faster at the start
-      const w = a.t * 34, c = Math.cos(w);
-      a.poseOverride = pose({ spin: Math.PI, bob: 2, lean: Math.sin(w) * 0.12, legA: [1.45 * c, 0.1], legB: [-1.45 * c, 0.1], armA: [2.7, 0.3] });
+      if (a.t < 0.4) {
+        // THE SPIN: he rotates round a vertical line through his head, legs held out in a wide V - seen side-on, the V
+        // narrows as he turns edge-on and the legs swap sides each half turn (turnX = cos of the spin)
+        const w = a.t * 30, c = Math.cos(w);
+        a.poseOverride = { ...pose({ spin: Math.PI, bob: 2, lean: 0, legA: [1.0, 0.06], legB: [-1.0, 0.06], armA: [2.75, 0.25], armB: [-2.75, -0.25] }), turnX: c, raw: true };
+      } else {
+        // ...then the legs SNAP SHUT and drive straight up
+        a.poseOverride = { ...pose({ spin: Math.PI, bob: 7, lean: 0, legA: [0.05, 0.02], legB: [-0.05, 0.02], armA: [2.75, 0.25], armB: [-2.75, -0.25] }), raw: true };
+      }
       if (Math.random() < dt * 30) dust(f.x + (Math.random() - 0.5) * 30, f.y, 1, 0.8);
       if (Math.random() < dt * 40) particles.push({ x: f.x + (Math.random() - 0.5) * 90, y: f.y - 50 - Math.random() * 40, vx: (Math.random() < 0.5 ? -1 : 1) * 500, vy: 0,
         life: 0.1, max: 0.1, size: 2, color: Math.random() < 0.5 ? '#ffffff' : kiColor(f), type: 'bit', grav: 0 });   // whirl streaks
-      if (a.t >= 0.42 && !a.spunOut) { a.spunOut = true; ring(f.x, f.y - 60); sfx.whoosh(true); }
+      if (a.t >= 0.4 && !a.spunOut) { a.spunOut = true; ring(f.x, f.y - 115); burst(f.x, f.y - 110, ['#ffffff', kiColor(f)], 14, -Math.PI / 2, 0.5, 520, { grav: 0 }); sfx.whoosh(true); }   // legs snap up
       return false;
     },
     fire(f) { dust(f.x, f.y, 10, 1.4); sfx.whoosh(false); } },
@@ -1075,7 +1084,13 @@ const LANCE_MOVES = {
     overcharge: true,                                                      // keep holding past full: up to 200% (double power + size)
     wind: pose({ armA: [-0.6, -1.6], lean: -0.25, bob: -8, legA: [0.7, 0.6], legB: [-0.7, 0.2] }),      // hand cupped back at the hip
     strike: pose({ armA: [1.57, 0], lean: 0.2, bob: -8, legA: [0.75, 0.6], legB: [-0.75, 0.2] }),      // thrust forward
-    fire(f, mult, c, a) { spawnBeam(f, mult, c, a ? a.over || 0 : 0); } },
+    fire(f, mult, c, a) { spawnBeam(f, mult, c, a ? a.over || 0 : 0); },
+    // Z VANISH WHILE CHARGING (block / dodge): he blinks away in any direction and KEEPS charging. With someone KI-MARKED,
+    // it's an Instant Transmission right behind them - and the Kamehameha goes off point-blank, straight away.
+    step(f, a, dt, inp) {
+      if (a.phase === 'charge' && inp.blockTap) { kameVanish(f, a, inp); return true; }
+      return false;
+    } },
   // DESTRUCTO DISC (Krillin's Kienzan): K + direction. He raises his hand, a spinning PURPLE disc of ki forms
   // above it, and he whips it forward. It flies out, slows, and comes back like a BOOMERANG - cutting anyone
   // on the way out AND on the way back. If it comes back into HIM, it nicks him too. One disc at a time.
@@ -1352,6 +1367,39 @@ function kiMarkTarget(f) {
   const t = m.t;
   if (m.time <= 0 || !t || t.respawnTimer > 0 || !fighters.includes(t)) { f.kiMark = null; return null; }
   return t;
+}
+// KAMEHAMEHA Z VANISH (Lance, mid-charge): a blink of KAME_VANISH.dist in the direction held, still charging - or,
+// with someone marked, Instant Transmission behind them and the beam fires at once
+const KAME_VANISH = { dist: 170 };
+function kameVanish(f, a, inp) {
+  f.dodgeBuf = 0;
+  const t = kiMarkTarget(f);
+  if (t) {                                                          // INSTANT TRANSMISSION KAMEHAMEHA
+    const keep = f.action;
+    kiTeleport(f, t);                                               // (puts him behind them, facing them)
+    f.action = keep; f.vx = 0; f.vy = 0;
+    a.forceRelease = true;                                          // ...and lets it go right now
+    painTexts.push({ x: f.x, y: f.y - 170, t: 0.8, max: 0.8, text: 'KAMEHAMEHA!', big: true });
+    return;
+  }
+  if (!canAirDodge(f)) return;                                      // (uses a Z-vanish dot, like any other)
+  f.dodgeCount = Math.min(AIR_DODGE_MAX + FATIGUE_MAX, f.dodgeCount + 1);
+  let dx = inp.dir || 0, dy = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
+  const len = Math.hypot(dx, dy);
+  ghosts.push({ fig: figureOf(f), life: 0.3, max: 0.3, color: '#ffffff' });
+  burst(f.x, f.y - 45, [f.energy, '#ffffff'], 12, 0, Math.PI, 380, { grav: 0 });
+  if (len) {
+    dx /= len; dy /= len;
+    f.x += dx * KAME_VANISH.dist; f.y += dy * KAME_VANISH.dist;
+    if (overlapsStage(f)) {                                         // (can't end up inside the stage: pop up onto it / out from under it)
+      if (f.y - f.h / 2 < STAGE.y + STAGE.h / 2) { f.y = STAGE.y; f.ground = true; } else f.y = STAGE.y + STAGE.h + f.h;
+    } else if (f.y < STAGE.y - 1 || f.x < STAGE.x || f.x > STAGE.x + STAGE.w) f.ground = false;
+    if (dx) f.face = Math.sign(dx);
+  }
+  f.vx = 0; f.vy = 0; f.invuln = Math.max(f.invuln || 0, 0.15);
+  burst(f.x, f.y - 45, [f.energy, '#ffffff'], 12, 0, Math.PI, 380, { grav: 0 });
+  ring(f.x, f.y - 45);
+  sfx.vanish();
 }
 function kiTeleport(f, t) {
   f.kiMark = null;
@@ -2663,11 +2711,15 @@ const AIDEN_MOVES = {
   // ---------- K: INCINEROAR'S SPECIALS ----------
   // DARKEST LARIAT: spins on the spot with all four arms out like a whirlwind. Steer it left/right.
   // 5 quick hits on both sides, the last one launches. (Holds his height a little in the air.)
-  neutralRanged: { name: 'Darkest Lariat', startup: 0.1, active: 0.6, endlag: 0.32, landLag: 0.16, mirrorSpin: 0.06,
+  // (losesToPhysical: it's his ANTI-RANGED move - projectiles pass straight through it - but a PHYSICAL attack beats it:
+  //  the spinning arms don't hit anyone who's in the middle of a physical (J) attack, so that attack gets through)
+  neutralRanged: { name: 'Darkest Lariat', startup: 0.1, active: 0.6, endlag: 0.32, landLag: 0.16, mirrorSpin: 0.06, losesToPhysical: true,
     hitboxes: (() => {
       const hb = [];
+      // (each spin knocks them well away: no infinite combos. The arms only connect for a short part of each spin,
+      //  and reach a bit less than a straight punch/kick - so a well-timed PHYSICAL attack can get in between spins)
       for (let i = 0; i < 5; i++) for (const s of [1, -1])
-        hb.push({ x: 50 * s, y: -64, r: 32, dmg: 2, base: 400, growth: 2.6, angle: s > 0 ? 50 : 130, from: i * 0.1, to: i * 0.1 + 0.07, group: i, pullIn: 0 });   // (each spin knocks them well away: no infinite combos)
+        hb.push({ x: 44 * s, y: -64, r: 27, dmg: 2, base: 400, growth: 2.6, angle: s > 0 ? 50 : 130, from: i * 0.1, to: i * 0.1 + 0.04, group: i, pullIn: 0 });
       for (const s of [1, -1]) hb.push({ x: 52 * s, y: -64, r: 36, dmg: 8, base: 560, growth: 8.2, angle: s > 0 ? 40 : 140, from: 0.5, to: 0.6, group: 5 });
       return hb;
     })(),
@@ -5776,6 +5828,61 @@ function drawHeelAnchorProp(p, a) {
         drawAnchorAt(a.ax, p.y - 80, Math.PI / 2, 1 - out, 0.9);
       }
     }
+  }
+}
+// A SIDE-PROFILE SKULL (Captain Heel), like an anatomy drawing: a big rounded cranium set back, the face jutting
+// forward under a brow ridge - a deep eye socket, the nasal hole, a row of teeth - the lower jaw angling down and
+// forward to the chin, and a neck of stacked vertebrae under it. (f = which way he faces; main = the bone colour.)
+function drawSkullProfile(head, shoulder, f, main, opts, look) {
+  const X = dx => head.x + f * dx, Y = dy => head.y + dy;
+  const tint = !!opts.tint, dark = sketch ? '#1b1b1b' : '#1a1511', o = (opts.outline || 0) / 2;
+  // the NECK: three vertebrae from his shoulders up to the base of the skull (behind the jaw)
+  const base = { x: X(-2.5), y: Y(8) };
+  ctx.strokeStyle = main; ctx.lineCap = 'round';
+  for (let k = 0; k < 3; k++) {                                                         // (slim - tapering a little toward the skull)
+    const u0 = k / 3 + 0.08, u1 = (k + 1) / 3 - 0.08;
+    const ax = lerp(shoulder.x, base.x, u0), ay = lerp(shoulder.y, base.y, u0), bx = lerp(shoulder.x, base.x, u1), by = lerp(shoulder.y, base.y, u1);
+    ctx.lineWidth = 3.8 - k * 0.4 + o; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    const mx = (ax + bx) / 2, my = (ay + by) / 2;                                       // the little spur off the back of each one
+    ctx.lineWidth = 1.6 + o; ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(mx - f * 3, my + 1); ctx.stroke();
+  }
+  // the CRANIUM (the big rounded back of the skull)
+  ctx.fillStyle = main;
+  ctx.beginPath(); ctx.ellipse(X(-2), Y(-3), 13 + o, 12 + o, 0, 0, Math.PI * 2); ctx.fill();
+  // the FACE and JAW, jutting forward and down
+  ctx.beginPath();
+  ctx.moveTo(X(3), Y(-11 - o));                                  // forehead
+  ctx.quadraticCurveTo(X(11 + o), Y(-10), X(11.5 + o), Y(-4));   // brow ridge
+  ctx.lineTo(X(10.2 + o), Y(-2.2));                              // (the dip under the brow - the socket's edge)
+  ctx.lineTo(X(13.8 + o), Y(2.8));                               // down the nose to its tip
+  ctx.lineTo(X(12.6 + o), Y(4.8));
+  ctx.lineTo(X(13.2 + o), Y(7.4));                               // upper teeth
+  ctx.lineTo(X(12.6 + o), Y(9));                                 // lower teeth
+  ctx.quadraticCurveTo(X(13.4 + o), Y(12.2 + o), X(10), Y(12.8 + o));   // the chin
+  ctx.lineTo(X(2), Y(11.6 + o));                                 // under the jaw...
+  ctx.lineTo(X(-1.8 - o), Y(9 + o));                             // ...to the jaw's corner
+  ctx.lineTo(X(-2.2 - o), Y(3));                                 // and up to the hinge
+  ctx.closePath(); ctx.fill();
+  if (tint) return;
+  ctx.fillStyle = dark;
+  ctx.beginPath(); ctx.ellipse(X(6.6), Y(-2), 4.6, 4.3, 0, 0, Math.PI * 2); ctx.fill();          // the eye socket (under his eyepatch)
+  ctx.beginPath(); ctx.moveTo(X(11.6), Y(0.6)); ctx.lineTo(X(12.9), Y(4.7)); ctx.lineTo(X(10.2), Y(4.4)); ctx.closePath(); ctx.fill();   // nasal hole
+  ctx.beginPath(); ctx.arc(X(-2.8), Y(4.6), 1.3, 0, Math.PI * 2); ctx.fill();                      // ear hole
+  // TEETH: a bite line and the gaps between them, upper and lower
+  ctx.fillRect(Math.min(X(5), X(13)), Y(7.3), 8, 1.1);
+  ctx.strokeStyle = dark; ctx.lineWidth = 0.9; ctx.lineCap = 'butt';
+  for (let k = 0; k < 5; k++) { const x = X(5.6 + k * 1.6); ctx.beginPath(); ctx.moveTo(x, Y(5.6)); ctx.lineTo(x, Y(9.4)); ctx.stroke(); }
+  // shading + cracks across the cranium (like the drawing)
+  if (!sketch) {
+    const boneC = look.body || '#e8e2cf';
+    ctx.fillStyle = 'rgba(0,0,0,0.13)';
+    ctx.beginPath(); ctx.ellipse(X(-7), Y(1), 7.5, 7, 0, 0, Math.PI * 2); ctx.fill();               // the shadowed back of the skull
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.ellipse(X(1), Y(-10), 6, 2.6, f * -0.3, 0, Math.PI * 2); ctx.fill();       // shine on the dome
+    ctx.strokeStyle = shade(boneC, 0.55); ctx.lineWidth = 0.9; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(X(-4), Y(-14.5)); ctx.lineTo(X(-1.5), Y(-11)); ctx.lineTo(X(-3.5), Y(-8)); ctx.lineTo(X(-1), Y(-5.5)); ctx.stroke();   // cracks
+    ctx.beginPath(); ctx.moveTo(X(-11.5), Y(-6)); ctx.lineTo(X(-8.5), Y(-4)); ctx.lineTo(X(-9.5), Y(-1)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(10.5), Y(-4)); ctx.quadraticCurveTo(X(7), Y(-7.5), X(3), Y(-5)); ctx.stroke();   // the brow ridge's edge
   }
 }
 // where his MOUTH is right now (from the pose he's drawn in - the same maths as drawFigure)
@@ -8955,7 +9062,7 @@ function stepAction(f, inp, dt) {
         if (o >= 1 && !a.overFull) { a.overFull = true; ring(f.x + f.face * 30, f.y - 66); sfx.parry(); }
       }
       const limit = m.overcharge ? MAX_CHARGE + OVERCHARGE_TIME : MAX_CHARGE;
-      if (!btnHeld || a.charge >= limit) {
+      if (!btnHeld || a.charge >= limit || a.forceRelease) {   // (forceRelease: Lance's Instant Transmission Kamehameha)
         a.cfrac = clamp((a.charge - 0.06) / (MAX_CHARGE - 0.06), 0, 1);
         a.over = m.overcharge ? clamp((a.charge - MAX_CHARGE) / OVERCHARGE_TIME, 0, 1) : 0;
         a.mult = (1 + CHARGE_BONUS * a.cfrac) * (1 + a.over);      // 200% = twice a full charge
@@ -10140,6 +10247,8 @@ function update(dt) {
         const key = fighters.indexOf(t) + ':' + (h.group || 0);
         if (t === f || a.hit.has(key) || allies(f, t) || t.dead || t.poofT > 0) continue;   // (Colbalias and his clones never hit each other)
         if (!circleHitsFighter(hx, hy, h.r, t)) continue;
+        // Darkest Lariat loses to PHYSICAL attacks: someone in the middle of a J attack is passed over (their hit wins)
+        if (a.move.losesToPhysical && h.group !== 5 && t.action && t.action.type === 'attack' && t.action.btn === 'atk' && t.action.phase !== 'end') continue;
         // CLASH: they swung the same button at (almost) the same moment
         const ta = t.action;
         if (ta && ta.type === 'attack' && ta.btn === a.btn && ta.phase !== 'end' && !a.noClash && !ta.noClash && !a.move.armor && !ta.move.armor &&
@@ -11185,29 +11294,31 @@ function drawFigure(fig, opts = {}) {
     // MUSCULAR: a big V-shaped torso (broad chest and shoulders, narrow waist) instead of a single line
     const ux = (shoulder.x - hip.x) / TORSO, uy = (shoulder.y - hip.y) / TORSO;       // up the spine
     const px = -uy, py = ux;                                                           // across the body
+    const TW = look.skeleton ? 0.8 : 1;                                                // (the skeleton's ribcage is a bit narrower)
+    const SW = 20 * TW, HW = 8 * TW;
     ctx.fillStyle = main;
     ctx.beginPath();
-    ctx.moveTo(hip.x + px * 8, hip.y + py * 8);
-    ctx.lineTo(shoulder.x + px * 20 + ux * 4, shoulder.y + py * 20 + uy * 4);
-    ctx.quadraticCurveTo(shoulder.x + ux * 12, shoulder.y + uy * 12, shoulder.x - px * 20 + ux * 4, shoulder.y - py * 20 + uy * 4);   // traps up to the neck
-    ctx.lineTo(hip.x - px * 8, hip.y - py * 8);
+    ctx.moveTo(hip.x + px * HW, hip.y + py * HW);
+    ctx.lineTo(shoulder.x + px * SW + ux * 4, shoulder.y + py * SW + uy * 4);
+    ctx.quadraticCurveTo(shoulder.x + ux * 12 * TW, shoulder.y + uy * 12 * TW, shoulder.x - px * SW + ux * 4, shoulder.y - py * SW + uy * 4);   // traps up to the neck
+    ctx.lineTo(hip.x - px * HW, hip.y - py * HW);
     ctx.closePath();
     if (look.skeleton && !opts.tint) {
       // SKELETON: a dark hollow chest, the spine up the middle, a collarbone, four pairs of ribs and the pelvis
       ctx.fillStyle = sketch ? PAPER : 'rgba(26,21,17,0.88)'; ctx.fill();
       ctx.strokeStyle = main; ctx.lineCap = 'round';
       ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(shoulder.x, shoulder.y); ctx.stroke();                  // spine
-      ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(shoulder.x - px * 19 + ux * 2, shoulder.y - py * 19 + uy * 2); ctx.lineTo(shoulder.x + px * 19 + ux * 2, shoulder.y + py * 19 + uy * 2); ctx.stroke();   // collarbone
+      ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(shoulder.x - px * 19 * TW + ux * 2, shoulder.y - py * 19 * TW + uy * 2); ctx.lineTo(shoulder.x + px * 19 * TW + ux * 2, shoulder.y + py * 19 * TW + uy * 2); ctx.stroke();   // collarbone
       ctx.lineWidth = 3;
       for (let k = 0; k < 4; k++) {
-        const s = 0.18 + k * 0.17, bx = lerp(shoulder.x, hip.x, s), by = lerp(shoulder.y, hip.y, s), w = 17 - k * 2.6;
+        const s = 0.18 + k * 0.17, bx = lerp(shoulder.x, hip.x, s), by = lerp(shoulder.y, hip.y, s), w = (17 - k * 2.6) * TW;
         for (const sd of [-1, 1]) {
           ctx.beginPath(); ctx.moveTo(bx, by);
           ctx.quadraticCurveTo(bx + px * w * sd + ux * 3, by + py * w * sd + uy * 3, bx + px * w * 0.85 * sd - ux * 6, by + py * w * 0.85 * sd - uy * 6);
           ctx.stroke();
         }
       }
-      ctx.fillStyle = main; ctx.beginPath(); ctx.ellipse(hip.x, hip.y + 1, 9, 5, Math.atan2(py, px), 0, Math.PI * 2); ctx.fill();   // pelvis
+      ctx.fillStyle = main; ctx.beginPath(); ctx.ellipse(hip.x, hip.y + 1, 9 * TW, 5, Math.atan2(py, px), 0, Math.PI * 2); ctx.fill();   // pelvis
       ctx.lineWidth = LW;
     } else ctx.fill();
     if (look.skeleton && !opts.tint) { /* (no muscle shading on bones) */ }
@@ -11261,9 +11372,10 @@ function drawFigure(fig, opts = {}) {
     ctx.fillRect(hip.x - 10, hip.y - 2, 20, 5);                // the belt itself
   }
 
-  // Round head
+  // Round head - or, for a SKELETON (Captain Heel), a real SIDE-PROFILE SKULL on a neck of vertebrae
   ctx.fillStyle = main;
-  ctx.beginPath(); ctx.arc(head.x, head.y, 12 + (opts.outline || 0) / 2, 0, Math.PI * 2); ctx.fill();
+  if (look.skeleton) drawSkullProfile(head, shoulder, f, main, opts, look);
+  else { ctx.beginPath(); ctx.arc(head.x, head.y, 12 + (opts.outline || 0) / 2, 0, Math.PI * 2); ctx.fill(); }
   // Spiky swept-back hair (Hwoarang style)
   if (look.hair) {
     ctx.fillStyle = opts.tint || look.hair;
@@ -11420,44 +11532,56 @@ function drawFigure(fig, opts = {}) {
       ctx.beginPath(); ctx.moveTo(head.x + f * 1, head.y - 8); ctx.lineTo(head.x + f * 11, head.y - 5); ctx.stroke();
     }
   }
-  // SKULL (Aiden): a nose hole and a row of teeth (the eye on our side is under the eyepatch)
+  // SKULL (Aiden): the face details on his skull profile (see drawSkullProfile - the eye on our side is under the eyepatch)
   if (look.skeleton && !opts.tint) {
-    ctx.fillStyle = sketch ? main : '#1a1511';
-    ctx.beginPath(); ctx.moveTo(head.x + f * 10, head.y + 1); ctx.lineTo(head.x + f * 12.5, head.y + 5); ctx.lineTo(head.x + f * 8.5, head.y + 5); ctx.closePath(); ctx.fill();   // nose hole
-    ctx.fillRect(head.x + (f > 0 ? 2 : -11), head.y + 7, 9, 1.6);                         // mouth line
-    ctx.strokeStyle = sketch ? main : '#1a1511'; ctx.lineWidth = 1;
-    for (let k = 0; k < 4; k++) { const x = head.x + f * (3.5 + k * 2.2); ctx.beginPath(); ctx.moveTo(x, head.y + 5.5); ctx.lineTo(x, head.y + 10); ctx.stroke(); }   // teeth
     if (!look.beard) {                                   // cheekbone line
       ctx.strokeStyle = look.detail; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(head.x - f * 2, head.y + 2, 9, f > 0 ? 0.4 : Math.PI - 1.1, f > 0 ? 1.1 : Math.PI - 0.4); ctx.stroke();
     } else {
       // CAPTAIN HEEL: proper SKULL cheekbones - a sunken hollow tucked in UNDER a sharp cheekbone ridge (high up on
       // the face, well clear of the beard), and a hollow at the temple behind the eye
-      const boneC = sketch ? PAPER : (look.body || '#e8e2cf'), hol = sketch ? '#bdbdbd' : shade(boneC, 0.74);
-      ctx.fillStyle = hol;
-      ctx.beginPath(); ctx.ellipse(head.x - f * 3, head.y + 0.5, 3.6, 4.4, f * 0.5, 0, Math.PI * 2); ctx.fill();   // the cheek hollow (beside the eye, going back to the jaw hinge)
-      ctx.fillStyle = boneC;
-      ctx.beginPath(); ctx.ellipse(head.x - f * 1.4, head.y - 1.6, 3.6, 3.2, f * 0.5, 0, Math.PI * 2); ctx.fill();   // (the cheekbone over it cuts it into a crescent)
-      ctx.strokeStyle = sketch ? main : shade(boneC, 0.6); ctx.lineWidth = 1.1; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(head.x + f * 2.5, head.y + 0.5); ctx.quadraticCurveTo(head.x - f * 2, head.y + 1.2, head.x - f * 6.5, head.y - 2.5); ctx.stroke();   // the cheekbone's edge, sweeping back to the ear
-      ctx.fillStyle = hol;
-      ctx.beginPath(); ctx.ellipse(head.x - f * 6, head.y - 4, 2.6, 3.4, 0, 0, Math.PI * 2); ctx.fill();          // temple hollow
+      // (on his side-profile skull: the CHEEKBONE arch runs from under the eye socket back to the ear hole, with the
+      //  sunken cheek under it, between it and the jaw - behind the teeth)
+      const X = dx => head.x + f * dx, Y = dy => head.y + dy;
+      const boneC = sketch ? PAPER : (look.body || '#e8e2cf');
+      ctx.fillStyle = sketch ? 'rgba(0,0,0,0.12)' : 'rgba(40,30,20,0.24)';
+      ctx.beginPath(); ctx.moveTo(X(8), Y(3.4)); ctx.lineTo(X(-1.5), Y(5)); ctx.lineTo(X(-0.8), Y(8.4)); ctx.lineTo(X(5.2), Y(8.4)); ctx.closePath(); ctx.fill();   // the sunken cheek
+      ctx.strokeStyle = sketch ? main : shade(boneC, 0.62); ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(X(9), Y(2.4)); ctx.quadraticCurveTo(X(3), Y(4.4), X(-1.5), Y(3.6)); ctx.stroke();   // the cheekbone (zygomatic) arch
+      ctx.fillStyle = sketch ? 'rgba(0,0,0,0.1)' : 'rgba(40,30,20,0.16)';
+      ctx.beginPath(); ctx.ellipse(X(0.5), Y(-3), 3, 3.6, 0, 0, Math.PI * 2); ctx.fill();   // temple hollow, behind the eye
     }
   }
   // BLACK BEARD (Aiden): a big bushy beard off his jaw, a moustache over the teeth, and two braids with red ties
   if (look.beard) {
     const bc = opts.tint || (sketch ? main : look.beard), sway = Math.sin(time * 3) * 1.2;
     ctx.fillStyle = bc;
+    // the FULL beard: from under the ear, down the whole jaw to a point, up over the chin - and a moustache over the teeth
     ctx.beginPath();
     ctx.moveTo(head.x - f * 9, head.y + 1);                                         // from under the ear...
     ctx.quadraticCurveTo(head.x - f * 10, head.y + 16, head.x - f * 2 + sway, head.y + 25);   // ...down the jaw...
     ctx.lineTo(head.x + f * 5 + sway, head.y + 29);                                 // ...the point of the beard...
-    ctx.quadraticCurveTo(head.x + f * 15, head.y + 18, head.x + f * 13, head.y + 8);    // ...up to the chin
-    ctx.lineTo(head.x + f * 2, head.y + 11);
+    ctx.quadraticCurveTo(head.x + f * 15, head.y + 18, head.x + f * 13.5, head.y + 7);    // ...up to the chin
+    ctx.lineTo(head.x + f * 2, head.y + 10);
     ctx.closePath(); ctx.fill();
-    ctx.beginPath();                                                                // moustache over the mouth
-    ctx.moveTo(head.x + f * 1, head.y + 7); ctx.quadraticCurveTo(head.x + f * 8, head.y + 3, head.x + f * 14, head.y + 9);
-    ctx.quadraticCurveTo(head.x + f * 8, head.y + 7, head.x + f * 1, head.y + 9); ctx.fill();
+    // the MOUSTACHE: thick under the nose, sweeping out both ways and DROOPING down at the ends, where it runs
+    // straight into the beard - one piece with it
+    const mx = head.x + f * 9.5, my = head.y + 5.6, M = (dx, dy) => [mx + f * dx, my + dy];
+    ctx.beginPath();
+    ctx.moveTo(...M(0, -1.3));                                                       // under the nose
+    ctx.quadraticCurveTo(...M(3.6, -1.6), ...M(5.2, 0.8));                           // front half, sweeping forward...
+    ctx.quadraticCurveTo(...M(6.4, 3.4), ...M(5.6, 7));                              // ...and drooping DOWN into the beard
+    ctx.lineTo(...M(3.4, 6.6));
+    ctx.quadraticCurveTo(...M(3.2, 3), ...M(0, 2.4));                                // underside back to the middle
+    ctx.quadraticCurveTo(...M(-4.2, 3.2), ...M(-6.6, 6.4));                          // back half, drooping down across the cheek...
+    ctx.lineTo(...M(-8.4, 5.6));
+    ctx.quadraticCurveTo(...M(-7.6, 0.6), ...M(-4.6, -0.6));                         // ...into the beard
+    ctx.quadraticCurveTo(...M(-2.2, -1.6), ...M(0, -1.3));
+    ctx.closePath(); ctx.fill();
+    if (!opts.tint && !sketch) {                                                    // a little sheen along it
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 0.8; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(...M(-5, 0.4)); ctx.quadraticCurveTo(...M(0, -0.6), ...M(5, 0.6)); ctx.stroke();
+    }
     ctx.strokeStyle = bc; ctx.lineWidth = 3; ctx.lineCap = 'round';
     for (const [ox, len] of [[-1, 12], [7, 10]]) {                                  // two braids hanging off it
       const bx = head.x + f * ox + sway, by = head.y + 25;
@@ -11501,24 +11625,25 @@ function drawFigure(fig, opts = {}) {
     if (!opts.tint && !sketch) {
       ctx.fillStyle = '#211d22'; hatPath(0.86, 1); ctx.fill();       // the turned-up front fold, a shade lighter
       ctx.strokeStyle = '#c9a443'; ctx.lineWidth = 1.3; hatPath(); ctx.stroke();   // GOLD PIPING round the whole edge
-      // SKULL over CROSSED CUTLASSES (a touch smaller to suit the slimmer hat)
+      // the classic SKULL AND CROSSBONES (a touch smaller to suit the slimmer hat)
       ctx.save(); ctx.translate(head.x, head.y - 22); ctx.scale(0.8, 0.8); ctx.translate(-head.x, -(head.y - 22));
       const sx = head.x, sy = head.y - 22, bone = '#f2efe6';
-      ctx.strokeStyle = bone; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
-      for (const s of [1, -1]) {                                    // two curved cutlasses, crossing under the skull
-        ctx.lineWidth = 2.2;                                          // a curved blade, widest near the point
-        ctx.beginPath(); ctx.moveTo(sx - s * 10, sy + 10); ctx.quadraticCurveTo(sx + s * 2, sy + 6, sx + s * 14, sy - 6); ctx.stroke();
-        ctx.lineWidth = 1.2;
-        ctx.beginPath(); ctx.moveTo(sx - s * 6, sy + 8.5); ctx.quadraticCurveTo(sx + s * 5, sy + 3, sx + s * 14, sy - 6); ctx.stroke();
-        ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(sx - s * 12, sy + 7); ctx.lineTo(sx - s * 8.5, sy + 12.5); ctx.stroke();   // the guard
-        ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx - s * 10, sy + 10); ctx.lineTo(sx - s * 13.5, sy + 12.5); ctx.stroke();    // the grip
-        ctx.lineWidth = 1.6;
+      ctx.strokeStyle = bone; ctx.fillStyle = bone; ctx.lineCap = 'round';
+      for (const s of [1, -1]) {                                    // two bones crossed in an X behind the skull, knobbly ends
+        const x0 = sx - s * 11, y0 = sy + 10, x1 = sx + s * 11, y1 = sy - 6;
+        ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+        const ang = Math.atan2(y1 - y0, x1 - x0), px = -Math.sin(ang) * 1.6, py = Math.cos(ang) * 1.6;
+        for (const [ex, ey] of [[x0, y0], [x1, y1]]) {               // each end: two little knobs side by side
+          ctx.beginPath(); ctx.arc(ex + px, ey + py, 1.9, 0, Math.PI * 2); ctx.arc(ex - px, ey - py, 1.9, 0, Math.PI * 2); ctx.fill();
+        }
       }
-      ctx.fillStyle = bone;
-      ctx.beginPath(); ctx.arc(sx, sy - 1, 4.6, 0, Math.PI * 2); ctx.fill();     // the skull
-      ctx.fillRect(sx - 2.6, sy + 2, 5.2, 3);                                     // its jaw
+      ctx.beginPath(); ctx.arc(sx, sy - 1, 5, 0, Math.PI * 2); ctx.fill();       // the skull
+      ctx.fillRect(sx - 3, sy + 2, 6, 3.6);                                       // its jaw
       ctx.fillStyle = hc;
-      ctx.beginPath(); ctx.arc(sx - 1.7, sy - 1.2, 1.3, 0, Math.PI * 2); ctx.arc(sx + 1.7, sy - 1.2, 1.3, 0, Math.PI * 2); ctx.fill();   // eye sockets
+      ctx.beginPath(); ctx.arc(sx - 1.9, sy - 1.2, 1.45, 0, Math.PI * 2); ctx.arc(sx + 1.9, sy - 1.2, 1.45, 0, Math.PI * 2); ctx.fill();   // eye sockets
+      ctx.beginPath(); ctx.moveTo(sx, sy + 0.6); ctx.lineTo(sx - 0.8, sy + 2); ctx.lineTo(sx + 0.8, sy + 2); ctx.closePath(); ctx.fill();   // nose
+      ctx.strokeStyle = hc; ctx.lineWidth = 0.7; ctx.lineCap = 'butt';
+      for (const dx of [-1.5, 0, 1.5]) { ctx.beginPath(); ctx.moveTo(sx + dx, sy + 2.6); ctx.lineTo(sx + dx, sy + 5.4); ctx.stroke(); }   // the 3 TEETH lines
       ctx.restore();
     }
     ctx.restore();                                                  // (end of the lowered hat)
