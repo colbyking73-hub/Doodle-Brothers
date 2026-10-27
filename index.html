@@ -11248,9 +11248,23 @@ function drawHomeSketch() {
 
 // ---- OPTIONS: master / music / sound effects volume, and the art style (all saved) ----
 const opt = { row: 0, drag: null };
-const OPT_ROWS = ['master', 'music', 'sfx', 'art', 'back'];
-const OPT_LABEL = { master: 'MASTER VOLUME', music: 'MUSIC', sfx: 'SOUND EFFECTS', art: 'ART STYLE', back: 'BACK' };
-const optRowY = r => 210 + r * 86;
+const OPT_ROWS = ['master', 'music', 'sfx', 'art', 'display', 'back'];
+const OPT_LABEL = { master: 'MASTER VOLUME', music: 'MUSIC', sfx: 'SOUND EFFECTS', art: 'ART STYLE', display: 'DISPLAY', back: 'BACK' };
+const optRowY = r => 200 + r * 78;
+// DISPLAY: the desktop app can be WINDOWED / BORDERLESS / FULLSCREEN (remembered by the app); in a web browser it's
+// WINDOWED / FULLSCREEN (the browser's own fullscreen)
+const DISPLAY_MODES = () => window.appInfo && window.appInfo.setDisplayMode ? ['WINDOWED', 'BORDERLESS', 'FULLSCREEN'] : ['WINDOWED', 'FULLSCREEN'];
+function displayMode() {
+  if (window.appInfo && window.appInfo.getDisplayMode) return window.appInfo.getDisplayMode().toUpperCase();
+  return document.fullscreenElement ? 'FULLSCREEN' : 'WINDOWED';
+}
+function cycleDisplay(d) {
+  const list = DISPLAY_MODES(), next = list[(list.indexOf(displayMode()) + d + list.length) % list.length];
+  if (window.appInfo && window.appInfo.setDisplayMode) window.appInfo.setDisplayMode(next.toLowerCase());
+  else if (next === 'FULLSCREEN') { try { document.documentElement.requestFullscreen().catch(() => {}); } catch (e) {} }
+  else if (document.fullscreenElement) { try { document.exitFullscreen().catch(() => {}); } catch (e) {} }
+  menuSfx('pick');
+}
 const optSlider = r => ({ x: 560, y: optRowY(r) - 26, w: 440, h: 36 });
 function setVolume(key, v) {
   const old = settings[key];
@@ -11264,12 +11278,14 @@ function optionsUpdate(dt) {
     if (d.tap.down) { opt.row = (opt.row + 1) % OPT_ROWS.length; menuSfx('move'); }
     const row = OPT_ROWS[opt.row], lr = d.tap.left ? -1 : d.tap.right ? 1 : 0;
     if (lr) {
-      if (row === 'art') { setArtStyle(ART_STYLES[(ART_STYLES.indexOf(artStyle) + lr + ART_STYLES.length) % ART_STYLES.length]); menuSfx('pick'); }
+      if (row === 'display') cycleDisplay(lr);
+      else if (row === 'art') { setArtStyle(ART_STYLES[(ART_STYLES.indexOf(artStyle) + lr + ART_STYLES.length) % ART_STYLES.length]); menuSfx('pick'); }
       else if (row !== 'back') setVolume(row, settings[row] + lr * 0.05);
     }
     if (d.tap.ok || d.tap.start) {
       if (row === 'back') { goHome(); return; }
       if (row === 'art') { setArtStyle(ART_STYLES[(ART_STYLES.indexOf(artStyle) + 1) % ART_STYLES.length]); menuSfx('pick'); }
+      if (row === 'display') cycleDisplay(1);
     }
     if (d.tap.back || d.tap.esc) { goHome(); return; }
   }
@@ -11278,6 +11294,7 @@ function optionsUpdate(dt) {
   if (mouse.click) {
     const row = OPT_ROWS[opt.row];
     if (['master', 'music', 'sfx'].includes(row) && inRect(mouse, { ...optSlider(opt.row), x: optSlider(opt.row).x - 20, w: optSlider(opt.row).w + 40 })) opt.drag = row;
+    else if (row === 'display') cycleDisplay(mouse.x < 780 ? -1 : 1);
     else if (row === 'art') { const lr = mouse.x < 780 ? -1 : 1; setArtStyle(ART_STYLES[(ART_STYLES.indexOf(artStyle) + lr + ART_STYLES.length) % ART_STYLES.length]); menuSfx('pick'); }
     else if (row === 'back') { goHome(); mouse.click = false; return; }
   }
@@ -11310,6 +11327,9 @@ function drawOptionsSketch() {
         sctx.beginPath(); sctx.arc(s.x + s.w * v, s.y + s.h / 2, 14 + (on ? 3 : 0), 0, Math.PI * 2); sctx.fill(); sctx.stroke();
         sctx.font = `30px ${DOODLE_FONT}`; sctx.fillStyle = INK; sctx.textAlign = 'left';
         sctx.fillText(Math.round(v * 100) + '%', s.x + s.w + 30, y + 4);
+      } else if (row === 'display') {
+        sctx.font = `34px ${DOODLE_FONT}`; sctx.textAlign = 'center'; sctx.fillStyle = INK;
+        sctx.fillText('<    ' + displayMode() + '    >', 780, y + 4);
       } else if (row === 'art') {
         sctx.font = `34px ${DOODLE_FONT}`; sctx.textAlign = 'center'; sctx.fillStyle = INK;
         sctx.fillText('<    ' + artStyle + '    >', 780, y + 4);
@@ -11485,9 +11505,9 @@ function drawOptionsThemed(th) {
         }
         sctx.font = font(30); sctx.fillStyle = ink; sctx.textAlign = 'left';
         sctx.fillText(Math.round(v * 100) + '%', s.x + s.w + 30, y + 4);
-      } else if (row === 'art') {
+      } else if (row === 'art' || row === 'display') {
         sctx.font = font(34); sctx.textAlign = 'center'; sctx.fillStyle = ink;
-        sctx.fillText('<   ' + artStyle + '   >', 780, y + 4);
+        sctx.fillText('<   ' + (row === 'art' ? artStyle : displayMode()) + '   >', 780, y + 4);
       }
     });
     sctx.font = font(20); sctx.textAlign = 'center'; sctx.fillStyle = dim;
