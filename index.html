@@ -382,7 +382,8 @@ const CLASH_CHIP   = 0.15;  // damage BOTH fighters take on each exchanged blow 
 // attack (J or K) to lock it in - the HIGHER bar wins that exchange and hits the loser for extra damage. Wait for the
 // top and you risk it resetting! Didn't press = only half of wherever it was. Whoever wins the LAST one breaks out of
 // the clash first while the loser is left stunned right in front of them: a free combo.
-const CLASH_BAR = { period: 0.34,                                 // (how long the bar takes to fill: a bit quicker than before) winDmg: 2.2, finalStun: 0.6, missMul: 0.5,
+// (period = how long the bar takes to fill - a bit quicker than it was)
+const CLASH_BAR = { period: 0.34, winDmg: 2.2, finalStun: 0.6, missMul: 0.5,
                     cpu: { EASY: [30, 75], NORMAL: [50, 88], HARD: [66, 95], MASTER: [80, 99] } };
 const MAX_CHARGE   = 1.0;   // seconds of holding for a full charge
 const CHARGE_BONUS = 0.8;   // full charge = +80% damage and knockback
@@ -2748,17 +2749,28 @@ const CROSS_CHOP = { grabR: 50, aoe: 140,
                      drop: { dmg: 4,  base: 260, growth: 2,   angle: 80 } };   // never reached the floor: let go
 const canBeGrabbed = (f, t) => t !== f && !allies(f, t) && t.respawnTimer <= 0 && !(t.halo > 0) && !isIntangible(t) && !t.dead && !(t.poofT > 0) &&
   !(t.action && ['grabbed', 'holding', 'thrown', 'whipped', 'impaled', 'ultVictim', 'ultSeq', 'timeStop', 'shipUlt'].includes(t.action.type));
+// Only someone STANDING ON THE GROUND gets grabbed (no escape). Someone IN THE AIR just gets HIT and dragged along
+// with him - and they can Z VANISH out of it at any moment (see 'whipped' in stepAction).
+const CROSS_CHOP_AIR_HIT = 4;                                   // damage for clipping someone in the air
 function crossChopGrab(f, a) {
   if (a.held) return;
   const gx = f.x + f.face * 26, gy = f.y - 60;
   for (const t of fighters) {
     if (!canBeGrabbed(f, t) || !circleHitsFighter(gx, gy, CROSS_CHOP.grabR, t)) continue;
+    if (a.escaped && a.escaped.has(t)) continue;                // (Z-vanished out of it: not caught again this time)
+    const air = !t.ground;
     t.shielding = false; t.vx = t.vy = 0;
-    t.action = { type: 'whipped', t: 0, holder: f, spin: 0 };     // (held: moved by him every frame)
+    t.action = { type: 'whipped', t: 0, holder: f, spin: 0, drag: air };   // (held / dragged: moved by him every frame)
     a.held = t; a.whipVictim = t;
-    painTexts.push({ x: t.x, y: t.y - 130, t: 0.5, max: 0.5, text: 'GOTCHA!', big: false });
-    sfx.grab(); hitstop = Math.max(hitstop, 0.06); shake = Math.max(shake, 6);
-    burst(gx, gy, ['#ffffff', '#ffd23f'], 10, 0, Math.PI, 320, { grav: 200 });
+    if (air) {                                                  // a hit, not a grab
+      t.damage += CROSS_CHOP_AIR_HIT * powerOf(f); if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + CROSS_CHOP_AIR_HIT);
+      t.hitFlash = 0.08; sfx.hit(0.6); burst(gx, gy, FIRE, 10, 0, Math.PI, 360, { grav: -150 });
+      hitstop = Math.max(hitstop, 0.05); shake = Math.max(shake, 6);
+    } else {
+      painTexts.push({ x: t.x, y: t.y - 130, t: 0.5, max: 0.5, text: 'GOTCHA!', big: false });
+      sfx.grab(); hitstop = Math.max(hitstop, 0.06); shake = Math.max(shake, 6);
+      burst(gx, gy, ['#ffffff', '#ffd23f'], 10, 0, Math.PI, 320, { grav: 200 });
+    }
     return;
   }
 }
@@ -6133,10 +6145,10 @@ const approach = (v, target, delta) => v < target ? Math.min(v + delta, target) 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp = (a, b, k) => a + (b - a) * k;
 
-// Aiden's ALOLAN WHIP (the lariat grab): projectiles pass straight through him while he charges in / has them
-// ...and his DARKEST LARIAT (neutral K) too while he's spinning (physical hits still land on him)
+// Aiden's DARKEST LARIAT (neutral K): projectiles pass straight through him while he's spinning (physical hits still
+// land on him). (His ALOLAN WHIP dash grab used to be immune too - now projectiles CAN hit him out of it.)
 const projPhase = t => !!(t.char === 'AIDEN' && t.action && t.action.type === 'attack' &&
-  ((t.action.key === 'sideRanged' && (t.action.phase !== 'end' || t.action.whip)) || (t.action.key === 'neutralRanged' && t.action.phase !== 'end')));
+  t.action.key === 'neutralRanged' && t.action.phase !== 'end');
 function isIntangible(f) {
   if (f.invuln > 0) return true;
   const a = f.action;
@@ -8340,7 +8352,18 @@ function stepAction(f, inp, dt) {
   if (a.type === 'grab') stepGrab(f, a, dt);
   if (a.type === 'throw') stepThrow(f, a, dt);
   if (a.type === 'thrown') return stepThrown(f, a, dt);
-  if (a.type === 'whipped') { if (!a.holder.action || a.holder.action.whipVictim !== f) f.action = null; return; }   // moved by the whip
+  if (a.type === 'whipped') {                                     // moved by the whip / carried by him
+    if (!a.holder.action || a.holder.action.whipVictim !== f) { f.action = null; return; }
+    // DRAGGED through the air (Captain Heel's Cross Chop caught them in the air): Z VANISH out of it any time
+    if (a.drag && (inp.blockTap || f.dodgeBuf > 0) && canAirDodge(f)) {
+      const ha = a.holder.action;
+      (ha.escaped || (ha.escaped = new Set())).add(f);
+      ha.held = null; ha.whipVictim = null;
+      f.action = null; f.ground = false;
+      startDodge(f, inp.dir, inp.down, inp.up);
+    }
+    return;
+  }
   if (a.type === 'impaled') {                                     // on Colby's scythe (Reaper's Aether): he moves them
     const h = a.holder.action;
     if (!h || h.type !== 'attack' || !h.move.aether || !h.ae || !h.ae.victims.includes(f) || a.holder.respawnTimer > 0) f.action = null;
@@ -10889,19 +10912,33 @@ function drawFigure(fig, opts = {}) {
       ctx.fillStyle = '#fff6c2'; ctx.fillRect(head.x - 4, head.y - 14, 8, 3);
     }
   } else if (look.bowl) {
-    // Blonde bowl cut: a rounded dome over the top of the head, cut straight across the forehead
-    ctx.fillStyle = sketch ? PAPER : opts.tint || look.bowl;
+    // Blonde BOWL CUT - drawn as HAIR, not a helmet: a soft, slightly shaggy mop with a choppy fringe of separate
+    // locks across the forehead, longer locks hanging down over the ear at the back, strand lines, a shine and a
+    // little tuft sticking up on the crown. (f = which way he faces: the fringe is at the front.)
+    const hc = sketch ? PAPER : opts.tint || look.bowl, sw = Math.sin(time * 4) * 0.6;
+    const X = dx => head.x + f * dx, Y = dy => head.y + dy;
+    ctx.fillStyle = hc;
     ctx.beginPath();
-    ctx.arc(head.x, head.y - 1, 14, Math.PI, 0);
-    ctx.lineTo(head.x + 14, head.y + 2);
-    ctx.lineTo(head.x - 14, head.y + 2);
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(X(-13), Y(6));                                          // back of the neck: longer locks over the ear
+    ctx.quadraticCurveTo(X(-17), Y(-6), X(-12), Y(-13));
+    ctx.quadraticCurveTo(X(-4), Y(-19), X(4), Y(-17));                 // the crown
+    ctx.quadraticCurveTo(X(13), Y(-14), X(15), Y(-4));
+    // the fringe: separate locks of different lengths, pointing down over the forehead (front to back)
+    const locks = [[15, -4], [13.5, 2.5], [11, -1], [9, 3.5], [6, -1], [3, 3], [0, -0.5], [-3, 3.5], [-6, 0], [-9, 4.5], [-11, 2], [-13, 7]];
+    for (let k = 0; k < locks.length; k++) { const [lx, ly] = locks[k]; ctx.lineTo(X(lx + (k % 2 ? sw * 0.4 : 0)), Y(ly)); }
+    ctx.closePath(); ctx.fill();
     if (sketch && !opts.tint) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }
-    else if (!opts.tint) {                                 // a little shine + fringe lines
-      ctx.fillStyle = shade(look.bowl, 0.8);
-      ctx.fillRect(head.x - 13, head.y - 1, 26, 3);
+    else if (!opts.tint) {
+      ctx.strokeStyle = shade(look.bowl, 0.72); ctx.lineWidth = 1.2; ctx.lineCap = 'round';   // strands, sweeping down from the crown
+      for (const [sx, ex, ey] of [[-6, -10, 3], [-1, -4, 2], [4, 3, 2], [8, 9, 1]]) {
+        ctx.beginPath(); ctx.moveTo(X(sx * 0.6), Y(-16)); ctx.quadraticCurveTo(X(sx), Y(-8), X(ex), Y(ey)); ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(255,248,210,0.75)'; ctx.lineWidth = 2;                          // a soft shine
+      ctx.beginPath(); ctx.arc(X(1), Y(-6), 9, f > 0 ? -2.2 : -1.84, f > 0 ? -1.3 : -0.94); ctx.stroke();
     }
+    ctx.strokeStyle = sketch && !opts.tint ? ink : hc; ctx.lineWidth = 2.2; ctx.lineCap = 'round';   // a tuft sticking up on the crown
+    ctx.beginPath(); ctx.moveTo(X(-3), Y(-17)); ctx.quadraticCurveTo(X(-5), Y(-22), X(-9 + sw), Y(-23)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(-1), Y(-17)); ctx.quadraticCurveTo(X(0), Y(-22), X(-3 + sw), Y(-24)); ctx.stroke();
   }
   if (look.eyepatch) {
     // WHITE EYEPATCH over his eye (the one facing us), strap running round the back of the head

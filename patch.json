@@ -1,5 +1,5 @@
 {
-    "version":  "0.5.6",
+    "version":  "0.5.7",
     "shell":  "2c7f2e991c796adb",
     "files":  {
                   "build/icon.png":  {
@@ -7,8 +7,8 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "9c0cd13a260412174c690545694e7f80fdc768cdc4507fde48b2f39308f351ff",
-                                     "size":  895878
+                                     "hash":  "3e7c6bd816c0c6a197fce485c28068b9c35084b4fcb11d70420efd00e77aabe9",
+                                     "size":  898824
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
