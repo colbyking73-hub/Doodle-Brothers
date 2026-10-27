@@ -11033,27 +11033,25 @@ function drawFigure(fig, opts = {}) {
       ctx.quadraticCurveTo(kx - f * (2 + off), ky + len * 0.45, kx + f * 2, ky + 1); ctx.closePath(); ctx.fill();
     }
     if (!opts.tint && !sketch) { ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(X(-11), Y(-9), 22, 1.5); }   // satin sheen
-    // the tricorne
-    ctx.fillStyle = hc;
-    ctx.beginPath();
-    ctx.moveTo(X(-29), Y(-15));                                       // left tip
-    ctx.quadraticCurveTo(X(-25), Y(-40), X(0), Y(-39));               // the tall rounded crown
-    ctx.quadraticCurveTo(X(25), Y(-40), X(29), Y(-15));               // right tip
-    ctx.quadraticCurveTo(X(15), Y(-7), X(0), Y(-8));                  // the front brim dipping down in the middle
-    ctx.quadraticCurveTo(X(-15), Y(-7), X(-29), Y(-15));
-    ctx.closePath(); ctx.fill();
+    // the tricorne: slimmer, with the sides CURVING IN - from each upturned tip the edge sweeps in toward the middle
+    // before rising into the rounded crown (a waisted, swept shape rather than a big dome)
+    const hatPath = (k = 1, dy = 0) => {                            // (k < 1 = the slightly smaller inner fold)
+      ctx.beginPath();
+      ctx.moveTo(X(-22 * k), Y(-17 + dy));                                                  // left tip, flicked up
+      ctx.bezierCurveTo(X(-13 * k), Y(-17 + dy), X(-13 * k), Y(-33 * k + dy), X(0), Y(-33 * k + dy));   // in, then up: concave side
+      ctx.bezierCurveTo(X(13 * k), Y(-33 * k + dy), X(13 * k), Y(-17 + dy), X(22 * k), Y(-17 + dy));     // ...and down to the right tip
+      ctx.quadraticCurveTo(X(11 * k), Y(-8 + dy), X(0), Y(-9 + dy));                        // the front brim dipping in the middle
+      ctx.quadraticCurveTo(X(-11 * k), Y(-8 + dy), X(-22 * k), Y(-17 + dy));
+      ctx.closePath();
+    };
+    ctx.fillStyle = hc; hatPath(); ctx.fill();
     if (sketch && !opts.tint) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }
     if (!opts.tint && !sketch) {
-      ctx.fillStyle = '#211d22';                                      // the turned-up front fold, a shade lighter
-      ctx.beginPath(); ctx.moveTo(X(-27), Y(-16)); ctx.quadraticCurveTo(X(-14), Y(-30), X(0), Y(-29));
-      ctx.quadraticCurveTo(X(14), Y(-30), X(27), Y(-16)); ctx.quadraticCurveTo(X(14), Y(-9), X(0), Y(-10));
-      ctx.quadraticCurveTo(X(-14), Y(-9), X(-27), Y(-16)); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#c9a443'; ctx.lineWidth = 1.4;              // GOLD PIPING round the whole edge
-      ctx.beginPath(); ctx.moveTo(X(-29), Y(-15)); ctx.quadraticCurveTo(X(-25), Y(-40), X(0), Y(-39));
-      ctx.quadraticCurveTo(X(25), Y(-40), X(29), Y(-15)); ctx.quadraticCurveTo(X(15), Y(-7), X(0), Y(-8));
-      ctx.quadraticCurveTo(X(-15), Y(-7), X(-29), Y(-15)); ctx.stroke();
-      // SKULL over CROSSED CUTLASSES
-      const sx = head.x, sy = head.y - 25, bone = '#f2efe6';
+      ctx.fillStyle = '#211d22'; hatPath(0.86, 1); ctx.fill();       // the turned-up front fold, a shade lighter
+      ctx.strokeStyle = '#c9a443'; ctx.lineWidth = 1.3; hatPath(); ctx.stroke();   // GOLD PIPING round the whole edge
+      // SKULL over CROSSED CUTLASSES (a touch smaller to suit the slimmer hat)
+      ctx.save(); ctx.translate(head.x, head.y - 22); ctx.scale(0.8, 0.8); ctx.translate(-head.x, -(head.y - 22));
+      const sx = head.x, sy = head.y - 22, bone = '#f2efe6';
       ctx.strokeStyle = bone; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
       for (const s of [1, -1]) {                                    // two curved cutlasses, crossing under the skull
         ctx.lineWidth = 2.2;                                          // a curved blade, widest near the point
@@ -11069,6 +11067,7 @@ function drawFigure(fig, opts = {}) {
       ctx.fillRect(sx - 2.6, sy + 2, 5.2, 3);                                     // its jaw
       ctx.fillStyle = hc;
       ctx.beginPath(); ctx.arc(sx - 1.7, sy - 1.2, 1.3, 0, Math.PI * 2); ctx.arc(sx + 1.7, sy - 1.2, 1.3, 0, Math.PI * 2); ctx.fill();   // eye sockets
+      ctx.restore();
     }
   }
   // COLTEN: brown hair spiked up only at the forehead (a short cap of hair, spikes at the front)
