@@ -413,7 +413,13 @@ function applyStage(i) {
   PLATFORMS.length = 0;
   for (const p of stageDef.platforms) PLATFORMS.push({ ...p });
 }
-const BLAST = { left: -520, right: W + 520, bottom: H + 340, top: -380 };
+// The BOTTOM blast line is well below the stage (~780px under its underside), with room to Z-vanish all the way
+// under the stage and still recover. The camera stops following at CAM_FLOOR, so you only die once you've dropped
+// OUT OF VIEW below the stage - never while you're still on screen.
+// The TOP line is a bit higher too (was -380), so your own upward Z vanishes don't KO you so easily.
+const BLAST = { left: -520, right: W + 520, bottom: H + 700, top: -560 };
+const CAM_FLOOR = STAGE.y + STAGE.h + 300;      // the lowest point the camera follows anyone down to
+const CAM_CEIL = -230;                          // ...and the highest (where it was before the top line moved up)
 const SPAWN = { x: 640, y: 170 };
 
 // ---------------- CAMERA ----------------
@@ -430,7 +436,7 @@ function updateCamera(dt) {
   let tx = STAGE.x + STAGE.w / 2, ty = STAGE.y - 110, tz = CAM_ZOOM_MAX;
   if (alive.length) {
     const xs = alive.map(f => clamp(f.x, BLAST.left + 200, BLAST.right - 200));
-    const ys = alive.map(f => clamp(f.y - 45, BLAST.top + 150, BLAST.bottom - 150));
+    const ys = alive.map(f => clamp(f.y - 45, CAM_CEIL, CAM_FLOOR));
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     tx = lerp(STAGE.x + STAGE.w / 2, (minX + maxX) / 2, 0.8);        // follow the action (stage stays in view)
     ty = lerp(STAGE.y - 90, (minY + maxY) / 2, 0.6);
