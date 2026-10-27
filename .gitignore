@@ -7,3 +7,4 @@ sounds/*.mp3
 sounds/*.wav
 # ...except the menu music, which the game loads directly
 !sounds/menu-music.mp3
+!sounds/menu-mix-*.mp3

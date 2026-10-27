@@ -49,7 +49,7 @@
 
   // ---------- inputs: packed small to send, unpacked the same way everywhere ----------
   const BITS = ['up', 'down', 'jumpTap', 'jumpHeld', 'blockTap', 'blockHeld', 'dirTap', 'downTap',
-                'atkTap', 'atkHeld', 'spcTap', 'spcHeld', 'grabTap', 'ultTap'];
+                'atkTap', 'atkHeld', 'spcTap', 'spcHeld', 'grabTap', 'ultTap', 'walk', 'full'];   // (walk / full = the analog stick)
   function enc(inp) {
     let b = 0;
     BITS.forEach((k, i) => { if (inp[k]) b |= 1 << i; });
@@ -240,7 +240,11 @@
         if (!N.active && owned(m.p) && N.slots.filter((s, k) => owned(k)).length > 1) { N.slots[m.p] = emptySlot(m.p); roomChanged(); broadcastRoster(); }
         break;
       case 'ping': sendTo(mid, { k: 'pong', t: m.t }); break;
-      case 'pong': { const ping = Math.round(performance.now() - m.t); N.slots.forEach((s, i) => { if (owned(i)) s.ping = ping; }); break; }
+      case 'pong': {                                      // (remembers recent spikes: a slowly-fading worst ping)
+        const ping = Math.round(performance.now() - m.t);
+        N.slots.forEach((s, i) => { if (owned(i)) s.ping = Math.max(ping, Math.round((s.ping || 0) * 0.8)); });
+        break;
+      }
       case 'pick':
         if (N.active || !owned(m.p)) break;
         N.slots[m.p].char = ROSTER.includes(m.char) ? m.char : null;
@@ -446,7 +450,7 @@
     // input delay: a guest's presses go guest -> host -> other guests, so allow for the worst round trip
     const worst = Math.max(80, ...N.slots.filter(s => s.kind === 'human').map(s => s.ping || 0));
     const relay = N.conns.size > 1 ? worst : worst / 2;
-    const delay = clamp(Math.ceil((relay + 25) / (STEP * 1000)), 4, 36);
+    const delay = clamp(Math.ceil((relay + 40) / (STEP * 1000)), 5, 40);   // (+40ms of headroom for ping spikes)
     const m = { k: 'start', seed: (realRandom() * 2 ** 32) >>> 0, slots: N.slots.map(s => ({ ...s })), opts: { ...N.opts }, gore, delay };
     broadcast(m);
     beginMatch(m);
@@ -478,7 +482,7 @@
     for (const i of N.humans) { inputs[i] = new Map(); carry[i] = null; for (let t = 0; t < m.delay; t++) inputs[i].set(t, emptyInput()); }
     Object.assign(N, {
       active: true, tick: 0, delay: m.delay, rng: makeRng(m.seed),
-      inputs, carry, sentUpTo: m.delay - 1, outbox: {}, outStart: null,
+      inputs, carry, sentUpTo: m.delay - 1, outbox: {}, outStart: null, recvTop: {},
       cur: null, hashes: new Map(), theirHashes: new Map(), desynced: false,
       stalledSince: 0, escAt: 0, waitingOn: null,
     });
@@ -491,7 +495,22 @@
       const map = N.inputs[k];
       if (!map) continue;
       ps[k].forEach((e, i) => { const t = t0 + i; if (t >= N.tick) map.set(t, dec(e)); });
+      N.recvTop[k] = Math.max(N.recvTop[k] ?? -1, t0 + ps[k].length - 1);   // (how far ahead their inputs have reached)
     }
+  }
+  // PACING: every computer runs the fight at the same speed, but clocks drift and the network jitters. If the other
+  // players' inputs are only just arriving, we're running AHEAD of them and are about to have to freeze and wait -
+  // so ease off a little. If we've got lots of their inputs stacked up, we're BEHIND - catch up a little.
+  // (This only changes how fast steps happen, never what happens in them, so it can't cause a desync.)
+  function netPace() {
+    const N = netplay;
+    if (!N || !N.active || !N.recvTop) return 1;
+    let slack = Infinity;
+    for (const i of N.humans) if (!N.mine.includes(i)) slack = Math.min(slack, (N.recvTop[i] ?? -1) - N.tick);
+    if (slack === Infinity) return 1;
+    if (slack < Math.max(2, N.delay * 0.3)) return 0.94;
+    if (slack > N.delay * 0.9) return 1.06;
+    return 1;
   }
   // One game step online. Returns false (and the game waits) if someone's inputs aren't here yet.
   function netTick() {
@@ -746,6 +765,6 @@
   })();
 
   // hooks the game calls
-  Object.assign(window, { netTick, netAfterFrame, netInputFor, netEscape, netBackToLobby, netDrawOverlay,
+  Object.assign(window, { netTick, netAfterFrame, netInputFor, netPace, netEscape, netBackToLobby, netDrawOverlay,
                           sbNet: { host, join, leave, leaveRoom, invite, addLocal, hostStart, BUILD, ui, enc, dec, simHash } });
 })();
