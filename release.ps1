@@ -17,6 +17,10 @@ $pkg = $pkg -replace '"version":\s*"\d+\.\d+\.\d+"', "`"version`": `"$ver`""
 [System.IO.File]::WriteAllText($pkgPath, $pkg, (New-Object System.Text.UTF8Encoding $false))
 
 git add -A
+# patch.json = what QUICK updates need (see updater.js): the version, the app-shell id, and a hash of every game file.
+# (Hashes must match updater.js exactly: text files without a BOM and with \r removed, sha256 hex.)
+& (Join-Path $PSScriptRoot 'make-patch.ps1') -Version $ver
+git add patch.json
 git commit -m "Release v$ver"
 git tag "v$ver"
 git push

@@ -12805,14 +12805,48 @@ const home = { phase: 'title', sel: 0 };
 // UPDATES (desktop app): the status shows on the home screen, and once a new version has downloaded, UPDATE NOW
 // appears at the top of the menu - it installs it and restarts the game straight into the new version
 const appUpdate = () => (window.appInfo && window.appInfo.getUpdate ? window.appInfo.getUpdate() : { state: 'none' });
+// The game checks for new versions every 2 minutes while it's open; F5 (or clicking the status line) checks right
+// now - or, when an update is ready, applies it (quick updates just reload the game: about a second).
 function updateStatusText() {
-  const u = appUpdate();
+  const u = appUpdate(), v = u.version ? ' v' + u.version : '';
+  const here = window.appInfo && window.appInfo.version ? ' (v' + window.appInfo.version + ')' : '';
   if (u.state === 'checking') return 'CHECKING FOR UPDATES...';
-  if (u.state === 'downloading') return 'DOWNLOADING UPDATE' + (u.version ? ' v' + u.version : '') + '  ' + (u.percent || 0) + '%';
-  if (u.state === 'ready') return 'UPDATE' + (u.version ? ' v' + u.version : '') + ' READY - PICK UPDATE NOW';
-  if (u.state === 'latest') return 'UP TO DATE';
-  if (u.state === 'error') return 'COULD NOT CHECK FOR UPDATES';
+  if (u.state === 'downloading') return (u.quick ? 'GETTING UPDATE' : 'DOWNLOADING FULL UPDATE') + v + '  ' + (u.percent || 0) + '%';
+  if (u.state === 'ready') return 'UPDATE' + v + ' READY - PICK UPDATE NOW (OR PRESS F5)';
+  if (u.state === 'building') return 'NEW VERSION' + v + ' - WAITING FOR GITHUB TO FINISH BUILDING IT...';
+  if (u.state === 'latest') return (u.applied && u.applied === (window.appInfo && window.appInfo.version) ? 'UPDATED TO v' + u.applied : 'UP TO DATE' + here) + '  -  F5: CHECK AGAIN';
+  if (u.state === 'error') return 'COULD NOT CHECK FOR UPDATES - F5: TRY AGAIN';
   return null;
+}
+const canApplyUpdate = () => scene !== 'fight' && !netplay && !window.sbNetOpen;   // (never mid-match or in an online lobby)
+function updateKey() {                 // F5 / clicking the status line
+  const ai = window.appInfo; if (!ai || !ai.checkUpdate) return;
+  if (appUpdate().state === 'ready') { if (canApplyUpdate()) ai.installUpdate(); }
+  else ai.checkUpdate();
+}
+addEventListener('keydown', e => { if (e.key === 'F5') { e.preventDefault(); updateKey(); } });
+// A small note in the top-right corner (everywhere but the home screen, which has its own status line) when a new
+// version is downloading or ready. During a fight it only shows for a few seconds, so it never gets in the way.
+const updToast = { key: '', t: 0 };
+function drawUpdateToast(dt) {
+  const u = appUpdate();
+  const key = u.state === 'ready' ? 'ready' + u.version : u.state === 'downloading' ? 'dl' + u.version : '';
+  if (key !== updToast.key) { updToast.key = key; updToast.t = 0; }
+  updToast.t += dt;
+  if (!key || scene === 'home' || (scene === 'fight' && updToast.t > 6)) return;
+  const ready = u.state === 'ready';
+  const txt = ready ? 'UPDATE v' + u.version + ' READY  -  ' + (canApplyUpdate() ? 'PRESS F5 TO UPDATE' : 'F5 AFTER THE MATCH')
+                    : 'DOWNLOADING UPDATE v' + u.version + '  ' + (u.percent || 0) + '%';
+  withMenuDrawing(() => {
+    sctx.font = 'bold 15px "Arial Black", sans-serif'; sctx.textAlign = 'right';
+    const w = sctx.measureText(txt).width + 24;
+    const x = scene === 'fight' ? W - 12 : W / 2 + w / 2, y = scene === 'fight' ? 12 : 70;   // (menus: centred, under the header bar)
+    sctx.globalAlpha = scene === 'fight' ? Math.min(1, (6 - updToast.t) * 2) : 1;
+    sctx.fillStyle = 'rgba(14,12,20,0.85)'; sctx.fillRect(x - w, y, w, 30);
+    sctx.fillStyle = ready ? (Math.floor(performance.now() / 500) % 2 ? '#ffd23f' : '#ffffff') : '#9fd8ff';
+    sctx.fillText(txt, x - 12, y + 21);
+    sctx.globalAlpha = 1; sctx.textAlign = 'left';
+  });
 }
 const homeItems = () => (appUpdate().state === 'ready' ? ['UPDATE NOW'] : []).concat(['PLAY', 'ONLINE', 'CONTROLS', 'OPTIONS']).concat(window.appInfo ? ['QUIT'] : []);
 const homeItemRect = k => ({ x: W / 2 - 170, y: 334 + k * 64, w: 340, h: 52 });
@@ -12828,6 +12862,7 @@ function homeUpdate(dt) {
     return;
   }
   const items = homeItems();
+  if (mouse.click && mouse.y > H - 44 && mouse.x < W * 0.6 && updateStatusText()) { updateKey(); mouse.click = false; }   // (click the update line)
   for (const d of devs) {
     if (d.tap.up) { home.sel = (home.sel + items.length - 1) % items.length; menuSfx('move'); }
     if (d.tap.down) { home.sel = (home.sel + 1) % items.length; menuSfx('move'); }
@@ -13315,6 +13350,7 @@ function frame(now) {
     if (scene === 'select') drawSelect(); else if (scene === 'controls') drawControls();
     else if (scene === 'home') drawHome(); else if (scene === 'options') drawOptions();
     else if (scene === 'results' && results) drawResults();
+    drawUpdateToast(elapsed);
     acc = 0;
     requestAnimationFrame(frame);
     return;
@@ -13373,6 +13409,7 @@ function frame(now) {
   if (netActive()) netAfterFrame();
   render();
   if (netplay) netDrawOverlay();                     // online: "waiting for opponent", ping, desync warning
+  drawUpdateToast(elapsed);                          // "update ready" (briefly)
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

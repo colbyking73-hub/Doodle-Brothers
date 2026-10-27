@@ -7,7 +7,7 @@ let update = { state: 'idle' };
 ipcRenderer.on('display-mode', (e, m) => { displayMode = m; });   // (F11 changes it from the app side)
 ipcRenderer.on('update', (e, u) => { update = u || update; });    // checking / downloading (percent) / ready / latest / error
 contextBridge.exposeInMainWorld('appInfo', {
-  version: arg('app-version') || 'dev',
+  version: (() => { try { return ipcRenderer.sendSync('app-version') || arg('app-version') || 'dev'; } catch (e) { return arg('app-version') || 'dev'; } })(),   // (includes quick updates)
   desktop: true,
   getDisplayMode: () => displayMode,
   setDisplayMode: m => { displayMode = m; ipcRenderer.send('display-mode', m); },

@@ -1,0 +1,90 @@
+{
+    "version":  "0.5.2",
+    "shell":  "2c7f2e991c796adb",
+    "files":  {
+                  "build/icon.png":  {
+                                         "hash":  "645d2a649501e8209cda9abef113ac4591f5793f91447026663df69dc354a849",
+                                         "size":  232719
+                                     },
+                  "index.html":  {
+                                     "hash":  "1125ce47f6e3ec6b96090517f601fdf56edf9fc1de3f8f90b2c0b65b0d7788a9",
+                                     "size":  851397
+                                 },
+                  "lib/peerjs.min.js":  {
+                                            "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
+                                            "size":  92865
+                                        },
+                  "net.js":  {
+                                 "hash":  "23d99e1da01d39a4bff97f674ac90fb1fa7a48400d873fe9c81df63c003af45b",
+                                 "size":  41456
+                             },
+                  "sounds/clone-poof-sfx.js":  {
+                                                   "hash":  "571b4fb114ed3db0180939b9bd935790062c3c7f87aa03e84dee76b4511d298b",
+                                                   "size":  155320
+                                               },
+                  "sounds/fight-sfx.js":  {
+                                              "hash":  "dd55fe774ec7995725798bfff8f0c575d566b77906e106e8aaa116b17b7ee392",
+                                              "size":  243422
+                                          },
+                  "sounds/heel-voice-sfx.js":  {
+                                                   "hash":  "9bbeafc2c3193b421ec908cd976bd631789dbe494ef92a4940a172553d718eee",
+                                                   "size":  971360
+                                               },
+                  "sounds/kame-sfx.js":  {
+                                             "hash":  "af18bde04e7797b592c7c2def45bef461810c25016413f2a0b1c7eee622b00e2",
+                                             "size":  212533
+                                         },
+                  "sounds/lance-my-turn-sfx.js":  {
+                                                      "hash":  "752a77509cbffa52b197f8f77697701c8982aa9c071989e6eea768f46b93a513",
+                                                      "size":  120863
+                                                  },
+                  "sounds/menu-mix-1.mp3":  {
+                                                "hash":  "0742ae6882d9133e78c3ebf571514b77c092946b53d7ed1f565a944c7c39dd22",
+                                                "size":  37213179
+                                            },
+                  "sounds/menu-mix-2.mp3":  {
+                                                "hash":  "606ca3f655a91cf1f692091024b7be6db49486a838c5f7e8d4afd0dc92d8437b",
+                                                "size":  37213074
+                                            },
+                  "sounds/menu-mix-3.mp3":  {
+                                                "hash":  "e8b92a4a192744788f24ae16e48ceab0eac58e595e891f250642b8f292ee7486",
+                                                "size":  37213255
+                                            },
+                  "sounds/netero-99-hands-sfx.js":  {
+                                                        "hash":  "14d58196a2f0317a292b909b55b8f596bdde6d172d3b9fe926f3c26c3ed1fae4",
+                                                        "size":  213422
+                                                    },
+                  "sounds/netero-hits-sfx.js":  {
+                                                    "hash":  "270a0a73ddb2d674604f5616e5f78553bbf30cad730079fba346035bedb03f67",
+                                                    "size":  200009
+                                                },
+                  "sounds/rko-sfx.js":  {
+                                            "hash":  "53acdba5aee2a5dc57f00c6b8efa50a83e3e1e6c9bdccf5993e0e5f273134e3c",
+                                            "size":  100109
+                                        },
+                  "sounds/samus-charge-sfx.js":  {
+                                                     "hash":  "c6603c53a6741e8bbb42825e4877faa8b46e0cc2c52d30cf04e29a5a2218b33b",
+                                                     "size":  16447
+                                                 },
+                  "sounds/shield-sfx.js":  {
+                                               "hash":  "7042c614e212e7b34f407928aa6aa24a2a530aa6f28ce5a0535b7cafffdc3c80",
+                                               "size":  67084
+                                           },
+                  "sounds/ship-ult-sfx.js":  {
+                                                 "hash":  "82b9f4bf7f2b3330adf9548fb61d02c0464bdfb7fc03b2cc820887b1ef883997",
+                                                 "size":  251742
+                                             },
+                  "sounds/slash-sfx.js":  {
+                                              "hash":  "06586f991eb89f906312b185efc310d9a0678446629baab611f2ccedacaed17c",
+                                              "size":  67611
+                                          },
+                  "sounds/smash-hits-sfx.js":  {
+                                                   "hash":  "4f41daf922464e5dcf2b8a13b366a23195c692b6f17d8d6e832de025aa53bdf9",
+                                                   "size":  1018820
+                                               },
+                  "sounds/teleport-sfx.js":  {
+                                                 "hash":  "b564bfb1f4152031882da1724a982cd40c1beaf28e122f96d1d49e0ab9040e83",
+                                                 "size":  349545
+                                             }
+              }
+}

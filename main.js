@@ -43,7 +43,7 @@ function createWindow(m = mode, onDisplay = null) {
   });
   Menu.setApplicationMenu(null);     // no File/Edit menu bar
   if (m === 'fullscreen') win.setFullScreen(true);
-  win.loadFile(path.join(__dirname, 'index.html'));
+  win.loadFile(path.join(currentGame().dir, 'index.html'));     // (the newest quick update, if there is one)
   win.webContents.on('did-finish-load', () => sendUpdate({}));
   // F11 = fullscreen <-> windowed
   const w = win;
@@ -72,31 +72,85 @@ function setMode(m) {
 }
 ipcMain.on('display-mode', (e, m) => setMode(m));
 
-// UPDATES: every launch (and every 30 minutes) the installed game checks GitHub Releases for a newer version and
-// downloads it in the background. The game itself shows how it's going on the home screen, and once it's ready
-// UPDATE NOW installs it and restarts straight into the new version - no reinstalling, no setup file.
-// (Quitting the game also installs a downloaded update.)
+// UPDATES - two kinds (see updater.js):
+//   QUICK update: only the game files changed -> just the changed files download (usually ~1MB), and UPDATE NOW
+//                 reloads the game into the new version in a second. No installer, no restart.
+//   FULL update:  the app shell itself changed -> the whole installer downloads in the background, and UPDATE NOW
+//                 installs it silently and restarts. (Quitting the game also installs it.)
+// The game checks at launch and then every 2 minutes while it's open (and whenever CHECK FOR UPDATES is picked), so
+// new versions show up mid-session. The status shows on the home screen and in a corner during play.
+const upd = require('./updater');
+const CHECK_EVERY = 2 * 60 * 1000;
+const patchRoot = () => path.join(app.getPath('userData'), 'patches');
+let myShell = null, game = null, pendingPatch = null, busy = false;
+const currentGame = () => game || { dir: __dirname, version: app.getVersion(), hashes: null };
 let updateState = { state: 'idle' };
 function sendUpdate(s) {
   updateState = { ...updateState, ...s };
   if (win && !win.isDestroyed()) win.webContents.send('update', updateState);
 }
-function setupUpdates() {
-  ipcMain.on('update-install', () => { if (updateState.state === 'ready') autoUpdater.quitAndInstall(true, true); });   // silent install, then restart
-  ipcMain.on('update-check', () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); });
-  if (!app.isPackaged) { sendUpdate({ state: 'dev' }); return; }   // (only the installed game updates itself)
+ipcMain.on('app-version', e => { e.returnValue = currentGame().version; });   // (the version actually running)
+function pickGame() {             // at launch: run the newest quick update, if it suits this app shell
+  myShell = upd.shellId(__dirname, process.versions.electron);
+  const p = app.isPackaged ? upd.activePatch(patchRoot(), app.getVersion(), myShell) : null;
+  game = p;
+  upd.cleanup(patchRoot(), p ? [p.version] : []);      // old/unneeded update folders
+}
+function fullUpdate(version) {    // the shell changed: fetch the whole installer
+  if ((updateState.state === 'downloading' || updateState.state === 'ready') && !updateState.quick) return;
+  sendUpdate({ state: 'building', version, quick: false });   // (GitHub takes ~5 min to build the installer - re-checked every 2 min)
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('checking-for-update', () => { if (updateState.state !== 'ready') sendUpdate({ state: 'checking' }); });
-  autoUpdater.on('update-available', info => sendUpdate({ state: 'downloading', version: info.version, percent: 0 }));
-  autoUpdater.on('update-not-available', () => { if (updateState.state !== 'ready') sendUpdate({ state: 'latest' }); });
-  autoUpdater.on('download-progress', p => sendUpdate({ state: 'downloading', percent: Math.round(p.percent || 0) }));
-  autoUpdater.on('update-downloaded', info => sendUpdate({ state: 'ready', version: info.version }));
-  autoUpdater.on('error', err => { console.error('[update]', err && err.message); if (updateState.state !== 'ready') sendUpdate({ state: 'error' }); });
   autoUpdater.checkForUpdates().catch(() => {});
-  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 30 * 60 * 1000);   // and every 30 minutes
+}
+async function checkNow(manual) {
+  if (busy || !app.isPackaged) return;
+  if (updateState.state === 'downloading' && !updateState.quick) return;   // (the installer is downloading)
+  busy = true;
+  const ready = updateState.state === 'ready';
+  try {
+    if (!ready) sendUpdate({ state: 'checking' });
+    const m = await upd.fetchManifest();
+    const have = ready ? updateState.version : currentGame().version;
+    if (!upd.newer(m.version, have)) { if (!ready) sendUpdate({ state: 'latest', checkedAt: Date.now() }); return; }
+    if (m.shell !== myShell) { fullUpdate(m.version); return; }
+    if (ready && !updateState.quick) return;          // (a full update is already waiting)
+    sendUpdate({ state: 'downloading', version: m.version, percent: 0, quick: true });
+    const cur = currentGame();
+    const r = await upd.buildPatch({ root: patchRoot(), manifest: m, current: { dir: cur.dir, hashes: cur.hashes },
+                                     onProgress: p => sendUpdate({ percent: p }) });
+    const hashes = {}; for (const [rel, i] of Object.entries(m.files)) hashes[rel] = i.hash;
+    pendingPatch = { dir: r.dir, version: m.version, hashes };
+    sendUpdate({ state: 'ready', version: m.version, quick: true, percent: 100 });
+  } catch (err) {
+    console.error('[update]', err && err.message);
+    if (err && err.status === 404) { autoUpdater.autoDownload = true; autoUpdater.checkForUpdates().catch(() => {}); }   // (no quick-update info: plain installer check)
+    else if (updateState.state !== 'ready') sendUpdate({ state: manual ? 'error' : 'latest', checkedAt: Date.now() });
+  } finally { busy = false; }
+}
+function installUpdate() {
+  if (updateState.state !== 'ready') return;
+  if (updateState.quick && pendingPatch) {             // QUICK: switch to the new files and reload - done
+    upd.setActive(patchRoot(), pendingPatch.version);
+    game = pendingPatch; pendingPatch = null;
+    updateState = { state: 'latest', applied: game.version, checkedAt: Date.now() };
+    if (win && !win.isDestroyed()) win.loadFile(path.join(game.dir, 'index.html'));
+  } else autoUpdater.quitAndInstall(true, true);       // FULL: silent install, then restart
+}
+function setupUpdates() {
+  ipcMain.on('update-install', installUpdate);
+  ipcMain.on('update-check', () => checkNow(true));
+  if (!app.isPackaged) { sendUpdate({ state: 'dev' }); return; }   // (only the installed game updates itself)
+  autoUpdater.autoDownload = false;                                  // (only used for FULL updates - see fullUpdate)
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('update-available', info => sendUpdate({ state: 'downloading', version: info.version, percent: 0, quick: false }));
+  autoUpdater.on('download-progress', p => { if (!updateState.quick) sendUpdate({ state: 'downloading', percent: Math.round(p.percent || 0) }); });
+  autoUpdater.on('update-downloaded', info => sendUpdate({ state: 'ready', version: info.version, quick: false }));
+  autoUpdater.on('error', err => { console.error('[update]', err && err.message); });   // (stays 'building' - tried again next check)
+  checkNow(false);
+  setInterval(() => checkNow(false), CHECK_EVERY);
 }
 app.whenReady().then(() => {
+  pickGame();
   createWindow(loadMode());
   setupUpdates();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
