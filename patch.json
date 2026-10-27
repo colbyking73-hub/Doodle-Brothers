@@ -1,5 +1,5 @@
 {
-    "version":  "0.5.5",
+    "version":  "0.5.6",
     "shell":  "2c7f2e991c796adb",
     "files":  {
                   "build/icon.png":  {
@@ -7,8 +7,8 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "ceda936439a2fc10884760a2421ed8565f745d72fb080c7c1b25817fba06699c",
-                                     "size":  892047
+                                     "hash":  "9c0cd13a260412174c690545694e7f80fdc768cdc4507fde48b2f39308f351ff",
+                                     "size":  895878
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
@@ -18,6 +18,58 @@
                                  "hash":  "23d99e1da01d39a4bff97f674ac90fb1fa7a48400d873fe9c81df63c003af45b",
                                  "size":  41456
                              },
+                  "sounds/battle/battle-without-honor-or-humanity.mp3":  {
+                                                                             "hash":  "eda0873dca9a6311e4534976a0744dbef308d28731e1b775be9f4cc1145694fc",
+                                                                             "size":  3554280
+                                                                         },
+                  "sounds/battle/bauklotze.mp3":  {
+                                                      "hash":  "59ba66fa22d425a6dc41b1b270f58a372d8c2dd7db6ac6da970d035dec40571b",
+                                                      "size":  5260996
+                                                  },
+                  "sounds/battle/black-betty.mp3":  {
+                                                        "hash":  "9794d6d59adb1bd5f7f1f77594e21e9bcffd9ac13fd393a9e3c44dad998b0f04",
+                                                        "size":  4893913
+                                                    },
+                  "sounds/battle/f.mp3":  {
+                                              "hash":  "869e11c5aeb214d55e35536bc292797fcecb146f1970096c0d788ae5479f472c",
+                                              "size":  6329940
+                                          },
+                  "sounds/battle/getting-away-with-murder.mp3":  {
+                                                                     "hash":  "4eed0285df623913c87549bf5cf98efa6bfda3207b68e312359cb6c75413003e",
+                                                                     "size":  7563285
+                                                                 },
+                  "sounds/battle/heads-will-roll.mp3":  {
+                                                            "hash":  "fc121da3565e8f7158ab48c98a15a4bd0be0249ef77b502b603563e4a0802eb0",
+                                                            "size":  4877340
+                                                        },
+                  "sounds/battle/mystery-0-16.mp3":  {
+                                                         "hash":  "3e0b52fc42b4f89b51be127cd633142b3e6fce93eb89128fc8082b72f16d69ef",
+                                                         "size":  4718546
+                                                     },
+                  "sounds/battle/mystery-0-20.mp3":  {
+                                                         "hash":  "4eed0285df623913c87549bf5cf98efa6bfda3207b68e312359cb6c75413003e",
+                                                         "size":  7563285
+                                                     },
+                  "sounds/battle/mystery-1-48.mp3":  {
+                                                         "hash":  "6e3d8d5122e3b4ae4d098679b55947a9ed325f195267f85e49dba9a02059ea8a",
+                                                         "size":  5326300
+                                                     },
+                  "sounds/battle/seven-years.mp3":  {
+                                                        "hash":  "bebd92fcb96bd76ee7b4c6200ff49f742643b0dd800e0b4fda1ad52527dcf1fd",
+                                                        "size":  5152583
+                                                    },
+                  "sounds/battle/tank.mp3":  {
+                                                 "hash":  "fea5068d52dbac77ae1d263db9c22c1e45ea9a4a738d755ddd8ce2043bcaa79a",
+                                                 "size":  5258944
+                                             },
+                  "sounds/battle/techno-syndrome.mp3":  {
+                                                            "hash":  "88eb14b2264b16ff8499c5056792f1fde30da465ae691e63945fe9b272d81d7d",
+                                                            "size":  5501384
+                                                        },
+                  "sounds/battle/you-see-big-girl.mp3":  {
+                                                             "hash":  "049518102cf5bd7c93dcf7547fb5fa22d6c64aaddedbf96673a6d9a2f77961ee",
+                                                             "size":  4350252
+                                                         },
                   "sounds/clone-poof-sfx.js":  {
                                                    "hash":  "571b4fb114ed3db0180939b9bd935790062c3c7f87aa03e84dee76b4511d298b",
                                                    "size":  155320

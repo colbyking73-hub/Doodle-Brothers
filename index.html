@@ -5747,6 +5747,70 @@ function updateMenuMusic(dt) {
   if (menuMusic.level > 0 && el.paused) el.play().catch(() => {});
   else if (menuMusic.level <= 0 && !el.paused) el.pause();
 }
+// ---- BATTLE MUSIC (sounds/battle/*.mp3) - only in fights ----
+// Every fight starts a random song. They come out of a SHUFFLED BAG: none repeats until every one has played (the bag
+// is remembered between sessions, and a fresh bag never starts with the song that just played). If a song ends
+// mid-fight the next one from the bag starts. `from` = where that song starts (seconds). Fades out when the fight's
+// over; turned down while an ultimate's own music plays, and while paused. Follows the music volume / sound on-off.
+const BATTLE_MUSIC = { vol: 0.42, fadeIn: 0.8, fadeOut: 1.4, songs: [
+  { file: 'mystery-0-16.mp3', from: 16 },
+  { file: 'mystery-0-20.mp3', from: 20 },
+  { file: 'mystery-1-48.mp3', from: 108 },
+  { file: 'battle-without-honor-or-humanity.mp3', from: 0 },
+  { file: 'heads-will-roll.mp3', from: 0 },
+  { file: 'seven-years.mp3', from: 0 },
+  { file: 'black-betty.mp3', from: 0 },
+  { file: 'bauklotze.mp3', from: 0 },
+  { file: 'techno-syndrome.mp3', from: 0 },
+  { file: 'tank.mp3', from: 0 },
+  { file: 'you-see-big-girl.mp3', from: 0 },
+  { file: 'getting-away-with-murder.mp3', from: 0 },
+  { file: 'f.mp3', from: 0 },
+] };
+const battleMusic = { el: null, song: -1, level: 0, t: 0 };
+const BAG_KEY = 'db-battle-bag';
+function nextBattleSong() {
+  const n = BATTLE_MUSIC.songs.length;
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem(BAG_KEY)); } catch (e) {}
+  let bag = st && Array.isArray(st.bag) ? st.bag.filter(i => Number.isInteger(i) && i >= 0 && i < n) : [];
+  const last = st && Number.isInteger(st.last) ? st.last : -1;
+  if (!bag.length) {                                 // a fresh shuffle of every song...
+    bag = [...Array(n).keys()];
+    for (let i = n - 1; i > 0; i--) { const j = Math.floor(realRandom() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+    if (n > 1 && bag[0] === last) bag.push(bag.shift());   // ...that never starts with the one that just played
+  }
+  const pick = bag.shift();
+  try { localStorage.setItem(BAG_KEY, JSON.stringify({ bag, last: pick })); } catch (e) {}
+  return pick;
+}
+function startBattleSong() {
+  const i = nextBattleSong(), s = BATTLE_MUSIC.songs[i];
+  if (battleMusic.el) { try { battleMusic.el.pause(); } catch (e) {} }
+  const el = new Audio('sounds/battle/' + s.file + (s.from ? '#t=' + s.from : ''));
+  el.volume = 0; el.preload = 'auto';
+  if (s.from) el.addEventListener('loadedmetadata', () => { if (el.currentTime < s.from - 0.5) el.currentTime = s.from; }, { once: true });
+  el.addEventListener('ended', () => { if (battleMusic.el === el && scene === 'fight') startBattleSong(); });   // song over mid-fight: the next one
+  battleMusic.el = el; battleMusic.song = i; battleMusic.t = 0;
+}
+function updateBattleMusic(dt) {
+  const fighting = scene === 'fight' && !matchOver;
+  if (fighting && !battleMusic.el && soundOn && menuMusic.unlocked) startBattleSong();   // a new fight: a new song
+  const el = battleMusic.el;
+  if (!el) return;
+  const want = fighting && soundOn ? 1 : 0;
+  battleMusic.level = approach(battleMusic.level, want, dt / (want ? BATTLE_MUSIC.fadeIn : BATTLE_MUSIC.fadeOut));
+  if (!want && battleMusic.level <= 0) {             // faded out: done with this one (the next fight picks a new song)
+    try { el.pause(); } catch (e) {}
+    battleMusic.el = null; battleMusic.song = -1;
+    return;
+  }
+  // turned down under an ultimate's own music / voice lines, and while the game's paused
+  const ultMusic = ult || fighters.some(f => f.action && f.action.type === 'shipUlt');
+  const duck = ultMusic ? 0.2 : paused ? 0.45 : 1;
+  el.volume = clamp(BATTLE_MUSIC.vol * battleMusic.level * duck * settings.master * settings.music * 1.6, 0, 1);
+  if (el.paused && want) el.play().catch(() => {});
+}
 // ---- RKO sound (sounds/rko.mp3 via sounds/rko-sfx.js): plays when Aiden starts his RKO ----
 let rkoBuf = null;
 function loadRkoSfx() {
@@ -13878,6 +13942,7 @@ function frame(now) {
   last = now;
   if (scene === 'fight' && hitstop > 0) latchPadTaps();   // (taps during a hit-freeze aren't lost)
   updateMenuMusic(elapsed);                          // menu music: on in menus, fades out for fights
+  updateBattleMusic(elapsed);                        // battle music: a random song every fight
   // Menus run at screen rate, outside the fight
   if (scene !== 'fight') {
     menuTime += elapsed;

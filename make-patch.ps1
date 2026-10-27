@@ -23,7 +23,7 @@ $shellText += 'electron@' + $pkg.devDependencies.electron
 $shell = (Hex $utf8.GetBytes($shellText)).Substring(0, 16)
 
 # the game files (the ones the installer ships, and that GitHub has - tracked by git)
-$game = '^(index\.html|net\.js|lib/.+|sounds/[^/]+\.js|sounds/menu-mix-[^/]+\.mp3|build/icon\.png)$'
+$game = '^(index\.html|net\.js|lib/.+|sounds/[^/]+\.js|sounds/menu-mix-[^/]+\.mp3|sounds/battle/[^/]+\.mp3|build/icon\.png)$'
 $files = [ordered]@{}
 foreach ($rel in (git ls-files | Where-Object { $_ -match $game } | Sort-Object)) {
   $b = NormBytes $rel
