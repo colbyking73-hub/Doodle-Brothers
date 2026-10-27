@@ -1,7 +1,7 @@
 {
   "name": "stickman-brawl",
   "productName": "Doodle Brothers",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Doodle Brothers - a Smash-style stickman platform fighter with online play",
   "author": "colbyking73-hub",
   "repository": { "type": "git", "url": "https://github.com/colbyking73-hub/Doodle-Brothers.git" },
@@ -37,9 +37,11 @@
       "icon": "build/icon.png"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "createDesktopShortcut": true,
+      "runAfterFinish": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "Doodle Brothers",
       "artifactName": "Doodle-Brothers-Setup-${version}.${ext}"

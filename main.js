@@ -44,6 +44,7 @@ function createWindow(m = mode, onDisplay = null) {
   Menu.setApplicationMenu(null);     // no File/Edit menu bar
   if (m === 'fullscreen') win.setFullScreen(true);
   win.loadFile(path.join(__dirname, 'index.html'));
+  win.webContents.on('did-finish-load', () => sendUpdate({}));
   // F11 = fullscreen <-> windowed
   const w = win;
   w.webContents.on('before-input-event', (e, input) => {
@@ -71,27 +72,30 @@ function setMode(m) {
 }
 ipcMain.on('display-mode', (e, m) => setMode(m));
 
+// UPDATES: every launch (and every 30 minutes) the installed game checks GitHub Releases for a newer version and
+// downloads it in the background. The game itself shows how it's going on the home screen, and once it's ready
+// UPDATE NOW installs it and restarts straight into the new version - no reinstalling, no setup file.
+// (Quitting the game also installs a downloaded update.)
+let updateState = { state: 'idle' };
+function sendUpdate(s) {
+  updateState = { ...updateState, ...s };
+  if (win && !win.isDestroyed()) win.webContents.send('update', updateState);
+}
 function setupUpdates() {
-  if (!app.isPackaged) return;       // only the installed game updates itself
+  ipcMain.on('update-install', () => { if (updateState.state === 'ready') autoUpdater.quitAndInstall(true, true); });   // silent install, then restart
+  ipcMain.on('update-check', () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); });
+  if (!app.isPackaged) { sendUpdate({ state: 'dev' }); return; }   // (only the installed game updates itself)
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-downloaded', async info => {
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'info',
-      buttons: ['Restart now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Update ready',
-      message: `Doodle Brothers ${info.version} is ready.`,
-      detail: 'Restart to play the new version. (If you pick Later, it installs the next time you close the game.)\n\nOnline matches need both players on the same version.',
-    });
-    if (response === 0) autoUpdater.quitAndInstall();
-  });
-  autoUpdater.on('error', err => console.error('[update]', err && err.message));
+  autoUpdater.on('checking-for-update', () => { if (updateState.state !== 'ready') sendUpdate({ state: 'checking' }); });
+  autoUpdater.on('update-available', info => sendUpdate({ state: 'downloading', version: info.version, percent: 0 }));
+  autoUpdater.on('update-not-available', () => { if (updateState.state !== 'ready') sendUpdate({ state: 'latest' }); });
+  autoUpdater.on('download-progress', p => sendUpdate({ state: 'downloading', percent: Math.round(p.percent || 0) }));
+  autoUpdater.on('update-downloaded', info => sendUpdate({ state: 'ready', version: info.version }));
+  autoUpdater.on('error', err => { console.error('[update]', err && err.message); if (updateState.state !== 'ready') sendUpdate({ state: 'error' }); });
   autoUpdater.checkForUpdates().catch(() => {});
   setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 30 * 60 * 1000);   // and every 30 minutes
 }
-
 app.whenReady().then(() => {
   createWindow(loadMode());
   setupUpdates();

@@ -128,17 +128,19 @@ const tapped = (...codes) => codes.some(c => pressed[c]);
 // ---------------- Remappable controls: keyboard + Xbox controllers ----------------
 // Every fighting action has a list of keys and a list of controller buttons. You can change them on the
 // CONTROLS screen; they're saved in this browser so they stick between sessions.
-const ACTIONS = ['left', 'right', 'up', 'down', 'jump', 'attack', 'special', 'shield', 'grab', 'ult'];
+const ACTIONS = ['left', 'right', 'up', 'down', 'jump', 'attack', 'special', 'shield', 'grab', 'ult', 'tauntUp', 'tauntSide', 'tauntDown'];
 const ACTION_LABEL = { left: 'MOVE LEFT', right: 'MOVE RIGHT', up: 'UP', down: 'DOWN', jump: 'JUMP', attack: 'PHYSICAL ATTACK',
-  special: 'RANGED ATTACK', shield: 'BLOCK / DODGE', grab: 'GRAB', ult: 'TRANSFORM / ULT' };
+  special: 'RANGED ATTACK', shield: 'BLOCK / DODGE', grab: 'GRAB', ult: 'TRANSFORM / ULT',
+  tauntUp: 'TAUNT 1', tauntSide: 'TAUNT 2', tauntDown: 'TAUNT 3' };
+const DPAD = [12, 13, 14, 15];   // the controller's D-pad buttons: kept for the TAUNTS only (the left stick moves)
 const DEFAULT_BINDINGS = {
   keys: { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'],
           jump: ['KeyW', 'ArrowUp', 'Space'], attack: ['KeyJ'], special: ['KeyK'], shield: ['ShiftLeft', 'ShiftRight', 'KeyL'],
-          grab: ['KeyU'], ult: ['KeyI'], taunt: ['KeyY'] },   // taunt: Y = up taunt, Y + left/right = side, Y + down = down
-  // Xbox button numbers (standard gamepad layout). The left stick always moves too.
+          grab: ['KeyU'], ult: ['KeyI'], tauntUp: ['KeyY'], tauntSide: ['KeyX'], tauntDown: ['KeyZ'] },
+  // Xbox button numbers (standard gamepad layout). The LEFT STICK moves; the D-PAD is only for TAUNTS.
   //   A = physical, B = ranged, X/Y = jump, RT/LT = block/dodge, RB = grab, LB = transform/ultimate
-  pad:  { left: [14], right: [15], up: [12], down: [13], jump: [2, 3], attack: [0], special: [1], shield: [7, 6],
-          grab: [5], ult: [4] },
+  pad:  { left: [], right: [], up: [], down: [], jump: [2, 3], attack: [0], special: [1], shield: [7, 6],
+          grab: [5], ult: [4], tauntUp: [12], tauntSide: [14, 15], tauntDown: [13] },
   tapJump: true,            // flicking the stick up also jumps (Smash's default)
   cStick: 'attack',         // RIGHT STICK ("C-stick"): a flick does that direction's move. 'attack' | 'special' | 'off'
 };
@@ -153,7 +155,11 @@ const PAD_BTN_NAMES =['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'VIEW', 'MENU'
 const fillBindings = s => {
   const d = JSON.parse(JSON.stringify(DEFAULT_BINDINGS));
   if (!s || !s.keys || !s.pad) return d;
-  return { keys: { ...d.keys, ...s.keys }, pad: { ...d.pad, ...s.pad }, tapJump: s.tapJump ?? d.tapJump, cStick: s.cStick ?? d.cStick };
+  const out = { keys: { ...d.keys, ...s.keys }, pad: { ...d.pad, ...s.pad }, tapJump: s.tapJump ?? d.tapJump, cStick: s.cStick ?? d.cStick };
+  // (older saved controls had the D-pad on the movement rows: it belongs to the taunts now)
+  for (const a of ['left', 'right', 'up', 'down']) out.pad[a] = (out.pad[a] || []).filter(n => !DPAD.includes(n));
+  delete out.keys.taunt;
+  return out;
 };
 let profiles = loadProfiles();
 function loadProfiles() {
@@ -197,11 +203,28 @@ function padRaw(i, binds = bindings) {
     left: any('left') || ax < -0.5, right: any('right') || ax > 0.5,
     up: any('up') || ay < -0.55, down: any('down') || ay > 0.55,
     jump: any('jump'), attack: any('attack'), special: any('special'), shield: any('shield'), grab: any('grab'), ult: any('ult'),
+    tauntUp: any('tauntUp'), tauntSide: any('tauntSide'), tauntDown: any('tauntDown'),
     // IN A FIGHT the left stick moves and the D-PAD TAUNTS (menus still use both for moving the cursor)
     sl: ax < -0.5, sr: ax > 0.5, su: ay < -0.55, sd: ay > 0.55,
     du: !!B[12], dd: !!B[13], dl: !!B[14], dr: !!B[15],
-    buttons: B, ax, ay, rx: gp.axes[2] || 0, ry: gp.axes[3] || 0,
+    buttons: B, ax, ay, ...rightStick(i, gp),
   };
+}
+// The RIGHT STICK (C-stick). Xbox-style ("standard") controllers put it on axes 2 / 3. Some other controllers put its
+// up/down on axis 4 or 5 instead (left/right still on 2) - so for those, use whichever of those axes has moved the most
+// from where it rested when the controller was first seen (a trigger resting at -1 doesn't count as a push).
+const padRest = [];
+function rightStick(i, gp) {
+  const A = gp.axes, rx = A[2] || 0;
+  if (gp.mapping === 'standard' || A.length <= 4) return { rx, ry: A[3] || 0 };
+  const rest = padRest[i] || (padRest[i] = A.map(v => (Math.abs(v) > 0.9 ? v : 0)));   // (sticks rest at 0, triggers at +-1)
+  let ry = 0, best = 0;
+  for (const k of [3, 4, 5]) {
+    if (k >= A.length) continue;
+    const d = (A[k] || 0) - (rest[k] || 0);
+    if (Math.abs(d) > best && Math.abs(rest[k] || 0) < 0.9) { best = Math.abs(d); ry = d; }
+  }
+  return { rx, ry };
 }
 const JUMP_KEYS  = ['KeyW', 'ArrowUp', 'Space'];
 const BLOCK_KEYS = ['ShiftLeft', 'ShiftRight', 'KeyL'];
@@ -1143,10 +1166,11 @@ function startTaunt(f, kind) {
   painTexts.push({ x: f.x, y: f.y - 140, t: 0.8, max: 0.8, text: lines[kind] || TAUNT_LINES[kind], big: false });
 }
 function finishTaunt(f, a) {
-  // AIDEN'S HYPE: a finished taunt pumps up his HYPE meter
+  // AIDEN'S HYPE: it fills up WHILE he taunts (see stepAction); finishing one gives a big flare-up
   if (f.look && f.look.hype) {
-    f.hype = Math.min(100, (f.hype || 0) + HYPE.perTaunt);
+    f.hypePulse = 0.5;
     burst(f.x, f.y - 50, FIRE, 18, Math.PI / 2, 1.2, 420, { grav: -250 });
+    if (f.hype >= 100) { ring(f.x, f.y - 50); burst(f.x, f.y - 50, FIRE, 30, 0, Math.PI, 520, { grav: -250 }); }
     painTexts.push({ x: f.x, y: f.y - 150, t: 0.6, max: 0.6, text: f.hype >= 100 ? 'MAX HYPE!' : 'HYPE!', big: f.hype >= 100 });
     sfx.parry();
   }
@@ -1679,7 +1703,8 @@ const AIDEN_MOVES = {
     wind: pose({ lean: 0.4, bob: -14, legA: [1.0, 1.4], legB: [-0.3, 0.7], armA: [-1.0, -0.5], armB: [-1.3, -0.4], armC: [-0.8, -0.5], armD: [-1.1, -0.4] }),
     strike: pose({ lean: -0.95, bob: 6, legA: [1.62, 0], legB: [1.48, 0.08], armA: [-2.0, 0.2], armB: [-2.3, 0.2], armC: [-1.6, 0.3], armD: [-1.9, 0.3] }),
     step(f, a, dt, inp) {
-      if ((a.phase === 'startup' || a.phase === 'charge') && inp.dir) f.face = inp.dir;      // aim it either way
+      // aim it either way with the left stick (a C-stick flick already aimed it: that direction stays)
+      if ((a.phase === 'startup' || a.phase === 'charge') && inp.dir && !a.fromC) f.face = inp.dir;
       if (a.phase === 'active') {
         f.vx = f.face * Math.max(Math.abs(f.vx), a.kickSpeed || 0);                          // (keeps flying, no air drag)
         a.ghostT = (a.ghostT || 0) - dt;
@@ -1776,7 +1801,7 @@ const AIDEN_MOVES = {
     hitboxes: (() => {
       const hb = [];
       for (let i = 0; i < 5; i++) for (const s of [1, -1])
-        hb.push({ x: 50 * s, y: -64, r: 32, dmg: 2, base: 110, growth: 0, angle: s > 0 ? 70 : 110, from: i * 0.1, to: i * 0.1 + 0.07, group: i, pullIn: 0 });
+        hb.push({ x: 50 * s, y: -64, r: 32, dmg: 2, base: 250, growth: 1.4, angle: s > 0 ? 55 : 125, from: i * 0.1, to: i * 0.1 + 0.07, group: i, pullIn: 0 });   // (each spin knocks them out a bit: no infinite combos)
       for (const s of [1, -1]) hb.push({ x: 52 * s, y: -64, r: 36, dmg: 8, base: 440, growth: 6.6, angle: s > 0 ? 40 : 140, from: 0.5, to: 0.6, group: 5 });
       return hb;
     })(),
@@ -1786,7 +1811,8 @@ const AIDEN_MOVES = {
     step(f, a, dt, inp) {
       if (a.phase !== 'active') return false;
       // HOLD K = keep spinning as long as you like (the hits keep coming); let go = the final launching spin
-      if (inp.spcHeld && a.t >= 0.48) {
+      a.spinT = (a.spinT || 0) + dt;
+      if (inp.spcHeld && a.t >= 0.48 && a.spinT < LARIAT_HOLD_MAX) {   // (9 seconds at most, then it finishes)
         a.t -= 0.5;                                                     // back round to the first spin...
         for (const k of [...a.hit]) if (/:[0-4]$/.test(k)) a.hit.delete(k);   // ...and those spins can hit again
         sfx.whoosh(false);
@@ -1842,6 +1868,7 @@ const AIDEN_MOVES = {
     fire(f) { burst(f.x, f.y - 56, FIRE, 40, 0, Math.PI, 700, { grav: -300 }); ring(f.x, f.y - 56); ring(f.x, f.y - 30); } },
 };
 
+const LARIAT_HOLD_MAX = 9;   // Darkest Lariat: the longest you can keep it spinning by holding K (seconds)
 // ---------------- REVENGE ----------------
 const REVENGE = { perHit: 0.25, perDmg: 0.025, max: 0.75, time: 12 };   // next hit: +25% (+2.5% per % absorbed), up to +75%
 function triggerRevenge(f, h, dirSign, dmg, hx, hy) {
@@ -6022,7 +6049,7 @@ function startAttack(f, inp, btn) {
   }
   f.atkBuf = 0; f.spcBuf = 0; f.jumpBuf = 0; f.flip = 0; f.comboTimer = 0;
   f.action = { type: 'attack', key, move, btn, phase: 'startup', t: 0,
-               charge: 0, mult: 1, hit: new Set(), air: !f.ground, started: time, cStick: fromC && f.ground,
+               charge: 0, mult: 1, hit: new Set(), air: !f.ground, started: time, cStick: fromC && f.ground, fromC,
                startupMul: fromC ? C_STICK.speed : 1 };              // C-stick moves come out faster
   if (btn === 'atk' && f.look && f.look.trackDash) startTrackDash(f, f.action);
 }
@@ -6535,11 +6562,16 @@ function stepAction(f, inp, dt) {
     f.vx = approach(f.vx, 0, FRICTION * dt);
   } else if (a.type === 'taunt') {
     f.vx = approach(f.vx, 0, FRICTION * dt);
-    if (!f.ground) { f.action = null; return; }                // knocked off / walked off: taunt over (no hype)
+    if (!f.ground) { f.action = null; return; }                // knocked off / walked off: taunt over
+    // AIDEN'S HYPE: fills up the whole time he's taunting (a full taunt = HYPE.perTaunt), flames rising off him
+    if (f.look && f.look.hype) {
+      f.hype = Math.min(100, (f.hype || 0) + HYPE.perTaunt * dt / a.dur);
+      f.hypePulse = 0.25;
+      if (Math.random() < dt * 30) burst(f.x + (Math.random() - 0.5) * 40, f.y - Math.random() * 80, FIRE, 1, Math.PI / 2, 0.4, 220, { grav: -320 });
+    }
     // AIDEN ONLY: TAUNT CANCEL - any attack, special, grab, jump or dodge cuts the taunt short and comes out
     // straight away. He keeps the HYPE for however much of the taunt he got through.
     if (f.look && f.look.hype && (f.atkBuf > 0 || f.spcBuf > 0 || f.grabBuf > 0 || f.jumpBuf > 0 || f.dodgeBuf > 0 || inp.taunt)) {
-      f.hype = Math.min(100, (f.hype || 0) + HYPE.perTaunt * clamp(a.t / a.dur, 0, 1));
       burst(f.x, f.y - 50, FIRE, 6, Math.PI / 2, 1.2, 260, { grav: -250 });
       f.action = null;
       freeControl(f, inp, dt);
@@ -6730,7 +6762,8 @@ function updateFighter(f, inp, dt) {
   if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
   if (f.kaioken) f.damage += kaiokenLv(f).drain * dt;             // Kaioken strain: 1% / 2.5% / 5% per second (x1 / x2 / x3)
   updateBleed(f, dt);                                             // scythe wounds
-  if (f.look && f.look.hype) f.hype = Math.max(0, (f.hype || 0) - HYPE.drain * dt);   // Aiden's HYPE slowly drains
+  if (f.look && f.look.hype && !(f.action && f.action.type === 'taunt')) f.hype = Math.max(0, (f.hype || 0) - HYPE.drain * dt);   // Aiden's HYPE slowly drains (not while he's taunting)
+  f.hypePulse = Math.max(0, (f.hypePulse || 0) - dt);
   if (f.look && f.look.demonMeter) updateGaze(f, dt);            // Colbalias's gaze mark wears off
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
   syncKame(f);
@@ -7025,7 +7058,7 @@ function keyboardInput(binds = bindings) {                // (binds = that playe
     spcTap: tp('special'), spcHeld: h('special'),
     grabTap: tp('grab'),
     ultTap: tp('ult'),
-    taunt: K.taunt && tp('taunt') ? (h('down') ? 3 : (h('left') || h('right')) ? 2 : 1) : 0,
+    taunt: tp('tauntUp') ? 1 : tp('tauntSide') ? 2 : tp('tauntDown') ? 3 : 0,
   };
 }
 // Xbox controller -> the same input object. Left stick or D-pad moves; buttons follow your bindings.
@@ -7035,19 +7068,19 @@ function padInput(i, binds = bindings) {                  // (binds = that playe
   const ps = padPrev[i] || (padPrev[i] = { prev: {}, l: -9, r: -9 });
   if (!s) { ps.prev = {}; return emptyInput(); }
   const prev = ps.prev, tp = a => s[a] && !prev[a];
-  // (in a fight: the LEFT STICK moves - sl/sr/su/sd - and the D-PAD is for taunts)
+  // (in a fight: the LEFT STICK moves (+ any buttons you put on the move rows), and the D-PAD is for taunts)
   let flyTap = 0;
-  if (tp('sl')) { if (time - ps.l < DOUBLE_TAP) flyTap = -1; ps.l = time; }
-  if (tp('sr')) { if (time - ps.r < DOUBLE_TAP) flyTap = 1;  ps.r = time; }
+  if (tp('left'))  { if (time - ps.l < DOUBLE_TAP) flyTap = -1; ps.l = time; }
+  if (tp('right')) { if (time - ps.r < DOUBLE_TAP) flyTap = 1;  ps.r = time; }
   const tj = binds.tapJump;                        // tap jump: flicking up also jumps
   const inp = {
     flyTap,
-    dir: (s.sr ? 1 : 0) - (s.sl ? 1 : 0),
-    up: s.su, down: s.sd,
+    dir: (s.right ? 1 : 0) - (s.left ? 1 : 0),
+    up: s.up, down: s.down,
     jumpTap: tp('jump') || (tj && tp('su')), jumpHeld: s.jump || (tj && s.su),
     blockTap: tp('shield'), blockHeld: s.shield,
-    dirTap: tp('sl') || tp('sr') || tp('su') || tp('sd'), downTap: tp('sd'),
-    taunt: tp('du') ? 1 : (tp('dl') || tp('dr')) ? 2 : tp('dd') ? 3 : 0,
+    dirTap: tp('left') || tp('right') || tp('up') || tp('down'), downTap: tp('down'),
+    taunt: tp('tauntUp') ? 1 : tp('tauntSide') ? 2 : tp('tauntDown') ? 3 : 0,   // (your taunt buttons - the D-pad by default)
     atkTap: tp('attack'), atkHeld: s.attack,
     spcTap: tp('special'), spcHeld: s.special,
     grabTap: tp('grab'),
@@ -9776,7 +9809,8 @@ function drawHUD() {
       if (matchTeams && f.team !== undefined) { sctx.fillStyle = TEAM_COLORS[f.team].main; sctx.fillRect(x, y - 5, 210, 5); }   // team stripe
       sctx.fillStyle = f.color;   sctx.fillRect(x + 3, y + 3, 12, 72);
     }
-    text(f.name + ' ' + f.char, x + 26, y + 24, 10, '#ffffff', 'left', false);
+    const tag = f.name + ' ' + charName(f.char);
+    text(tag, x + 26, y + 24, tag.length > 12 ? 8 : 10, '#ffffff', 'left', false);
     text('KO ' + f.kos, x + 196, y + 24, 9, '#8f8f98', 'right', false);
     const devTag = f.controller === 'keyboard' ? 'KEYBOARD' : f.controller && f.controller.startsWith('pad') ? 'PAD ' + (+f.controller.slice(3) + 1) : 'CPU';
     if (!gameOptions.cleanHud) text(devTag, x + 196, y + 40, 7, '#806b5a', 'right', false);       // which device controls this fighter
@@ -9787,9 +9821,10 @@ function drawHUD() {
       text('TIME', x + 106, y + 37, 6, TIME_STOP.color, 'right', false);
     }
     if (f.look && f.look.hype) {                          // Aiden's HYPE meter (fill it by taunting; it drains)
-      const hk = hypeK(f), full = hk >= 1, flash = full && Math.floor(performance.now() / 200) % 2;
+      const hk = hypeK(f), full = hk >= 1, flash = full && Math.floor(performance.now() / 200) % 2, glow = (f.hypePulse || 0) > 0;
+      if (glow) { sctx.fillStyle = 'rgba(255,138,26,0.45)'; sctx.fillRect(x + 106, y + 26, 98, 14); }   // glows while it fills
       sctx.fillStyle = '#0e0c0c'; sctx.fillRect(x + 110, y + 30, 90, 6);
-      sctx.fillStyle = flash ? '#ffffff' : HYPE.color; sctx.fillRect(x + 111, y + 31, 88 * hk, 4);
+      sctx.fillStyle = flash || (glow && Math.floor(performance.now() / 70) % 2) ? '#ffffff' : HYPE.color; sctx.fillRect(x + 111, y + 31, 88 * hk, 4);
       text('HYPE', x + 106, y + 37, 6, HYPE.color, 'right', false);
     }
     if (f.kaioken) text(f.kaioken > 1 ? 'KAIOKEN x' + f.kaioken : 'KAIOKEN', x + 196, y + 54, 8, Math.floor(performance.now() / 250) % 2 ? KAIOKEN.color : '#ff8a3c', 'right', false);
@@ -10256,11 +10291,13 @@ const GRID_TILES = ROSTER.length + 1;
 const CHAR_INFO = {
   COLBALIAS: { title: 'THE FINAL BOSS', a: '#5a0000', b: '#0a0000' },
   COLTEN:   { title: 'THE WARLORD',  a: '#2f7d36', b: '#0c1a0d' },
-  AIDEN:  { title: 'THE HEEL',     a: '#b8410f', b: '#1c0b05' },
+  AIDEN:  { title: 'STONE COLD SWASHBUCKLER', a: '#b8410f', b: '#1c0b05', name: 'CAPTAIN HEEL' },
   COLBY:    { title: 'THE REAPER',   a: '#7e1c1c', b: '#1a0b0b' },
   LANCE:    { title: 'LAST STAND',   a: '#1f5fa8', b: '#0b1626' },
   STICKMAN: { title: 'THE ORIGINAL', a: '#52525c', b: '#141418' },
 };
+// The name a fighter is SHOWN by (their id - AIDEN, COLBY... - never changes, so saves and online play aren't affected)
+const charName = c => (c && CHAR_INFO[c] && CHAR_INFO[c].name) || c;
 const CPU_LEVELS = ['AI EASY', 'AI NORMAL', 'AI HARD', 'AI MASTER'];
 // WATCH MODE: CPU vs CPU. Nobody joins as a player - any controller / the keyboard / the mouse just
 // drives a HOST cursor that picks both CPUs' fighters and levels. Turned on in GAME OPTIONS.
@@ -10302,7 +10339,7 @@ const teamRect = c => ({ x: c.x + 14, y: c.y + 78, w: 112, h: 22 });     // (TEA
 const presetRectOn = c => ({ x: c.x + 14, y: c.y + 106, w: 150, h: 20 }); // (humans) click = next controls preset
 const toggleRect = c => ({ x: c.x + c.w - 96, y: c.y + 14, w: 84, h: 28 });
 const levelRect = c => ({ x: c.x + 14, y: c.y + c.h - 78, w: 150, h: 26 });
-const devRect = c => ({ x: c.x + 14, y: c.y + 52, w: 190, h: 18 });
+const devRect = c => ({ x: c.x + 14, y: c.y + 50, w: 204, h: 22 });   // CONTROL METHOD picker: < KEYBOARD + MOUSE >  /  < CONTROLLER 1 >
 const CONTROLS_BTN = { x: W - 262, y: 24, w: 238, h: 40 };
 const TURBO_BTN = { x: W - 262 - 200, y: 24, w: 186, h: 40 };
 const TEAMS_BTN = { x: W - 262 - 200 - 190, y: 24, w: 176, h: 40 };   // TEAMS on/off (2v2 etc.)
@@ -10433,11 +10470,17 @@ function selectClick(p) {
       else selMsg = { text: 'PRESS A ON A CONTROLLER (OR J) TO JOIN AS ' + q.name, t: 2 };
       return;
     }
-    if (!q.cpu && inRect(pt, devRect(c))) {      // click the device name to switch it (keyboard <-> controllers)
+    if (localHuman(q) && inRect(pt, devRect(c))) {   // CONTROL METHOD: left half = previous, right half = next
       const pads = getPads().map((g, k) => g && g.connected ? 'pad' + k : null).filter(Boolean);
-      const options = ['keyboard', ...pads].filter(dv => dv === q.dev || !players.some(o => o !== q && !o.cpu && o.dev === dv));
-      q.dev = options[(options.indexOf(q.dev) + 1) % options.length];
-      selMsg = { text: q.name + ' NOW USES ' + devLabel(q), t: 1.8 }; menuSfx('move');
+      const options = ['keyboard', ...pads].filter(dv => dv === q.dev || !players.some(o => o !== q && localHuman(o) && o.dev === dv));
+      if (options.length < 2) {
+        selMsg = { text: pads.length ? 'EVERY CONTROLLER IS ALREADY BEING USED' : 'NO CONTROLLER CONNECTED - PLUG ONE IN TO PLAY WITH IT', t: 2 }; menuSfx('back');
+        return;
+      }
+      const d = pt.x < devRect(c).x + devRect(c).w / 2 ? -1 : 1;
+      q.dev = options[(options.indexOf(q.dev) + d + options.length) % options.length];
+      if (q.dev === 'keyboard') kbActed = true;
+      selMsg = { text: q.name + ' NOW PLAYS WITH ' + devLabel(q), t: 1.8 }; menuSfx('pick');
       return;
     }
     if (q.cpu && inRect(pt, levelRect(c))) {
@@ -10461,7 +10504,7 @@ function selectClick(p) {
     } else if (!t || (t !== p && !t.cpu)) { p.carry = me; t = p; }
     const pool = ROSTER.filter(Boolean);
     t.char = i === RANDOM_TILE ? pool[Math.floor(realRandom() * pool.length)] : ROSTER[i];
-    if (i === RANDOM_TILE) selMsg = { text: 'RANDOM: ' + t.char + '!', t: 1.4 };
+    if (i === RANDOM_TILE) selMsg = { text: 'RANDOM: ' + charName(t.char) + '!', t: 1.4 };
     menuSfx('pick');
     // Next: pick up any CPU's token that still needs a fighter (like grabbing the CPU coin in Smash)
     const needCpu = netGuest() ? -1 : players.findIndex(q => q.cpu && !q.off && !q.char);
@@ -10617,7 +10660,7 @@ function claimFighter(dev) {
   f.name = players[i].name;
   const k = +dev.slice(3);
   if (padPrev[k]) padPrev[k].prev = {};
-  hudToast = { text: 'CONTROLLER ' + (k + 1) + ' NOW CONTROLS ' + f.name + ' (' + f.char + ')', t: 2.5 };
+  hudToast = { text: 'CONTROLLER ' + (k + 1) + ' NOW CONTROLS ' + f.name + ' (' + charName(f.char) + ')', t: 2.5 };
   menuSfx('pick');
 }
 function backToSelect() {
@@ -10662,7 +10705,8 @@ function drawRosterTile(r, ch, isRandom, i, hoverCol) {
     // name plate
     sctx.fillStyle = 'rgba(8,6,6,0.88)'; sctx.fillRect(x, y + h - 28, w, 28);
     sctx.fillStyle = info.a; sctx.fillRect(x, y + h - 28, w, 3);
-    text(ch, x + w - 10, y + h - 8, ch.length > 8 ? 11 : 13, '#ffffff', 'right', false);
+    const nm = charName(ch);
+    text(nm, x + w - 10, y + h - 8, nm.length > 10 ? 10 : nm.length > 8 ? 11 : 13, '#ffffff', 'right', false);
   } else if (isRandom) {
     const g = sctx.createLinearGradient(x, y, x + w, y + h);
     g.addColorStop(0, '#3b3640'); g.addColorStop(1, '#141218');
@@ -10857,9 +10901,16 @@ function drawSelect() {
       sctx.restore();
       const title = q.cpu ? (watchMode ? 'CPU ' + (i + 1) : 'CPU') : q.name;
       text(title, c.x + 18, c.y + 44, Math.min(28, Math.max(11, Math.floor(118 / title.length))), '#ffffff');
-      const dr = devRect(c), dh = !q.cpu && players.some(p => localHuman(p) && inRect(p.cur, dr));
-      if (dh) { sctx.fillStyle = '#ffffff'; sctx.fillRect(dr.x, dr.y, dr.w, dr.h); }
-      text(devLabel(q) + (localHuman(q) ? '  >' : ''), c.x + 18, c.y + 64, 7, dh ? '#0e0c0c' : q.remote ? '#7be0ff' : '#fff3a8', 'left', false);
+      const dr = devRect(c);
+      if (localHuman(q)) {                                    // CONTROL METHOD picker: click a side (or press A on it) to switch
+        const hp = players.find(p => localHuman(p) && inRect(p.cur, dr)), side = hp ? (hp.cur.x < dr.x + dr.w / 2 ? -1 : 1) : 0;
+        sctx.fillStyle = 'rgba(0,0,0,0.6)'; sctx.fillRect(dr.x, dr.y, dr.w, dr.h);
+        if (side) { sctx.fillStyle = 'rgba(255,255,255,0.9)'; sctx.fillRect(side < 0 ? dr.x : dr.x + dr.w - 22, dr.y, 22, dr.h); }
+        sctx.strokeStyle = hp ? '#ffffff' : col.main; sctx.lineWidth = 2; sctx.strokeRect(dr.x, dr.y, dr.w, dr.h);
+        text('<', dr.x + 11, dr.y + 16, 9, side < 0 ? '#0e0c0c' : '#ffffff', 'center', false);
+        text('>', dr.x + dr.w - 11, dr.y + 16, 9, side > 0 ? '#0e0c0c' : '#ffffff', 'center', false);
+        text(devLabel(q), dr.x + dr.w / 2, dr.y + 15, 7, '#fff3a8', 'center', false);
+      } else text(devLabel(q), c.x + 18, c.y + 64, 7, q.remote ? '#7be0ff' : '#fff3a8', 'left', false);
       // HMN / CPU switch
       const tr = toggleRect(c), hov = players.some(p => localHuman(p) && inRect(p.cur, tr));
       sctx.fillStyle = hov ? '#ffffff' : '#0e0c0c'; sctx.fillRect(tr.x, tr.y, tr.w, tr.h);
@@ -10880,9 +10931,14 @@ function drawSelect() {
         text('LV: ' + q.level.slice(3) + ' >', lr.x + 10, lr.y + 18, 9, lh ? '#0e0c0c' : '#ffffff', 'left', false);
       }
       sctx.fillStyle = 'rgba(0,0,0,0.7)'; sctx.fillRect(c.x, c.y + c.h - 44, c.w, 44);
-      if (preview) text(preview + '?', c.x + 16, c.y + c.h - 16, 20, 'rgba(255,255,255,0.45)', 'left', false);
-      else text(q.char || (q.remote ? 'PICKING...' : q.cpu ? 'WAITING...' : 'CHOOSE A FIGHTER'), c.x + 16, c.y + c.h - 16, q.char ? 20 : 11, '#ffffff', 'left', false);
-      if (q.char && CHAR_INFO[q.char]) text(CHAR_INFO[q.char].title, c.x + c.w - 12, c.y + c.h - 16, 7, '#ffd23f', 'right', false);
+      const shownName = q.char ? charName(q.char) : '', longName = shownName.length > 9;
+      if (preview) text(charName(preview) + '?', c.x + 16, c.y + c.h - 16, charName(preview).length > 9 ? 13 : 20, 'rgba(255,255,255,0.45)', 'left', false);
+      else text(shownName || (q.remote ? 'PICKING...' : q.cpu ? 'WAITING...' : 'CHOOSE A FIGHTER'), c.x + 16, c.y + c.h - (longName ? 10 : 16), q.char ? (longName ? 13 : 20) : 11, '#ffffff', 'left', false);
+      if (q.char && CHAR_INFO[q.char]) {                      // the title (above a long name, so they don't overlap)
+        const ttl = CHAR_INFO[q.char].title;
+        if (longName || ttl.length > 14) text(ttl, c.x + 16, c.y + c.h - 30, 6, '#ffd23f', 'left', false);
+        else text(ttl, c.x + c.w - 12, c.y + c.h - 16, 7, '#ffd23f', 'right', false);
+      }
     });
 
     // Hints
@@ -10924,13 +10980,13 @@ function drawSelect() {
 const ctl = { row: 0, col: 0, listen: null, profile: 'DEFAULT' };
 try { const s = localStorage.getItem('stickman-brawl-ctlprofile'); if (s && profiles[s]) ctl.profile = s; } catch (e) {}
 const CTL_ROWS = ['preset', ...ACTIONS, 'tapJump', 'cStick', 'reset', 'back'];
-const ctlRowY = r => 162 + r * 35;
+const ctlRowY = r => 158 + r * 29;
 const C_STICK_MODES = ['attack', 'special', 'off'];
 const C_STICK_LABEL = { attack: 'PHYSICAL MOVES', special: 'RANGED MOVES', off: 'OFF' };
-const ctlCellRect = (r, c) => ({ x: c === 0 ? 470 : 840, y: ctlRowY(r) - 24, w: 340, h: 31 });
+const ctlCellRect = (r, c) => ({ x: c === 0 ? 470 : 840, y: ctlRowY(r) - 21, w: 340, h: 26 });
 // the preset row's buttons
 const PRESET_BTNS = { prev: { x: 470, w: 40 }, name: { x: 514, w: 252 }, next: { x: 770, w: 40 }, nw: { x: 830, w: 100 }, rename: { x: 940, w: 120 }, del: { x: 1070, w: 110 } };
-const presetRect = k => ({ x: PRESET_BTNS[k].x, y: ctlRowY(0) - 24, w: PRESET_BTNS[k].w, h: 31 });
+const presetRect = k => ({ x: PRESET_BTNS[k].x, y: ctlRowY(0) - 21, w: PRESET_BTNS[k].w, h: 26 });
 const editPreset = () => profileOf(ctl.profile);                  // the preset being edited
 function openControls(from, profile) {
   controlsFrom = from; scene = 'controls'; ctl.row = 0; ctl.col = 0; ctl.listen = null;
@@ -11027,7 +11083,12 @@ function controlsUpdate(dt) {
         for (let i = 0; i < pads.length; i++) {
           const gp = pads[i]; if (!gp || !gp.connected) continue;
           const n = gp.buttons.findIndex((b, k) => b && (b.pressed || b.value > 0.5) && !((ctl.listen.held || [])[i] || [])[k]);
-          if (n >= 0) { const P = editPreset(); P.pad[ctl.listen.action] = bindButton(P.pad[ctl.listen.action], n, ctl.listen.add); saveBindings(); menuSfx('pick'); ctl.listen = null; return; }
+          if (n >= 0) {
+            const P = editPreset(), act = ctl.listen.action;
+            P.pad[act] = bindButton(P.pad[act], n, ctl.listen.add);
+            for (const k of ACTIONS) if (k !== act && P.pad[k]) P.pad[k] = P.pad[k].filter(b => b !== n);   // (one button = one action: nothing doubles up on it)
+            saveBindings(); menuSfx('pick'); ctl.listen = null; return;
+          }
         }
       } else {   // remember what's already held so the button you pressed to start doesn't count
         ctl.listen.held = getPads().map(gp => gp ? gp.buttons.map(b => !!b && (b.pressed || b.value > 0.5)) : []);
@@ -11058,7 +11119,7 @@ function controlsUpdate(dt) {
     for (let r = 0; r < CTL_ROWS.length; r++) {
       const row = CTL_ROWS[r];
       if (ACTIONS.includes(row)) { for (let c = 0; c < 2; c++) if (inRect(mouse, ctlCellRect(r, c))) { ctl.row = r; ctl.col = c; } }
-      else if (inRect(mouse, { x: 470, y: ctlRowY(r) - 24, w: 710, h: 31 })) ctl.row = r;
+      else if (inRect(mouse, { x: 470, y: ctlRowY(r) - 21, w: 710, h: 26 })) ctl.row = r;
     }
     if (mouse.click) {
       if (CTL_ROWS[ctl.row] === 'preset') {                  // the preset row's own buttons
@@ -11093,7 +11154,7 @@ function drawControls() {
           sctx.fillStyle = k === 'name' ? (sel ? '#ffd23f' : 'rgba(255,255,255,0.1)') : hov && !dis ? '#ffffff' : 'rgba(255,255,255,0.06)';
           sctx.fillRect(b.x, b.y, b.w, b.h);
           const lbl = { prev: '<', next: '>', name: ctl.profile, nw: 'NEW', rename: 'RENAME', del: 'DELETE' }[k];
-          text(lbl, b.x + b.w / 2, b.y + 20, k === 'name' ? 11 : 9, k === 'name' ? (sel ? '#0e0c0c' : '#ffffff') : dis ? '#56493f' : hov ? '#0e0c0c' : '#ffffff', 'center', false);
+          text(lbl, b.x + b.w / 2, b.y + 18, k === 'name' ? 10 : 8, k === 'name' ? (sel ? '#0e0c0c' : '#ffffff') : dis ? '#56493f' : hov ? '#0e0c0c' : '#ffffff', 'center', false);
         }
         return;
       }
@@ -11106,12 +11167,13 @@ function drawControls() {
           sctx.fillRect(cr.x, cr.y, cr.w, cr.h);
           const label = listening ? (ctl.listen.add ? (c === 0 ? 'PRESS A KEY TO ADD...' : 'PRESS A BUTTON TO ADD...') : (c === 0 ? 'PRESS A KEY...  (ESC CANCELS)' : 'PRESS A BUTTON...'))
             : c === 0 ? (editPreset().keys[row] || []).map(keyName).join(' / ')
-            : (editPreset().pad[row] || []).map(padBtnName).join(' / ') + (['left', 'right', 'up', 'down'].includes(row) ? ' + L-STICK' : '');
-          text(label, cr.x + cr.w / 2 - 14, cr.y + 20, label.length > 30 ? 7 : 9, on && !listening ? '#0e0c0c' : '#ffffff', 'center', false);
+            : (() => { const l = (editPreset().pad[row] || []).map(padBtnName).join(' / '), stick = ['left', 'right', 'up', 'down'].includes(row);
+                       return stick ? (l ? l + ' + L-STICK' : 'L-STICK') : (l || '-'); })();
+          text(label, cr.x + cr.w / 2 - 14, cr.y + 17, label.length > 30 ? 7 : 8, on && !listening ? '#0e0c0c' : '#ffffff', 'center', false);
           if (!listening) {                                  // the + (add another button)
             const pr = ctlPlusRect(r, c), ph = inRect(mouse, pr);
             sctx.fillStyle = ph ? '#ffffff' : on ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.1)'; sctx.fillRect(pr.x, pr.y, pr.w, pr.h);
-            text('+', pr.x + pr.w / 2, pr.y + 18, 11, ph ? '#0e0c0c' : on ? '#0e0c0c' : '#ffd23f', 'center', false);
+            text('+', pr.x + pr.w / 2, pr.y + 15, 10, ph ? '#0e0c0c' : on ? '#0e0c0c' : '#ffd23f', 'center', false);
           }
         }
       } else {
@@ -11119,8 +11181,8 @@ function drawControls() {
                     : row === 'cStick' ? 'RIGHT STICK (C-STICK) FLICK:  ' + C_STICK_LABEL[editPreset().cStick]
                     : row === 'reset' ? 'RESET THIS PRESET TO DEFAULTS' : 'BACK';
         sctx.fillStyle = sel ? '#ffd23f' : 'rgba(255,255,255,0.06)';
-        sctx.fillRect(470, y - 24, 710, 31);
-        text(label, 825, y - 4, 10, sel ? '#0e0c0c' : '#ffffff', 'center', false);
+        sctx.fillRect(470, y - 21, 710, 26);
+        text(label, 825, y - 3, 9, sel ? '#0e0c0c' : '#ffffff', 'center', false);
       }
     });
     text('UP/DOWN TO CHOOSE, LEFT/RIGHT FOR KEYBOARD OR CONTROLLER, A / J / CLICK = SET IT', W / 2, H - 30, 8, '#8f8f98', 'center', false);
@@ -11135,7 +11197,19 @@ function drawControls() {
 const DOODLE_FONT = '"Permanent Marker", "Ink Free", "Segoe Print", "Patrick Hand", "Comic Sans MS", cursive';
 const INK = '#1d1b2a', MARKERS = ['#e8433a', '#2f7fe0', '#f29a1f', '#3fae49', '#9a4fd6', '#e83a8e'];
 const home = { phase: 'title', sel: 0 };
-const homeItems = () => ['PLAY', 'ONLINE', 'CONTROLS', 'OPTIONS'].concat(window.appInfo ? ['QUIT'] : []);
+// UPDATES (desktop app): the status shows on the home screen, and once a new version has downloaded, UPDATE NOW
+// appears at the top of the menu - it installs it and restarts the game straight into the new version
+const appUpdate = () => (window.appInfo && window.appInfo.getUpdate ? window.appInfo.getUpdate() : { state: 'none' });
+function updateStatusText() {
+  const u = appUpdate();
+  if (u.state === 'checking') return 'CHECKING FOR UPDATES...';
+  if (u.state === 'downloading') return 'DOWNLOADING UPDATE' + (u.version ? ' v' + u.version : '') + '  ' + (u.percent || 0) + '%';
+  if (u.state === 'ready') return 'UPDATE' + (u.version ? ' v' + u.version : '') + ' READY - PICK UPDATE NOW';
+  if (u.state === 'latest') return 'UP TO DATE';
+  if (u.state === 'error') return 'COULD NOT CHECK FOR UPDATES';
+  return null;
+}
+const homeItems = () => (appUpdate().state === 'ready' ? ['UPDATE NOW'] : []).concat(['PLAY', 'ONLINE', 'CONTROLS', 'OPTIONS']).concat(window.appInfo ? ['QUIT'] : []);
 const homeItemRect = k => ({ x: W / 2 - 170, y: 334 + k * 64, w: 340, h: 52 });
 function goHome() { scene = 'home'; home.phase = 'menu'; menuSfx('back'); }
 function homeUpdate(dt) {
@@ -11161,6 +11235,7 @@ function homeUpdate(dt) {
 function homeChoose(item) {
   menuSfx('go');
   if (item === 'PLAY') scene = 'select';
+  else if (item === 'UPDATE NOW') { if (window.appInfo && window.appInfo.installUpdate) window.appInfo.installUpdate(); }   // installs + restarts
   else if (item === 'ONLINE') { scene = 'select'; sbNet.ui.show('menu'); }
   else if (item === 'CONTROLS') openControls('home');
   else if (item === 'OPTIONS') { scene = 'options'; opt.row = 0; }
@@ -11348,7 +11423,18 @@ function drawOptionsSketch() {
 //   PIXEL       = a retro arcade cabinet: chunky low-res pixels, a starfield over a synthwave grid, scanlines
 const CG_FONT = '"Impact", "Haettenschweiler", "Arial Black", sans-serif';
 const menuTheme = () => artStyle === 'SKETCHBOOK' ? 'sketch' : artStyle === 'PIXEL' ? 'pixel' : 'cg';
-function drawHome() { const th = menuTheme(); if (th === 'sketch') drawHomeSketch(); else if (th === 'pixel') drawHomePX(); else drawHomeCG(); }
+function drawHome() {
+  const th = menuTheme();
+  if (th === 'sketch') drawHomeSketch(); else if (th === 'pixel') drawHomePX(); else drawHomeCG();
+  const st = updateStatusText();                                   // the update status, bottom-left
+  if (st) withMenuDrawing(() => {
+    const ready = appUpdate().state === 'ready', blink = Math.floor(menuTime * 2) % 2 === 0;
+    sctx.textAlign = 'left';
+    sctx.font = th === 'sketch' ? `20px ${DOODLE_FONT}` : th === 'pixel' ? `9px ${PX_FONT}` : `18px ${CG_FONT}`;
+    sctx.fillStyle = ready ? (blink ? '#ffd23f' : (th === 'sketch' ? '#e8433a' : '#ffffff')) : (th === 'sketch' ? '#6a6480' : '#8f8f98');
+    sctx.fillText(st, th === 'sketch' ? 140 : 20, H - 16);
+  });
+}
 function drawOptions() { const th = menuTheme(); if (th === 'sketch') drawOptionsSketch(); else drawOptionsThemed(th); }
 
 // ---- COMBAT GODS ----
@@ -11538,7 +11624,7 @@ function drawResults() {
       g.addColorStop(0, 'rgba(255,210,63,0.35)'); g.addColorStop(1, 'rgba(255,210,63,0)');
       sctx.fillStyle = g; sctx.fillRect(60, 160, 540, 520);
       drawPortrait(win.char, 330, 600, 3.0, win.color, menuTime);
-      text(win.char, 330, 650, 26, '#ffffff', 'center');
+      text(charName(win.char), 330, 650, 26, '#ffffff', 'center');
       if (CHAR_INFO[win.char]) text(CHAR_INFO[win.char].title, 330, 676, 9, '#ffd23f', 'center', false);
     }
     // the table of everyone
@@ -11549,7 +11635,7 @@ function drawResults() {
       slantRect(x, y, 512, boxH, 12, r.won ? '#5e4a12' : '#26211f');
       sctx.fillStyle = r.color; sctx.fillRect(x + 12, y + 10, 10, boxH - 20);
       text((r.won ? 'WIN  ' : '     ') + r.name, x + 36, y + 36, 16, '#ffffff', 'left', false);
-      text(r.char, x + 36, y + 64, 10, '#ffd23f', 'left', false);
+      text(charName(r.char), x + 36, y + 64, 10, '#ffd23f', 'left', false);
       text('STOCKS LEFT ' + r.stocks, x + 490, y + 36, 10, '#ffffff', 'right', false);
       text('FALLS ' + r.falls, x + 490, y + 64, 10, '#b4b4bb', 'right', false);
     });
