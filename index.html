@@ -1009,7 +1009,7 @@ const LANCE_MOVES = {
   // hand plants on the floor as he goes over, legs split wide and whipping round in a full circle. Two hits: the
   // first leg catches them, the second sends them flying.
   dashAttack: { name: 'Cartwheel Kick', startup: 0.06, active: 0.3, endlag: 0.2, landLag: 0.1,
-    lunge: 640, lungeFriction: 0.45, flip: true, flipTurns: 1,     // (stays on the floor: the whole cartwheel plays out)
+    lunge: 790, lungeFriction: 0.37, flip: true, flipTurns: 1,     // (stays on the floor: the whole cartwheel plays out - and carries further now)
     hitboxes: [{ x: 10, y: -50, r: 52, dmg: 4, base: 160, growth: 0, angle: 70, from: 0, to: 0.14, group: 0 },
                { x: 18, y: -50, r: 56, dmg: 7, base: 420, growth: 5.2, angle: 45, from: 0.15, to: 0.3, group: 1 }],
     wind: pose({ lean: 0.45, bob: -10, legA: [1.0, 1.0], legB: [-0.5, 0.4], armA: [1.3, -0.3] }),            // diving into it, hand out
@@ -1046,10 +1046,18 @@ const LANCE_MOVES = {
     hitboxes: [{ x: 8, y: -106, r: 26, dmg: 9, base: 350, growth: 5, angle: 86 }],
     wind: pose({ armA: [0.4, -1.8], lean: 0.1, legA: [0.9, 1.8], legB: [0.4, 1.5] }),
     strike: pose({ armA: [3.05, 0], lean: -0.15, legA: [0.5, 1.2], legB: [0.1, 0.9] }) },
-  // Down air: METEOR FIST (Mario's forward air) - he winds his fist up behind his back, then swings it over
-  // the top and straight DOWN in front of him. The middle of the swing SPIKES; the start and end of the
-  // swing just knock them away.
-  dair: { name: 'Meteor Fist', startup: 0.16, active: 0.12, endlag: 0.24, landLag: 0.2, spike: true, impactOnHit: true,
+  // Down air: SPINNING AXE KICK - a quick front flip that brings his heel crashing down in front of him: a SPIKE
+  // (the air version of the Front Flip Axe Kick, sped up - see makeAxeKick). He hangs in the air while it's out.
+  dair: (() => {
+    const m = makeAxeKick(true);
+    m.name = 'Spinning Axe Kick'; m.startup = 0.08; m.active = 0.2; m.endlag = 0.22; m.landLag = 0.18; m.whiffLag = 0.18;
+    m.hitboxes[0].from = 0.1; m.hitboxes[0].to = 0.2; m.hitboxes[1].from = 0.12; m.hitboxes[1].to = 0.2;
+    m.strike2At = 0.12;
+    return m;
+  })(),
+  // (his old down air: METEOR FIST (Mario's forward air) - fist wound up behind his back, swung over the top and
+  //  straight DOWN in front of him. Not used any more.)
+  meteorFist: { name: 'Meteor Fist', startup: 0.16, active: 0.12, endlag: 0.24, landLag: 0.2, spike: true, impactOnHit: true,
     hitboxes: [{ x: 30, y: -66, r: 22, dmg: 9, base: 320, growth: 5, angle: 60, from: 0, to: 0.03, group: 0 },        // early: over the top
                { x: 36, y: -34, r: 28, dmg: 14, base: 460, growth: 7.2, angle: -80, from: 0.03, to: 0.08, group: 0 },  // SWEET SPOT: spike
                { x: 24, y: -6, r: 22, dmg: 8, base: 300, growth: 4.5, angle: 45, from: 0.08, to: 0.12, group: 0 }],    // late
@@ -2343,12 +2351,14 @@ function stepDashChoke(f, a, dt, inp) {
 // Lance is the speedster: his physical moves come out ~15% quicker than they're written above,
 // but every hit does less damage and knockback than Colby's.
 const LANCE_SPEED = 0.85, LANCE_POWER = 0.82;
-// His physical (J) moves reach a bit farther than they're written above
-const LANCE_PHYSICAL = ['jab', 'jab2', 'jab3', 'jab4', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair'];
+// His physical (J) moves reach farther than they're written above (pushed out a bit more again: +16px / +6 radius)
+const LANCE_PHYSICAL = ['jab', 'jab2', 'kick1', 'kick2', 'jab3', 'jab4', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair'];
+const _lanceReach = new Set();
 for (const k of LANCE_PHYSICAL) {
   for (const h of LANCE_MOVES[k].hitboxes || []) {
-    if (Math.abs(h.x) > 20) h.x += Math.sign(h.x) * 8;     // pushed further out in front (or behind)
-    h.r += 3;
+    if (_lanceReach.has(h)) continue; _lanceReach.add(h);   // (only once per hitbox)
+    if (Math.abs(h.x) > 20) h.x += Math.sign(h.x) * 16;    // pushed further out in front (or behind)
+    h.r += 6;
   }
 }
 for (const k in LANCE_MOVES) {
@@ -3581,7 +3591,8 @@ function updateCage(dt) {
   const C = cage;
   if (!C) return;
   const o = C.owner;
-  if (!o.transformed || o.respawnTimer > 0 || o.out || !fighters.includes(o)) { breakCage(); return; }
+  const shipping = o.action && o.action.type === 'shipUlt';   // (stays up through his Pirate Ship Slam - shipImpact brings it down)
+  if ((!o.transformed && !shipping) || o.respawnTimer > 0 || o.out || !fighters.includes(o)) { breakCage(); return; }
   // anyone KO'd (or a clone that's gone) is out of it; when nobody else is left inside, it comes down
   C.members = C.members.filter(p => p === o || (p.respawnTimer <= 0 && !p.out && !p.dead && !(p.poofT > 0) && fighters.includes(p)));
   if (C.members.length < 2) { breakCage(); return; }
@@ -3619,7 +3630,7 @@ function drawCage() {
 // heaves it straight up over his head... and SLAMS it down flat across the stage in front of him. Anyone standing
 // on the ground under it gets crushed - the only way out is to be IN THE AIR when it lands.
 // (The game keeps running while he does it, so they can see it coming and jump.)
-const SHIP = { L: 600, sky: 360, sailIn: 0.9, jumpEnd: 1.25, pullEnd: 1.65, holdEnd: 2.05, slamEnd: 2.3, end: 3.0 };
+const SHIP = { L: 600, sky: 360, sailIn: 0.7, jumpEnd: 0.95, pullEnd: 1.25, holdEnd: 1.55, slamEnd: 1.72, end: 2.35 };   // (sped up)
 function startShipUlt(f) {
   const foe = nearestFoe(f);
   const dir = foe ? (Math.sign(foe.x - f.x) || f.face) : f.face;
@@ -3685,10 +3696,14 @@ function stepShipUlt(f, a, dt) {
 function shipImpact(f, a) {
   const d = a.dir, gy = a.gy, U = CHARACTERS.AIDEN.ult;
   const x0 = Math.min(a.x - d * 40, a.x + d * (SHIP.L + 60)), x1 = Math.max(a.x - d * 40, a.x + d * (SHIP.L + 60));
+  // CAGED = a GUARANTEED hit: anyone shut in his steel cage gets crushed wherever they are in it (jumping won't save them)
+  const caged = cage && cage.owner === f ? cage.members.filter(t => t !== f) : [];
   for (const t of fighters) {
     if (t === f || allies(f, t) || t.respawnTimer > 0 || t.dead || t.out || t.poofT > 0 || t.halo > 0) continue;
-    if (t.x < x0 || t.x > x1) continue;
-    if (!t.ground) { painTexts.push({ x: t.x, y: t.y - 130, t: 0.7, max: 0.7, text: 'DODGED!', big: false }); continue; }   // in the air = safe
+    const inCage = caged.includes(t);
+    if (!inCage && (t.x < x0 || t.x > x1)) continue;
+    if (!t.ground && !inCage) { painTexts.push({ x: t.x, y: t.y - 130, t: 0.7, max: 0.7, text: 'DODGED!', big: false }); continue; }   // in the air = safe (unless caged)
+    if (inCage) { t.invuln = 0; if (t.action && ['air', 'roll', 'spot'].includes(t.action.type)) t.action = null; t.y = gy; t.vy = 0; t.ground = true; }
     t.shielding = false; if (t.action && ['grabbed', 'whipped'].includes(t.action.type)) t.action = null;
     painfulSlam(t, t.x, gy, 1, true);
     knock(t, { ...U.final, ultFinal: true }, Math.sign(t.x - a.x) || d, f.ultPower || 1, t.x, gy - 40);
@@ -3705,6 +3720,7 @@ function shipImpact(f, a) {
   cracks.push({ x: a.x + d * SHIP.L / 2, y: gy, life: 5, max: 5, seed: Math.random() * 1000, size: 2.4 });
   painTexts.push({ x: a.x + d * SHIP.L / 2, y: gy - 220, t: 1.1, max: 1.1, text: 'PIRATE SHIP SLAM!', big: true });
   sfx.slam(); sfx.huge(); sfx.clash(true); heelSay(f, 'roar');
+  if (cage && cage.owner === f) breakCage();        // the ship smashes the cage to pieces too
 }
 // The ship itself. Built pointing right from its bow (the end he grabs), deck up; turned by th round the bow,
 // and mirrored when he's facing right (so it's always behind him first, then over his head, then in front)
@@ -5778,6 +5794,15 @@ const BATTLE_MUSIC = { vol: 0.42, fadeIn: 0.8, fadeOut: 1.4, songs: [
   { file: 'you-see-big-girl.mp3', from: 0 },
   { file: 'getting-away-with-murder.mp3', from: 0 },
   { file: 'f.mp3', from: 0 },
+  // update 2
+  { file: 'by-the-sword.mp3', from: 0 },
+  { file: 'shame.mp3', from: 0 },
+  { file: 'intergalactic.mp3', from: 0 },
+  { file: 'naruto-main-theme.mp3', from: 0 },
+  { file: 'rollin.mp3', from: 0 },
+  { file: 'killing-in-the-name.mp3', from: 0 },
+  { file: 'shiki-no-uta.mp3', from: 0 },
+  { file: 'kakarot-vs-broly.mp3', from: 0 },
 ] };
 const battleMusic = { el: null, song: -1, level: 0, t: 0 };
 const BAG_KEY = 'db-battle-bag';
@@ -5787,13 +5812,17 @@ function nextBattleSong() {
   try { st = JSON.parse(localStorage.getItem(BAG_KEY)); } catch (e) {}
   let bag = st && Array.isArray(st.bag) ? st.bag.filter(i => Number.isInteger(i) && i >= 0 && i < n) : [];
   const last = st && Number.isInteger(st.last) ? st.last : -1;
+  // NEW SONGS added in an update join the shuffle that's already going (dropped in at random spots), so you hear
+  // them this time round instead of only after every old one has played
+  const known = st && Number.isInteger(st.n) ? st.n : (st ? 13 : n);   // (bags saved before this was tracked had 13 songs)
+  for (let i = known; i < n; i++) bag.splice(Math.floor(realRandom() * (bag.length + 1)), 0, i);
   if (!bag.length) {                                 // a fresh shuffle of every song...
     bag = [...Array(n).keys()];
     for (let i = n - 1; i > 0; i--) { const j = Math.floor(realRandom() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
     if (n > 1 && bag[0] === last) bag.push(bag.shift());   // ...that never starts with the one that just played
   }
   const pick = bag.shift();
-  try { localStorage.setItem(BAG_KEY, JSON.stringify({ bag, last: pick })); } catch (e) {}
+  try { localStorage.setItem(BAG_KEY, JSON.stringify({ bag, last: pick, n })); } catch (e) {}
   return pick;
 }
 function startBattleSong() {
@@ -7147,7 +7176,8 @@ function startUltimate(f, alt = false) {          // alt = DOWN was held: the ch
   f.ult = 0; f.ultBuf = 0; f.atkBuf = f.spcBuf = f.grabBuf = 0;
   f.shielding = false;
   const C = CHARACTERS[f.char], def = (alt && C.altUlt) || C.ult || {};
-  if (cage && cage.owner === f) breakCage();        // (Aiden's cage comes down when he goes for his ultimate)
+  if (cage && cage.owner === f && !def.ship) breakCage();   // (Aiden's cage comes down when he goes for an ultimate - except the
+                                                            //  PIRATE SHIP SLAM: it stays, so everyone caged is a guaranteed hit)
   heelSay(f, 'roar');
   f.action = def.beamUlt ? { type: 'ultBeam', t: 0, phase: 'charge' }      // Lance: charge + full-screen Kamehameha
                          : { type: 'ultStart', t: 0, dur: def.rush ? 0.6 : 0.8, def };
@@ -7668,7 +7698,8 @@ function startTransform(f) {
 function endTransform(f) {
   if (!f.transformed) return;
   f.transformed = false;
-  if (cage && cage.owner === f) breakCage();
+  // (the cage comes down with the transformation - unless he's mid PIRATE SHIP SLAM: then the ship smashes it)
+  if (cage && cage.owner === f && !(f.action && f.action.type === 'shipUlt')) breakCage();
   if (f.baseStats) f.stats = f.baseStats;
   f.baseStats = null;
 }
@@ -8610,13 +8641,8 @@ function freeControl(f, inp, dt) {
       return;
     }
   }
-  // CONTROLLER: the stick pushed ALL the way = RUN straight away (no double-tap needed); let go of it and he stops
-  if (inp.full && dir && f.ground && !inp.down && f.squat <= 0 && (!f.running || f.runDir !== dir)) {
-    f.running = true; f.runDir = dir; f.face = dir; f.runByStick = true;
-    f.vx = dir * Math.max(Math.abs(f.vx), f.stats.runSpeed * RUN_MULT * 0.8);
-    dust(f.x - dir * 14, f.y, 9, 1.4);
-  }
-  if (f.running && f.runByStick && !inp.full) f.running = false;   // (eased off the stick: back to walking)
+  // (CONTROLLER: a light tilt = walk, pushed all the way = the normal JOG. Running is a DOUBLE-TAP, same as the keyboard
+  //  - the stick no longer starts a run by itself.)
   // AUTO-RUN: once a double-tap starts the run, he keeps running on his own (you can let go of the
   // direction) until you turn around, crouch, shield, jump, attack, or run out of ground
   if (f.running && (inp.dir === -f.runDir || inp.down || inp.blockHeld || !f.ground)) f.running = false;
@@ -9076,8 +9102,10 @@ const kbTaps = { l: -9, r: -9 };
 function keyboardInput(binds = bindings) {                // (binds = that player's control preset)
   const K = binds.keys, h = a => held(...(K[a] || [])), tp = a => tapped(...(K[a] || []));
   let flyTap = 0;
-  if (tp('left'))  { if (time - kbTaps.l < DOUBLE_TAP) flyTap = -1; kbTaps.l = time; }
-  if (tp('right')) { if (time - kbTaps.r < DOUBLE_TAP) flyTap = 1;  kbTaps.r = time; }
+  // (the game clock restarts every match, so a tap left over from the last match can't count: it must be 0..DOUBLE_TAP ago)
+  const quick = last => time - last >= 0 && time - last < DOUBLE_TAP;
+  if (tp('left'))  { if (quick(kbTaps.l)) flyTap = -1; kbTaps.l = time; }
+  if (tp('right')) { if (quick(kbTaps.r)) flyTap = 1;  kbTaps.r = time; }
   return {
     flyTap,
     dir: (h('right') ? 1 : 0) - (h('left') ? 1 : 0),
@@ -9117,8 +9145,9 @@ function padInput(i, binds = bindings) {                  // (binds = that playe
   ps.latch = null; ps.seen = null;
   // (in a fight: the LEFT STICK moves (+ any buttons you put on the move rows), and the D-PAD is for taunts)
   let flyTap = 0;
-  if (tp('left'))  { if (time - ps.l < DOUBLE_TAP) flyTap = -1; ps.l = time; }
-  if (tp('right')) { if (time - ps.r < DOUBLE_TAP) flyTap = 1;  ps.r = time; }
+  const quick = last => time - last >= 0 && time - last < DOUBLE_TAP;   // (see keyboardInput)
+  if (tp('left'))  { if (quick(ps.l)) flyTap = -1; ps.l = time; }
+  if (tp('right')) { if (quick(ps.r)) flyTap = 1;  ps.r = time; }
   const tj = binds.tapJump;                        // tap jump: flicking up also jumps
   const inp = {
     flyTap,
@@ -10947,7 +10976,7 @@ function drawFigure(fig, opts = {}) {
     ctx.beginPath(); ctx.moveTo(head.x - f * 11, head.y - 7); ctx.lineTo(head.x + f * 9, head.y - 1); ctx.stroke();   // strap
     ctx.fillStyle = ec;
     ctx.beginPath(); ctx.ellipse(head.x + f * 6, head.y - 1, 5, 4.5, 0, 0, Math.PI * 2); ctx.fill();
-    if (!sketch && !opts.tint) {                         // angry brow over the other side
+    if (!sketch && !opts.tint && !look.beard) {          // angry brow over the other side (not on Captain Heel)
       ctx.strokeStyle = look.detail || shade(fig.color, 0.55); ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(head.x + f * 1, head.y - 8); ctx.lineTo(head.x + f * 11, head.y - 5); ctx.stroke();
     }
@@ -10959,8 +10988,10 @@ function drawFigure(fig, opts = {}) {
     ctx.fillRect(head.x + (f > 0 ? 2 : -11), head.y + 7, 9, 1.6);                         // mouth line
     ctx.strokeStyle = sketch ? main : '#1a1511'; ctx.lineWidth = 1;
     for (let k = 0; k < 4; k++) { const x = head.x + f * (3.5 + k * 2.2); ctx.beginPath(); ctx.moveTo(x, head.y + 5.5); ctx.lineTo(x, head.y + 10); ctx.stroke(); }   // teeth
-    ctx.strokeStyle = look.detail; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(head.x - f * 2, head.y + 2, 9, f > 0 ? 0.4 : Math.PI - 1.1, f > 0 ? 1.1 : Math.PI - 0.4); ctx.stroke();   // cheekbone
+    if (!look.beard) {                                   // cheekbone (left off under Captain Heel's beard - it read as a grey moustache)
+      ctx.strokeStyle = look.detail; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(head.x - f * 2, head.y + 2, 9, f > 0 ? 0.4 : Math.PI - 1.1, f > 0 ? 1.1 : Math.PI - 0.4); ctx.stroke();
+    }
   }
   // BLACK BEARD (Aiden): a big bushy beard off his jaw, a moustache over the teeth, and two braids with red ties
   if (look.beard) {
@@ -10983,23 +11014,61 @@ function drawFigure(fig, opts = {}) {
       if (!opts.tint && !sketch) { ctx.fillStyle = '#c0392b'; ctx.fillRect(bx + sway * 0.6 - 2, by + len * 0.55, 4, 3); ctx.fillStyle = bc; }
     }
   }
-  // PIRATE HAT (Aiden): a black tricorne - crown, a wide brim turned up at both ends, gold trim, skull & crossbones
+  // PIRATE HAT (Aiden) - like the classic costume tricorne: a RED BANDANA tied round his skull (knot + two long tails
+  // hanging off the back), and over it a big black tricorne - a tall rounded crown, the wide brim swooping up at both
+  // tips, gold piping all the way round, and a big white SKULL over CROSSED CUTLASSES on the front.
   if (look.pirateHat) {
-    const hc = opts.tint || (sketch ? main : '#18161a');
+    const hc = opts.tint || (sketch ? main : '#141215'), red = opts.tint || (sketch ? main : '#d0202a');
+    const sway = Math.sin(time * 4) * 1.5, X = dx => head.x + dx, Y = dy => head.y + dy;
+    // the bandana: a band across the forehead, knotted at the back, two tails flapping down behind
+    ctx.fillStyle = red;
+    ctx.beginPath(); ctx.moveTo(X(-13), Y(-9)); ctx.quadraticCurveTo(X(0), Y(-12), X(13), Y(-9));
+    ctx.lineTo(X(13), Y(-3)); ctx.quadraticCurveTo(X(0), Y(-6), X(-13), Y(-3)); ctx.closePath(); ctx.fill();
+    const kx = head.x - f * 12, ky = head.y - 5;
+    ctx.beginPath(); ctx.arc(kx, ky, 3.2, 0, Math.PI * 2); ctx.fill();                                               // the knot
+    for (const [w, len, off] of [[4.5, 20, 0], [3.5, 15, 4]]) {                                                      // the tails
+      ctx.beginPath(); ctx.moveTo(kx - f * off * 0.3, ky);
+      ctx.quadraticCurveTo(kx - f * (6 + off), ky + len * 0.5, kx - f * (4 + off) + sway, ky + len);
+      ctx.lineTo(kx - f * (4 + off) + w * -f + sway, ky + len - 2);
+      ctx.quadraticCurveTo(kx - f * (2 + off), ky + len * 0.45, kx + f * 2, ky + 1); ctx.closePath(); ctx.fill();
+    }
+    if (!opts.tint && !sketch) { ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(X(-11), Y(-9), 22, 1.5); }   // satin sheen
+    // the tricorne
     ctx.fillStyle = hc;
-    ctx.beginPath(); ctx.moveTo(head.x - 11, head.y - 7); ctx.quadraticCurveTo(head.x - 10, head.y - 25, head.x, head.y - 26);
-    ctx.quadraticCurveTo(head.x + 10, head.y - 25, head.x + 11, head.y - 7); ctx.closePath(); ctx.fill();               // crown
-    ctx.beginPath(); ctx.moveTo(head.x - 24, head.y - 19); ctx.quadraticCurveTo(head.x - 14, head.y - 5, head.x, head.y - 7);
-    ctx.quadraticCurveTo(head.x + 14, head.y - 5, head.x + 24, head.y - 19); ctx.quadraticCurveTo(head.x + 18, head.y - 11, head.x, head.y - 13);
-    ctx.quadraticCurveTo(head.x - 18, head.y - 11, head.x - 24, head.y - 19); ctx.closePath(); ctx.fill();               // brim, turned up both ends
+    ctx.beginPath();
+    ctx.moveTo(X(-29), Y(-15));                                       // left tip
+    ctx.quadraticCurveTo(X(-25), Y(-40), X(0), Y(-39));               // the tall rounded crown
+    ctx.quadraticCurveTo(X(25), Y(-40), X(29), Y(-15));               // right tip
+    ctx.quadraticCurveTo(X(15), Y(-7), X(0), Y(-8));                  // the front brim dipping down in the middle
+    ctx.quadraticCurveTo(X(-15), Y(-7), X(-29), Y(-15));
+    ctx.closePath(); ctx.fill();
+    if (sketch && !opts.tint) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }
     if (!opts.tint && !sketch) {
-      ctx.strokeStyle = '#e0b040'; ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(head.x - 24, head.y - 19); ctx.quadraticCurveTo(head.x - 14, head.y - 5, head.x, head.y - 7);
-      ctx.quadraticCurveTo(head.x + 14, head.y - 5, head.x + 24, head.y - 19); ctx.stroke();                               // gold trim
-      const ex = head.x + f * 2, ey = head.y - 17;
-      ctx.strokeStyle = '#f2efe6'; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(ex - 5, ey + 5); ctx.lineTo(ex + 5, ey - 1); ctx.moveTo(ex - 5, ey - 1); ctx.lineTo(ex + 5, ey + 5); ctx.stroke();   // crossbones
-      ctx.fillStyle = '#f2efe6'; ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();                       // skull
+      ctx.fillStyle = '#211d22';                                      // the turned-up front fold, a shade lighter
+      ctx.beginPath(); ctx.moveTo(X(-27), Y(-16)); ctx.quadraticCurveTo(X(-14), Y(-30), X(0), Y(-29));
+      ctx.quadraticCurveTo(X(14), Y(-30), X(27), Y(-16)); ctx.quadraticCurveTo(X(14), Y(-9), X(0), Y(-10));
+      ctx.quadraticCurveTo(X(-14), Y(-9), X(-27), Y(-16)); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#c9a443'; ctx.lineWidth = 1.4;              // GOLD PIPING round the whole edge
+      ctx.beginPath(); ctx.moveTo(X(-29), Y(-15)); ctx.quadraticCurveTo(X(-25), Y(-40), X(0), Y(-39));
+      ctx.quadraticCurveTo(X(25), Y(-40), X(29), Y(-15)); ctx.quadraticCurveTo(X(15), Y(-7), X(0), Y(-8));
+      ctx.quadraticCurveTo(X(-15), Y(-7), X(-29), Y(-15)); ctx.stroke();
+      // SKULL over CROSSED CUTLASSES
+      const sx = head.x, sy = head.y - 25, bone = '#f2efe6';
+      ctx.strokeStyle = bone; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      for (const s of [1, -1]) {                                    // two curved cutlasses, crossing under the skull
+        ctx.lineWidth = 2.2;                                          // a curved blade, widest near the point
+        ctx.beginPath(); ctx.moveTo(sx - s * 10, sy + 10); ctx.quadraticCurveTo(sx + s * 2, sy + 6, sx + s * 14, sy - 6); ctx.stroke();
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(sx - s * 6, sy + 8.5); ctx.quadraticCurveTo(sx + s * 5, sy + 3, sx + s * 14, sy - 6); ctx.stroke();
+        ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(sx - s * 12, sy + 7); ctx.lineTo(sx - s * 8.5, sy + 12.5); ctx.stroke();   // the guard
+        ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx - s * 10, sy + 10); ctx.lineTo(sx - s * 13.5, sy + 12.5); ctx.stroke();    // the grip
+        ctx.lineWidth = 1.6;
+      }
+      ctx.fillStyle = bone;
+      ctx.beginPath(); ctx.arc(sx, sy - 1, 4.6, 0, Math.PI * 2); ctx.fill();     // the skull
+      ctx.fillRect(sx - 2.6, sy + 2, 5.2, 3);                                     // its jaw
+      ctx.fillStyle = hc;
+      ctx.beginPath(); ctx.arc(sx - 1.7, sy - 1.2, 1.3, 0, Math.PI * 2); ctx.arc(sx + 1.7, sy - 1.2, 1.3, 0, Math.PI * 2); ctx.fill();   // eye sockets
     }
   }
   // COLTEN: brown hair spiked up only at the forehead (a short cap of hair, spikes at the front)
@@ -12783,6 +12852,9 @@ function startMatch() {
   for (const f of fighterPool) endShipSong(f);    // (a pirate-ship song still playing from the last match)
   removeAllMinions();
   cage = null;
+  kbTaps.l = kbTaps.r = -9;                       // (no double-tap carried over from the last match - everyone starts STILL)
+  for (const ps of padPrev) if (ps) { ps.l = ps.r = -9; }
+  for (const f of fighterPool) { f.running = false; f.vx = 0; }
   applyStage(gameOptions.stage || 0);
   // the fighters for this match: one per switched-on player slot (2-4)
   fighters.length = 0;

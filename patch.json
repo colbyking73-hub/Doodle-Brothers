@@ -1,5 +1,5 @@
 {
-    "version":  "0.5.7",
+    "version":  "0.5.8",
     "shell":  "2c7f2e991c796adb",
     "files":  {
                   "build/icon.png":  {
@@ -7,8 +7,8 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "3e7c6bd816c0c6a197fce485c28068b9c35084b4fcb11d70420efd00e77aabe9",
-                                     "size":  898824
+                                     "hash":  "2b2080bef85afcfd61fe39a0b95258520ea9b5c1b2d361ef1e9a308af6a29b73",
+                                     "size":  904468
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
@@ -30,6 +30,10 @@
                                                         "hash":  "9794d6d59adb1bd5f7f1f77594e21e9bcffd9ac13fd393a9e3c44dad998b0f04",
                                                         "size":  4893913
                                                     },
+                  "sounds/battle/by-the-sword.mp3":  {
+                                                         "hash":  "f71fd937ea290d9b260782bbdaab4ae2dbf4f8ea40129ae8ca7cafbe1443bc47",
+                                                         "size":  3071278
+                                                     },
                   "sounds/battle/f.mp3":  {
                                               "hash":  "869e11c5aeb214d55e35536bc292797fcecb146f1970096c0d788ae5479f472c",
                                               "size":  6329940
@@ -42,6 +46,18 @@
                                                             "hash":  "fc121da3565e8f7158ab48c98a15a4bd0be0249ef77b502b603563e4a0802eb0",
                                                             "size":  4877340
                                                         },
+                  "sounds/battle/intergalactic.mp3":  {
+                                                          "hash":  "fbc8b9bc9e2169a25e10bf79cfe2fea62eb60370a809839ee1e3c820d988b018",
+                                                          "size":  4735369
+                                                      },
+                  "sounds/battle/kakarot-vs-broly.mp3":  {
+                                                             "hash":  "a6375ebad4e7769a106340bf691eb062aa40a74461844135cd940464761920e3",
+                                                             "size":  4093014
+                                                         },
+                  "sounds/battle/killing-in-the-name.mp3":  {
+                                                                "hash":  "8eb701aecbe2536b6bf0266031bcf2aeba0eed0b5e0770e9f79cc50bd46c2fb5",
+                                                                "size":  6988050
+                                                            },
                   "sounds/battle/mystery-0-16.mp3":  {
                                                          "hash":  "3e0b52fc42b4f89b51be127cd633142b3e6fce93eb89128fc8082b72f16d69ef",
                                                          "size":  4718546
@@ -54,10 +70,26 @@
                                                          "hash":  "6e3d8d5122e3b4ae4d098679b55947a9ed325f195267f85e49dba9a02059ea8a",
                                                          "size":  5326300
                                                      },
+                  "sounds/battle/naruto-main-theme.mp3":  {
+                                                              "hash":  "6134fd66d14c3af114303975a0645c11a3f2fb10dc7c935a856b0dbb4c677734",
+                                                              "size":  5903605
+                                                          },
+                  "sounds/battle/rollin.mp3":  {
+                                                   "hash":  "2452f3e25c155549d573ad1d8440a8ba03ffd300b6f0be7377da2647c3382b56",
+                                                   "size":  4963537
+                                               },
                   "sounds/battle/seven-years.mp3":  {
                                                         "hash":  "bebd92fcb96bd76ee7b4c6200ff49f742643b0dd800e0b4fda1ad52527dcf1fd",
                                                         "size":  5152583
                                                     },
+                  "sounds/battle/shame.mp3":  {
+                                                  "hash":  "5bddc74fd517ceffe689fac4135be2edae3eafc30696b4c6325b4fd482983b03",
+                                                  "size":  3968189
+                                              },
+                  "sounds/battle/shiki-no-uta.mp3":  {
+                                                         "hash":  "7bdf0a3d699d75ae0327f2dd955c6945ecd9b21a6ee4ba3dc8d9dc91e7ff4b15",
+                                                         "size":  7020386
+                                                     },
                   "sounds/battle/tank.mp3":  {
                                                  "hash":  "fea5068d52dbac77ae1d263db9c22c1e45ea9a4a738d755ddd8ce2043bcaa79a",
                                                  "size":  5258944
