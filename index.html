@@ -2450,6 +2450,7 @@ const INF_IDLE = pose({ lean: 0.2, bob: -10, legA: [0.78, 0.55], legB: [-0.6, 0.
                         armC: [0.75, -0.7], armD: [0.35, -0.9] });   // lower pair: fists cocked forward at the waist
 // ANCHOR SLAM timing (seconds into the active part): the front slam lands at `front`, the one behind him at `back`
 const ANCHOR = { front: 0.09, back: 0.32, end: 0.46, reach: 86 };
+const ANCHOR_ARC = { time: 0.24 };                                 // the up J's swing over his head
 const AIDEN_MOVES = {
   counter: STICKMAN_MOVES.counter,
 
@@ -2550,7 +2551,15 @@ const AIDEN_MOVES = {
 
   // Up J: MASSIVE HEADBUTT (hold to charge) - rears his head back, slams it forward and drives it up over himself.
   // Big hitbox in front AND above him, sends them straight up: made for juggling.
-  upGround: { name: 'Massive Headbutt', startup: 0.11, active: 0.14, endlag: 0.24, charge: true, hop: 170, landLag: 0.1,
+  // Up J (new): ANCHOR ARC (hold to charge) - he whips the anchor up from in front of him in a huge arc right over his
+  // head and down behind him. The WHOLE anchor hits the entire way round and sends them straight up. See stepAnchorArc.
+  upGround: { name: 'Anchor Arc', startup: 0.12, active: ANCHOR_ARC.time, endlag: 0.28, charge: true, noClash: true,
+    hitboxes: [{ x: 0, y: -150, r: 1, dmg: 13, base: 440, growth: 6, angle: 88, from: 9, to: 9 }],   // (a placeholder: the hits come from the anchor itself)
+    wind: pose({ lean: 0.35, bob: -14, legA: [0.9, 1.0], legB: [-0.7, 0.4], grip: [30, -40], lowFree: false }),
+    strike: pose({ lean: -0.3, bob: -2, legA: [0.5, 0.3], legB: [-0.5, 0.3], grip: [-10, -120], lowFree: false }),
+    step(f, a, dt) { return stepAnchorArc(f, a, dt); } },
+  // (his previous up J - MASSIVE HEADBUTT - kept, not used)
+  headbuttUp: { name: 'Massive Headbutt', startup: 0.11, active: 0.14, endlag: 0.24, charge: true, hop: 170, landLag: 0.1,
     hitboxes: [{ x: 32, y: -100, r: 38, dmg: 13, base: 390, growth: 5.4, angle: 80, from: 0, to: 0.07, group: 0 },
                { x: 8, y: -134, r: 42, dmg: 13, base: 410, growth: 5.2, angle: 88, from: 0.05, to: 0.14, group: 0 }],
     wind: pose({ lean: -0.55, bob: -12, legA: [0.85, 0.9], legB: [-0.7, 0.4], armA: [-1.2, -0.4], armB: [-1.5, -0.3], armC: [-0.9, -0.4], armD: [-1.2, -0.3] }),   // head reared way back
@@ -2763,7 +2772,7 @@ function consumeRevenge(f, hx, hy) {
 // they bounce off and come flying back, and he meets them with a LARIAT. Press K again just as they
 // come back (the "NOW!" flash) for a CRITICAL lariat - much stronger. Whiff = long recovery.
 // dash: the lunge forward while grabbing (speed x the move's active time ~ 580px = about half the stage)
-const WHIP = { reach: 62, r: 34, out: 0.3, bounce: 0.1, back: 0.26, dist: 270, window: 0.16, dash: 1620,
+const WHIP = { reach: 62, r: 34, out: 0.3, bounce: 0.1, back: 0.26, dist: 270, window: 0.16, dash: 1440,   // (dash trimmed a little: 1620 -> 1440)
                hit:  { dmg: 10, base: 420, growth: 6.2, angle: 40 },
                crit: { dmg: 16, base: 540, growth: 7.6, angle: 35, xray: 'RIBS' } };
 const ropeFx = [];       // ring ropes drawn in the world (whip corners + the ultimate's ring)
@@ -3003,9 +3012,33 @@ function anchorPlace(f, a) {
   const th = F > 0 ? phi : Math.PI - phi;
   return { x: f.x + g[0] * F, y: f.y + g[1], gx: g[0], gy: g[1], th, alpha };
 }
+// THE WHOLE ANCHOR HITS: every frame it's swinging, its shank, crown and flukes are all hitboxes (not just where it
+// lands). h = the hit it does, dir = which way it sends them, group = once per swing (shares the move's hit list).
+function anchorBodyHit(f, a, A, h, dir, group) {
+  const c = Math.cos(A.th), s = Math.sin(A.th), sc = A.scale || 1;
+  const pts = [[14, 18], [40, 20], [64, 24], [74, 32]];           // [distance along it from his hands, radius] - fatter at the flukes
+  for (const t of fighters) {
+    const key = fighters.indexOf(t) + ':' + group;
+    if (t === f || a.hit.has(key) || allies(f, t) || t.dead || t.poofT > 0 || t.respawnTimer > 0) continue;
+    for (const [d, r] of pts) {
+      const px = A.x + c * d * sc, py = A.y + s * d * sc;
+      if (!circleHitsFighter(px, py, r * sc, t)) continue;
+      if (applyHit(t, h, dir, a.mult * powerOf(f), px, py, { fighter: f })) {
+        a.hit.add(key);
+        burst(px, py, ['#8d8d9a', '#ffffff', '#ffd23f'], 10, 0, Math.PI, 420, { grav: 300 });
+        shake = Math.max(shake, 10); sfx.clash(false);
+      }
+      break;
+    }
+  }
+}
 function stepAnchorSlam(f, a, dt) {
   const A = anchorPlace(f, a);
   a.anchor = A;                                                 // (drawn by drawAnchors)
+  if (a.phase === 'active') {                                   // the whole anchor hits, the entire swing (front swing, then back)
+    const back = a.t >= ANCHOR.front + 0.1, hb = f.moveset.downGround.hitboxes;
+    anchorBodyHit(f, a, A, back ? hb[2] : hb[0], back ? -f.face : f.face, back ? 1 : 0);
+  }
   const back = a.phase === 'active' && a.t > ANCHOR.front + 0.15, crouch = a.phase === 'active' && (Math.abs(a.t - ANCHOR.front) < 0.06 || a.t > ANCHOR.back - 0.02);
   a.poseOverride = pose({ lean: back ? -0.45 : a.phase === 'active' ? 0.45 : -0.3, bob: crouch ? -18 : -6,
                           legA: [0.85, 0.7], legB: [-0.8, 0.35], grip: [A.gx, A.gy + 4], lowFree: false });
@@ -3022,6 +3055,29 @@ function stepAnchorSlam(f, a, dt) {
       }
     }
     if (a.t > ANCHOR.front + 0.1 && a.t < ANCHOR.back && !a.swungOver) { a.swungOver = true; sfx.whoosh(true); }
+  }
+  return false;
+}
+// ANCHOR ARC (up J): from low in front, up over his head, down behind - the whole anchor hitting all the way round
+function stepAnchorArc(f, a, dt) {
+  const F = f.face, lerpG = (p, q, k) => [lerp(p[0], q[0], k), lerp(p[1], q[1], k)];
+  const LOW = [34, -44], TOP = [-2, -118], BACK = [-30, -60];
+  const phiLow = Math.atan2(30, 60), phiBack = Math.atan2(30, -60) - Math.PI * 2;   // pointing out forward-down... round the top... back-down
+  let g, phi, alpha = 1;
+  if (a.phase !== 'active' && a.phase !== 'end') { g = LOW; phi = phiLow; }              // (wound up low in front while charging)
+  else if (a.phase === 'active') {
+    const k = easeInOut(clamp(a.t / ANCHOR_ARC.time, 0, 1));
+    g = k < 0.5 ? lerpG(LOW, TOP, k * 2) : lerpG(TOP, BACK, k * 2 - 1); phi = lerp(phiLow, phiBack, k);
+  } else { const k = clamp(a.t / 0.2, 0, 1); g = lerpG(BACK, [-12, -80], k); phi = phiBack; alpha = 1 - k; }   // ...and away
+  const A = { x: f.x + g[0] * F, y: f.y + g[1], th: F > 0 ? phi : Math.PI - phi, alpha, scale: 0.92 };
+  a.anchor = A;
+  const k = a.phase === 'active' ? a.t / ANCHOR_ARC.time : a.phase === 'end' ? 1 : 0;
+  a.poseOverride = pose({ lean: lerp(0.35, -0.35, k), bob: a.phase === 'active' ? -4 : -12, legA: [0.75, 0.6], legB: [-0.65, 0.35], grip: [g[0], g[1] + 4], lowFree: false });
+  if (a.phase === 'active') {
+    const h = f.moveset.upGround.hitboxes[0];
+    anchorBodyHit(f, a, A, h, F, 0);
+    if (!a.swooshed) { a.swooshed = true; sfx.whoosh(true); }
+    if (Math.random() < dt * 50) ghosts.push({ fig: figureOf(f), life: 0.12, max: 0.12, color: '#8d8d9a' });
   }
   return false;
 }
@@ -5669,8 +5725,9 @@ function heelTauntStep(f, a, dt) {
   }
 }
 // The props + the bone pile (world space; drawn in drawFighter before his body)
-function drawHeelTauntProps(p, a) {
+function drawHeelTauntProps(p, a, front = false) {
   const F = a.face0, T = a.t;
+  if (front) { if (a.kind === 1) drawHeelCigar(p, a); return; }   // (in FRONT of him: the cigar in his teeth)
   if (a.kind === 1) {
     const B = HEEL_TAUNT.barrel;
     if (a.bx !== undefined && !a.boomed) {                         // the RUM BARREL
@@ -5685,11 +5742,18 @@ function drawHeelTauntProps(p, a) {
       if (h > 20) { ctx.fillStyle = sketch ? '#1b1b1b' : '#f2efe6'; ctx.font = 'bold 9px "Arial Black", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('RUM', x, y - h * 0.42); ctx.textAlign = 'left'; }
       ctx.restore();
     }
+  } else if (a.kind === 2) {
+    drawHeelAnchorProp(p, a);
+  }
+}
+function drawHeelCigar(p, a) {
+  const F = a.face0, T = a.t, B = HEEL_TAUNT.barrel;
+  {
     // the CIGAR: in his teeth (lit from the match on), then flying at the barrel
     const lit = T >= B.light;
     let cx = null, cy = null, ang = 0;
     if (a.cig) { cx = a.cig.x; cy = a.cig.y; ang = Math.atan2(a.cig.vy, a.cig.vx); }
-    else if (T >= B.light - 0.25 && T < B.toss) { cx = p.x + F * 18; cy = p.y - B.h * 1.25 * (T < B.hopOff ? 1 : 0) - 104; ang = F > 0 ? 0.15 : Math.PI - 0.15; }
+    else if (T >= B.light - 0.25 && T < B.toss) { const M = heelMouth(p); cx = M.x; cy = M.y; ang = F > 0 ? 0.15 : Math.PI - 0.15; }   // clenched in his teeth
     if (cx !== null) {
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
       ctx.fillStyle = '#6b3d1f'; ctx.fillRect(-2, -2, 13, 4);
@@ -5697,7 +5761,11 @@ function drawHeelTauntProps(p, a) {
       ctx.restore();
       if (lit && Math.random() < 0.3) particles.push({ x: cx + Math.cos(ang) * 13, y: cy, vx: 0, vy: -30, life: 0.5, max: 0.5, size: 2, color: '#bdbdbd', type: 'bit', grav: -40 });
     }
-  } else if (a.kind === 2) {
+  }
+}
+function drawHeelAnchorProp(p, a) {
+  const F = a.face0, T = a.t;
+  {
     const A = HEEL_TAUNT.anchor;
     if (a.ax !== undefined) {
       if (T < A.slam) {                                            // hauled up overhead...
@@ -5709,6 +5777,14 @@ function drawHeelTauntProps(p, a) {
       }
     }
   }
+}
+// where his MOUTH is right now (from the pose he's drawn in - the same maths as drawFigure)
+function heelMouth(p) {
+  const pz = p.disp || p.pose || NEUTRAL_POSE, f = p.face, sc = (p.look && p.look.scale) || 1;
+  const hipY = -(LEG_UP + LEG_LOW - 1) - (pz.bob || 0) * LEG_SCALE;
+  const shx = Math.sin(pz.lean || 0) * TORSO * f, shy = hipY - Math.cos(pz.lean || 0) * TORSO;
+  const hx = shx + Math.sin(pz.lean || 0) * NECK * f, hy = shy - NECK;
+  return { x: p.x + (hx + f * 7) * sc, y: p.y + (hy + 7) * sc };
 }
 // FALLING APART: his bones, from where they are on his body to a heap on the floor, and back again
 const BONE_PARTS = [   // [kind, x, y, angle, length]  (x is forward, y up from his feet; scaled by his size)
@@ -12796,7 +12872,8 @@ function render() {
       const order = fighters.filter(f => f.respawnTimer <= 0).sort((a, b) => (a.drawZ || 0) - (b.drawZ || 0));
       for (const f of order) drawFighter(f);
       for (const f of order) drawSmear(f);              // attack smears on top of the bodies
-      for (const f of order) if (f.action && f.action.anchor && f.action.type === 'attack') { const A = f.action.anchor; drawAnchorAt(A.x, A.y, A.th, A.alpha); }   // Captain Heel's anchor (in his hands)
+      for (const f of order) if (f.action && f.action.anchor && f.action.type === 'attack') { const A = f.action.anchor; drawAnchorAt(A.x, A.y, A.th, A.alpha, A.scale || 1); }
+      for (const f of order) if (f.action && f.action.type === 'taunt' && f.look && f.look.pirateHat && !f.action.bones) drawHeelTauntProps(f, f.action, true);   // (his cigar, in front of his face)   // Captain Heel's anchor (in his hands)
       drawCage();                                       // Aiden's steel cage (the bars in front)
       drawShipUlts(true);                               // Aiden's pirate ship crashing down on them
       if (ult && ult.statue) drawGuanyinFront(ult);    // the statue's palms flying in + the Zero Hand beam
