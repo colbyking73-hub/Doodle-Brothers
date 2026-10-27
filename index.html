@@ -1733,21 +1733,30 @@ COLBY_MOVES.sideGround = { name: 'Reaper Tornado', startup: 0.08, active: 0.48, 
 
 // Up J: WITH the scythe = HEAVEN'S HARVEST (below). Bare-handed it's still the Heaven Splitter uppercut.
 COLBY_PUNCHES.upGround = COLBY_MOVES.upGround;
-// HEAVEN'S HARVEST (up J holding the scythe, hold to charge): one huge arc of the scythe up over his head - from low in
-// front of him, up through the air above him and down behind. The blade covers the whole space over his head (big
-// hitboxes all along the arc) and sends them straight up. Scythe hits make them BLEED.
-COLBY_MOVES.upGround = { name: "Heaven's Harvest", startup: 0.12, active: 0.16, endlag: 0.3, charge: true, sweep: true, hop: 120, landLag: 0.12,
-  hitboxes: [{ x: 78,  y: -96,  r: 46, dmg: 11, base: 430, growth: 6.2, angle: 84, from: 0,    to: 0.06 },   // rising in front
-             { x: 46,  y: -150, r: 50, dmg: 12, base: 450, growth: 6.4, angle: 88, from: 0.03, to: 0.1 },    // over his head (strongest)
-             { x: -10, y: -172, r: 50, dmg: 12, base: 450, growth: 6.4, angle: 90, from: 0.06, to: 0.13 },
-             { x: -66, y: -128, r: 46, dmg: 11, base: 430, growth: 6.2, angle: 96, from: 0.1,  to: 0.16 },   // coming down behind
-             { x: 24,  y: -70,  r: 34, dmg: 10, base: 420, growth: 6,   angle: 84, from: 0,    to: 0.08 }],  // point blank
-  wind: pose({ lean: 0.35, bob: -16, legA: [0.95, 1.3], legB: [-0.7, 0.5],
-               sc: { gx: 16, gy: 18, pitch: -0.6, yaw: 0.1, n: [0, 0, -1], hands: 2 } }),     // scythe low in front, coiled
-  strike: pose({ lean: -0.35, bob: 2, legA: [0.35, 0.3], legB: [-0.5, 0.4],
-                 sc: { gx: -2, gy: -20, pitch: 2.75, yaw: 0.1, n: [0, 0, -1], hands: 2 } }),  // ...ripped up over his head and back
-  fire(f, mult, c) { dust(f.x, f.y, 10 + Math.round(10 * (c || 0)), 1.8); sfx.slash(); sfx.whoosh(true); },
-  onHit(f, t) { if (gore) burst(t.x, t.y - 60, BLOOD, 10, -Math.PI / 2, 1.0, 420, { stain: true }); } };
+// REAPER'S ARC (up J holding the scythe - on the ground AND in the air): a fast overhead swipe of the scythe, from in
+// front of him, up over his head and down behind. Built for JUGGLING: quick to come out, quick to end, and it pops them
+// straight up just far enough to swipe them again. (Ground version can be charged a little for a real launch.)
+// Scythe hits make them BLEED.
+const ARC_HITS = (dmg, base, growth) => [
+  { x: 64,  y: -92,  r: 40, dmg,           base, growth, angle: 84, from: 0,    to: 0.05 },   // rising in front
+  { x: 30,  y: -138, r: 44, dmg: dmg + 1,  base, growth, angle: 88, from: 0.02, to: 0.08 },   // right over his head (sweet)
+  { x: -18, y: -146, r: 44, dmg: dmg + 1,  base, growth, angle: 92, from: 0.04, to: 0.1 },
+  { x: -60, y: -104, r: 38, dmg,           base, growth, angle: 96, from: 0.07, to: 0.12 },   // coming down behind
+  { x: 20,  y: -66,  r: 30, dmg,           base, growth, angle: 86, from: 0,    to: 0.05 }];  // point blank
+const ARC_SC_WIND = { gx: 18, gy: 14, pitch: -0.5, yaw: 0.1, n: [0, 0, -1], hands: 2 };     // blade low in front
+const ARC_SC_STRIKE = { gx: -4, gy: -22, pitch: 2.8, yaw: 0.1, n: [0, 0, -1], hands: 2 };   // ...swept over his head and back
+COLBY_MOVES.upGround = { name: "Reaper's Arc", startup: 0.06, active: 0.12, endlag: 0.16, charge: true, sweep: true, landLag: 0.08,
+  hitboxes: ARC_HITS(7, 300, 3.6),
+  wind: pose({ lean: 0.3, bob: -10, legA: [0.8, 1.1], legB: [-0.6, 0.4], sc: ARC_SC_WIND }),
+  strike: pose({ lean: -0.3, bob: 0, legA: [0.3, 0.3], legB: [-0.45, 0.35], sc: ARC_SC_STRIKE }),
+  fire(f, mult, c) { dust(f.x, f.y, 6 + Math.round(8 * (c || 0)), 1.4); sfx.slash(); },
+  onHit(f, t) { if (gore) burst(t.x, t.y - 60, BLOOD, 6, -Math.PI / 2, 0.9, 380, { stain: true }); } };
+COLBY_MOVES.uair = { name: "Reaper's Arc", startup: 0.05, active: 0.12, endlag: 0.14, landLag: 0.08, sweep: true,
+  hitboxes: ARC_HITS(6, 280, 3.2),
+  wind: pose({ lean: 0.25, bob: -6, legA: [1.1, 1.8], legB: [0.4, 1.4], sc: ARC_SC_WIND }),
+  strike: pose({ lean: -0.35, bob: -4, legA: [0.9, 1.6], legB: [0.2, 1.0], sc: ARC_SC_STRIKE }),
+  fire() { sfx.slash(); },
+  onHit(f, t) { if (gore) burst(t.x, t.y - 60, BLOOD, 5, -Math.PI / 2, 0.9, 360, { stain: true }); } };
 
 // ---------------- REAPER'S WARP (up K holding the scythe) - his recovery ----------------
 // He hurls the scythe (aim it with the stick - no direction = straight up). Press K again while it's out = he
@@ -2079,23 +2088,37 @@ COLBY_MOVES.dair = { name: "Reaper's Undercut", startup: 0.08, active: 0.2, endl
 // he's kicking rises right along with him, held on top of his feet, until the last kick launches them off.
 const BICYCLE = { rise: 420, kicks: 6, every: 0.06 };
 COLBY_PUNCHES.uair = { name: 'Dragon Bicycle', startup: 0.06, active: BICYCLE.kicks * BICYCLE.every + 0.08, endlag: 0.18, landLag: 0.12,
-  hitboxes: [...Array.from({ length: BICYCLE.kicks }, (_, k) => ({ x: 14, y: -96, r: 34, dmg: 1.6, base: 120, growth: 0, angle: 88,
+  hitboxes: [...Array.from({ length: BICYCLE.kicks }, (_, k) => ({ x: 12, y: -110, r: 34, dmg: 1.6, base: 120, growth: 0, angle: 88,
                                                                   from: k * BICYCLE.every, to: k * BICYCLE.every + 0.04, group: k })),
-             { x: 12, y: -104, r: 38, dmg: 6, base: 430, growth: 5, angle: 86, from: BICYCLE.kicks * BICYCLE.every, to: BICYCLE.kicks * BICYCLE.every + 0.08, group: BICYCLE.kicks }],
+             { x: 10, y: -118, r: 38, dmg: 6, base: 430, growth: 5, angle: 86, from: BICYCLE.kicks * BICYCLE.every, to: BICYCLE.kicks * BICYCLE.every + 0.08, group: BICYCLE.kicks }],
   wind: pose({ lean: -0.2, legA: [1.0, 2.1], legB: [0.5, 1.8], armA: [-0.6, 0], armB: [-1.0, 0] }),
   strike: pose({ lean: -0.55, legA: [2.9, 0.05], legB: [1.3, 2.0], armA: [-1.4, 0.3], armB: [-1.9, 0] }),
+  // He flips UPSIDE DOWN (head down, legs up in the air) and pedals his legs straight up overhead, then rolls back
+  // upright. (Upside down = spin PI around his hips, so a leg pointing "down" in the pose points UP on screen.)
   step(f, a, dt) {
-    if (a.phase !== 'active') { a.poseOverride = null; return false; }
+    const m = a.move, flip = -f.face;                         // a backflip into it
+    const legsUp = (A, B) => ({ ...pose({ lean: 0, bob: 14, spin: flip * Math.PI, legA: A, legB: B, armA: [2.3, 0.1], armB: [-2.3, -0.1] }), raw: true });
+    if (a.phase === 'startup') {                              // tipping over backwards...
+      const k = Math.min(1, a.t / m.startup);
+      a.poseOverride = { ...pose({ lean: 0, bob: 8 * k, spin: flip * Math.PI * k, legA: [-0.5, 1.4], legB: [-0.2, 1.0], armA: [2.0, 0.2], armB: [-2.0, -0.2] }), raw: true };
+      return false;
+    }
+    if (a.phase !== 'active') {                               // ...and rolling the rest of the way round, back on his feet
+      const k = Math.min(1, a.t / m.endlag);
+      a.poseOverride = { ...pose({ lean: 0, bob: 14 * (1 - k), spin: flip * Math.PI * (1 + k), legA: [-0.6, 1.5], legB: [-0.3, 1.1], armA: [2.0, 0.2], armB: [-2.0, -0.2] }), raw: true };
+      return false;
+    }
     if (a.t < BICYCLE.kicks * BICYCLE.every) {
       f.vy = -BICYCLE.rise;                                   // rising...
-      const alt = Math.floor(a.t / (BICYCLE.every / 2)) % 2;  // ...legs pedalling
-      a.poseOverride = { ...pose({ lean: -0.55, legA: alt ? [2.9, 0.05] : [1.2, 2.2], legB: alt ? [1.2, 2.2] : [2.9, 0.05], armA: [-1.4, 0.3], armB: [-1.9, 0] }), raw: true };   // (raw: snaps, too fast to blend)
+      const alt = Math.floor(a.t / (BICYCLE.every / 2)) % 2;  // ...legs pedalling up in the air
+      const straight = [-0.12, 0.05], tucked = [-0.95, 1.7];
+      a.poseOverride = alt ? legsUp(straight, tucked) : legsUp(tucked, straight);   // (raw: snaps, too fast to blend)
       for (const t of a.drag || []) {                          // ...carrying them up with him, on top of his feet
         if (!t.action || t.action.type !== 'hitstun' || t.respawnTimer > 0) continue;
-        t.x = lerp(t.x, f.x + f.face * 10, 0.3); t.y = f.y - 92; t.vx = f.vx; t.vy = f.vy;
+        t.x = lerp(t.x, f.x + f.face * 8, 0.3); t.y = f.y - 112; t.vx = f.vx; t.vy = f.vy;
       }
-      if (Math.random() < dt * 40) burst(f.x + f.face * 10, f.y - 96, ['#ffffff', '#ffd23f'], 1, -Math.PI / 2, 0.8, 200, { grav: 0 });
-    } else a.poseOverride = pose({ lean: -0.4, legA: [3.0, 0.05], legB: [0.6, 1.4], armA: [-1.4, 0.3], armB: [-1.9, 0] });   // the last kick, straight up
+      if (Math.random() < dt * 40) burst(f.x + f.face * 8, f.y - 112, ['#ffffff', '#ffd23f'], 1, -Math.PI / 2, 0.8, 200, { grav: 0 });
+    } else a.poseOverride = legsUp([-0.05, 0.02], [-0.05, 0.02]);   // the last kick: both legs straight up
     return false;
   },
   onHit(f, t, a, h) { if (h.group < BICYCLE.kicks) (a.drag || (a.drag = new Set())).add(t); } };
@@ -2122,6 +2145,87 @@ COLBY_PUNCHES.dair = { name: 'Double Knee Drop', startup: 0.1, active: 0.5, endl
     impactFrame = Math.max(impactFrame, 0.07); impactAt = { x: t.x, y: t.y - 30, ang: -Math.PI / 2, all: false, focus: true };
     hitstop = Math.max(hitstop, 0.14); shake = Math.max(shake, 16); sfx.clash(true);
   } };
+
+// ---------------- THUNDER BOLT (bare-handed side J) - after Ness's PK Thunder ----------------
+// Out instantly: a ball of lightning shoots out ahead of him with a crackling tail, and while it's out he STEERS it
+// with the stick (any direction - it turns fast) while he stands there concentrating. It hits once and bursts.
+// Press attack / block again (or wait) to let it go. Faster and snappier to steer than Ness's, for this game's speed.
+const THUNDER_BOLT = { speed: 1300, turn: 9.5, life: 1.5, r: 15, tail: 16,
+                       hit: { dmg: 8, base: 380, growth: 4.6, angle: 40 } };
+COLBY_PUNCHES.sideGround = { name: 'Thunder Bolt', startup: 0.03, active: 9, endlag: 0.22, landLag: 0.1, noClash: true, hitboxes: [],
+  wind: pose({ lean: -0.1, bob: -6, legA: [0.7, 0.6], legB: [-0.6, 0.3], armA: [1.2, -0.6], armB: [2.4, -1.5] }),
+  strike: pose({ lean: 0.15, bob: -8, legA: [0.8, 0.7], legB: [-0.7, 0.3], armA: [1.6, -0.1], armB: [2.5, -1.7] }),   // hand thrust out, the other at his temple
+  fire(f, mult, c, a) {
+    const s = { owner: f, x: f.x + f.face * 40, y: f.y - 66, vx: f.face * THUNDER_BOLT.speed, vy: 0, r: THUNDER_BOLT.r, ...THUNDER_BOLT.hit,
+                mult: powerOf(f), life: THUNDER_BOLT.life, kind: 'orb', color: '#7fd8ff', hit: new Set(), pierce: false, trail: [], grav: 0,
+                steer: true, ang: f.face > 0 ? 0 : Math.PI, trailLen: THUNDER_BOLT.tail, electric: true };
+    projectiles.push(s); a.bolt = s;
+    burst(s.x, s.y, ['#ffffff', '#7fd8ff'], 12, f.face > 0 ? 0 : Math.PI, 0.6, 420, { grav: 0 });
+    sfx.blast(); sfx.vanish(0.5);
+  },
+  step(f, a, dt, inp) {
+    if (a.phase !== 'active') return false;
+    f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = Math.min(f.vy, 120);
+    const alive = a.bolt && projectiles.includes(a.bolt);
+    if (!alive || (a.t > 0.12 && (inp.atkTap || inp.blockTap))) {     // it's gone (hit something / ran out) - or he lets it go
+      if (alive) { a.bolt.steer = false; a.bolt.life = Math.min(a.bolt.life, 0.25); }
+      a.phase = 'end'; a.t = 0;
+      return true;
+    }
+    if (Math.random() < dt * 20) bolt(f.x + f.face * 30, f.y - 70, Math.random() * Math.PI * 2, 24, 0.06, '#7fd8ff');   // crackling round his hand
+    return true;
+  } };
+
+// INFERNO AXE KICK (bare-handed down J, hold to charge): the same axe kick - but flames gather round his foot while
+// he charges (and it charges a good bit faster than other moves), and the heel coming down EXPLODES into a big
+// shockwave of fire that hits everyone close by (bigger the longer it charged). Fully charged: LIGHTNING strikes
+// everyone caught in it too, for extra damage.
+const INFERNO_KICK = { chargeRate: 1.8, r0: 165, rCharge: 90, wave: { dmg: 8, base: 380, growth: 5, angle: 68 }, boltDmg: 7 };
+COLBY_PUNCHES.downGround = { ...COLBY_MOVES.downGround, name: 'Inferno Axe Kick', chargeRate: INFERNO_KICK.chargeRate,
+  hitboxes: COLBY_MOVES.downGround.hitboxes.map(h => ({ ...h })),
+  step(f, a, dt) {
+    const foot = { x: f.x + f.face * 14, y: f.y - 118 };          // (his heel, raised high over his head)
+    if (a.phase === 'charge') {                                   // flames gathering round his foot, more and more
+      const c = clamp(a.charge / MAX_CHARGE, 0, 1);
+      if (Math.random() < dt * (40 + 120 * c)) burst(foot.x + (Math.random() - 0.5) * 24, foot.y + (Math.random() - 0.5) * 24, FIRE, 1, Math.PI / 2, 0.6, 90 + 220 * c, { grav: -300 });
+      if (Math.random() < dt * (12 + 40 * c)) {                    // ...pulled in toward it
+        const ang = Math.random() * Math.PI * 2, d = 40 + 30 * c;
+        particles.push({ x: foot.x + Math.cos(ang) * d, y: foot.y + Math.sin(ang) * d, vx: -Math.cos(ang) * d * 6, vy: -Math.sin(ang) * d * 6,
+                         life: 0.16, max: 0.16, size: 2, color: FIRE[(Math.random() * FIRE.length) | 0], type: 'bit', grav: 0 });
+      }
+      if (c >= 1 && !a.infFull) { a.infFull = true; ring(foot.x, foot.y); burst(foot.x, foot.y, FIRE, 26, 0, Math.PI, 420, { grav: -200 }); sfx.parry(); }
+    }
+    if (a.phase === 'active' && !a.infBoom && a.t >= 0.04) {      // THE HEEL COMES DOWN: a shockwave of fire
+      a.infBoom = true;
+      const cf = a.cfrac || 0, R = INFERNO_KICK.r0 + INFERNO_KICK.rCharge * cf, cx = f.x + f.face * 22, gy = f.y;   // (centred near him: it reaches behind him too)
+      const full = cf >= 0.97;
+      for (const t of fighters) {
+        if (t === f || allies(f, t) || t.respawnTimer > 0 || t.dead || t.poofT > 0) continue;
+        if (!circleHitsFighter(cx, gy - 30, R, t)) continue;
+        if (full) {                                               // FULL CHARGE: lightning strikes them too
+          lightningStrike(t);
+          if (!t.shielding && !isIntangible(t)) { t.damage += INFERNO_KICK.boltDmg * powerOf(f); if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + INFERNO_KICK.boltDmg); }
+        }
+        if (a.hit.has(fighters.indexOf(t) + ':0')) continue;      // (the heel itself already got them)
+        if (applyHit(t, { ...INFERNO_KICK.wave }, Math.sign(t.x - cx) || f.face, a.mult * powerOf(f), t.x, t.y - 30, { fighter: f })) a.hit.add(fighters.indexOf(t) + ':0');
+      }
+      for (let k = -3; k <= 3; k++) burst(cx + k * R * 0.28, gy - 6, FIRE, 8 + Math.round(10 * cf), Math.PI / 2, 0.5, 380 + 380 * cf, { grav: -250 });
+      ring(cx, gy - 10); if (cf > 0.4) ring(cx, gy - 34);
+      dust(cx, gy, 16 + Math.round(16 * cf), 2 + cf);
+      cracks.push({ x: cx, y: gy, life: 3, max: 3, seed: Math.random() * 1000, size: 1 + cf });
+      shake = Math.max(shake, 10 + 16 * cf); impactFrame = Math.max(impactFrame, 0.05 + 0.07 * cf);
+      impactAt = { x: cx, y: gy - 20, ang: Math.PI / 2, all: full, focus: true, fire: true };
+      sfx.slam(); if (full) { sfx.huge(); lightningStrikeAt(cx, gy); }
+    }
+    return false;
+  } };
+// a bolt from the sky onto a spot (for show)
+function lightningStrikeAt(x, gy) {
+  for (const col of ['#7fd8ff', '#ffffff']) {
+    let cx = x + (Math.random() - 0.5) * 40, cy = gy - 900;
+    for (let k = 0; k < 6; k++) { const nx = k === 5 ? x : x + (Math.random() - 0.5) * 70, ny = cy + 150; bolt(cx, cy, Math.atan2(-(ny - cy), nx - cx), Math.hypot(nx - cx, ny - cy), 0.3, col); cx = nx; cy = ny; }
+  }
+}
 
 // DASH CHOKESLAM (bare-handed down K, until his TIME meter is full - then it's Time Stop): he RUSHES at them, grabs
 // them by the throat, leaps up into the air with them held up high... and comes crashing down, driving them into
@@ -7111,8 +7215,24 @@ function updateProjectiles(dt) {
     if (s.kind === 'beam') { if (updateBeam(s, dt)) projectiles.splice(i, 1); continue; }
     if (s.kind === 'disc') { if (updateDisc(s, dt)) projectiles.splice(i, 1); continue; }   // Lance's Destructo Disc
     if (s.grav) s.vy += s.grav * dt;
+    // STEERED (Colby's Thunder Bolt): turns toward wherever his stick points, while he's still concentrating on it
+    if (s.steer) {
+      const o = s.owner, oa = o && o.action, inp = o && o.lastInp;
+      if (!oa || oa.type !== 'attack' || oa.bolt !== s) s.steer = false;
+      else if (inp) {
+        const dx = inp.dir || 0, dy = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
+        if (dx || dy) {
+          let d = Math.atan2(dy, dx) - s.ang;
+          d = Math.atan2(Math.sin(d), Math.cos(d));             // (shortest way round)
+          if (Math.abs(d) > Math.PI * 0.8) d = (Math.cos(s.ang) >= 0 ? -1 : 1) * Math.abs(d);   // (a U-turn loops UP and over, not into the floor)
+          s.ang += clamp(d, -THUNDER_BOLT.turn * dt, THUNDER_BOLT.turn * dt);
+        }
+        s.vx = Math.cos(s.ang) * THUNDER_BOLT.speed; s.vy = Math.sin(s.ang) * THUNDER_BOLT.speed;
+      }
+    }
+    if (s.electric && Math.random() < dt * 30) bolt(s.x, s.y, Math.random() * Math.PI * 2, 18 + Math.random() * 16, 0.05, Math.random() < 0.5 ? '#ffffff' : s.color);
     s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
-    s.trail.push({ x: s.x, y: s.y }); if (s.trail.length > 6) s.trail.shift();
+    s.trail.push({ x: s.x, y: s.y }); if (s.trail.length > (s.trailLen || 6)) s.trail.shift();
     let dead = s.life <= 0 || s.x < -150 || s.x > W + 150 || s.y < -150 || s.y > H + 150;
     // Hit the solid stage
     if (s.kind !== 'wave' && s.x > STAGE.x && s.x < STAGE.x + STAGE.w && s.y > STAGE.y && s.y < STAGE.y + STAGE.h) {
@@ -7146,6 +7266,10 @@ function updateProjectiles(dt) {
               for (let k = 0; k < 4; k++) bolt(t.x, t.y - 50, Math.random() * Math.PI * 2, 40, 0.12, s.stunColor || '#ff2a2a');
             }
             s.hit.add(t);
+            if (s.electric) {                                     // Thunder Bolt: bursts in a crackle of lightning
+              for (let k = 0; k < 6; k++) bolt(s.x, s.y, Math.random() * Math.PI * 2, 40 + Math.random() * 40, 0.14, k % 2 ? '#ffffff' : s.color);
+              burst(s.x, s.y, ['#ffffff', s.color], 16, 0, Math.PI, 520, { grav: 0 }); sfx.clash(false);
+            }
             if (!s.pierce) { dead = true; break; }
           }
         }
@@ -8075,6 +8199,7 @@ function updateFighter(f, inp, dt) {
     return;
   }
 
+  f.lastInp = inp;                                                // (things he controls from afar - e.g. Colby's Thunder Bolt - read it)
   f.jumpBuf  = inp.jumpTap  ? BUFFER : Math.max(0, f.jumpBuf - dt);
   f.dodgeBuf = inp.blockTap ? BUFFER : Math.max(0, f.dodgeBuf - dt);
   f.dirBuf   = inp.dirTap   ? BUFFER : Math.max(0, f.dirBuf - dt);
@@ -10964,6 +11089,7 @@ function drawProjectiles() {
   }
   for (const s of projectiles) {
     if (s.kind === 'beam' || s.kind === 'disc') continue;
+    if (s.electric) { drawThunderBolt(s); continue; }
     s.trail.forEach((t, i) => {
       const k = i / s.trail.length;
       ctx.fillStyle = s.color; ctx.globalAlpha = k * 0.5;
@@ -10985,6 +11111,29 @@ function drawProjectiles() {
   }
 }
 
+// Colby's THUNDER BOLT: a glowing ball of lightning dragging a jagged, crackling tail (like PK Thunder's)
+function drawThunderBolt(s) {
+  const T = s.trail, n = T.length;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (n > 1) {
+    for (const [w, col, a] of [[12, s.color, 0.35], [5, s.color, 0.85], [2, '#ffffff', 1]]) {   // glow, body, white-hot core
+      ctx.globalAlpha = a; ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath();
+      T.forEach((p, i) => {
+        const k = i / (n - 1), j = (1 - k) * 7;                  // (more jagged toward the end of the tail)
+        const x = p.x + (Math.random() - 0.5) * j, y = p.y + (Math.random() - 0.5) * j;
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      });
+      ctx.lineTo(s.x, s.y); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 0.35; ctx.fillStyle = s.color;               // the ball
+  ctx.beginPath(); ctx.arc(s.x, s.y, s.r * 1.9, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r * 0.55, 0, Math.PI * 2); ctx.fill();
+  if (Math.random() < 0.5) bolt(s.x, s.y, Math.random() * Math.PI * 2, s.r * 3, 0.05, Math.random() < 0.5 ? '#ffffff' : s.color);
+}
 // The black & white impact frame: everything goes black, fighters turn white, lightning bursts out.
 function drawImpactFrame() {
   // Fill the whole screen first, then draw the fighters/lightning through the camera
