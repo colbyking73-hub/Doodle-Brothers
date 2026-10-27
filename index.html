@@ -2676,13 +2676,22 @@ const AIDEN_MOVES = {
     wind: pose({ lean: 0.3, legA: [1.2, 2.0], legB: [0.9, 1.8], armA: [0.6, -1.6], armB: [0.3, -1.6] }),
     strike: pose({ lean: -0.85, bob: 4, legA: [1.65, 0], legB: [1.5, 0.08], armA: [-2.1, 0.2], armB: [-2.4, 0.2], armC: [-1.7, 0.3], armD: [-2.0, 0.3] }) },
   // BACK KICK: donkey kick straight out behind him - one of his strongest air hits
-  bair: { name: 'Back Kick', startup: 0.1, active: 0.08, endlag: 0.24, landLag: 0.14,
-    hitboxes: [{ x: -48, y: -44, r: 23, dmg: 14, base: 450, growth: 7.5, angle: 145 },
-               { x: -24, y: -48, r: 18, dmg: 12, base: 430, growth: 7, angle: 145 }],
-    wind: pose({ lean: 0.25, legA: [0.9, 2.2], legB: [0.5, 1.9], armA: [0.9, -1.7], armB: [0.6, -1.7] }),
-    strike: pose({ lean: 0.7, legA: [-1.75, 0], legB: [0.7, 1.8], armA: [1.6, -0.6], armB: [1.2, -0.8], armC: [1.0, -0.8], armD: [0.8, -0.9] }) },
-  // FLIP KICK (up air): somersaults, heel sweeping up through the space above him
-  uair: { name: 'Flip Kick', startup: 0.07, active: 0.16, endlag: 0.18, landLag: 0.12, flip: true,
+  // BACK DROPKICK (back air): both knees pulled in, then BOTH feet driven straight out behind him together
+  bair: { name: 'Back Dropkick', startup: 0.1, active: 0.08, endlag: 0.24, landLag: 0.14,
+    hitboxes: [{ x: -50, y: -46, r: 24, dmg: 14, base: 450, growth: 7.5, angle: 145 },
+               { x: -48, y: -30, r: 22, dmg: 14, base: 450, growth: 7.5, angle: 145 },
+               { x: -24, y: -42, r: 18, dmg: 12, base: 430, growth: 7, angle: 145 }],
+    wind: pose({ lean: 0.35, legA: [0.9, 2.2], legB: [0.8, 2.1], armA: [0.9, -1.7], armB: [0.6, -1.7], armC: [0.7, -1.4], armD: [0.5, -1.4] }),     // both knees tucked
+    strike: pose({ lean: 0.9, legA: [-1.72, 0.02], legB: [-1.5, 0.08], armA: [1.6, -0.6], armB: [1.3, -0.7], armC: [1.1, -0.8], armD: [0.9, -0.9] }) },   // both feet out behind
+  // ANCHOR ARC (up air): the anchor whipped up in a fast arc over his head, front to back - the whole anchor hits
+  // (the air version of his up J - see stepAnchorArc)
+  uair: { name: 'Anchor Arc', startup: 0.07, active: 0.2, endlag: 0.2, landLag: 0.14, noClash: true, arcTime: 0.2,
+    hitboxes: [{ x: 0, y: -150, r: 1, dmg: 9, base: 380, growth: 5.2, angle: 88, from: 9, to: 9 }],   // (placeholder: the hits come from the anchor)
+    wind: pose({ lean: 0.3, legA: [1.0, 1.7], legB: [0.5, 1.4], grip: [30, -40], lowFree: false }),
+    strike: pose({ lean: -0.3, legA: [0.8, 1.5], legB: [0.3, 1.1], grip: [-10, -120], lowFree: false }),
+    step(f, a, dt) { return stepAnchorArc(f, a, dt); } },
+  // (his previous up air - FLIP KICK - kept, not used)
+  flipKickAir: { name: 'Flip Kick', startup: 0.07, active: 0.16, endlag: 0.18, landLag: 0.12, flip: true,
     hitboxes: [{ x: 6, y: -98, r: 30, dmg: 10, base: 360, growth: 5.2, angle: 85 }],
     wind: pose({ legA: [0.9, 2.0], legB: [0.5, 1.7], armA: [0.6, -1.6], armB: [0.3, -1.6] }),
     strike: pose({ lean: -0.4, legA: [2.9, 0], legB: [0.6, 1.5], armA: [-1.2, 0], armB: [-1.6, 0], armC: [-0.9, 0.2], armD: [-1.3, 0.2] }) },
@@ -3116,17 +3125,19 @@ function stepAnchorArc(f, a, dt) {
   const LOW = [34, -44], TOP = [-2, -118], BACK = [-30, -60];
   const phiLow = Math.atan2(30, 60), phiBack = Math.atan2(30, -60) - Math.PI * 2;   // pointing out forward-down... round the top... back-down
   let g, phi, alpha = 1;
+  const ARC_T = a.move.arcTime || ANCHOR_ARC.time;                                       // (the up air swings a bit faster)
   if (a.phase !== 'active' && a.phase !== 'end') { g = LOW; phi = phiLow; }              // (wound up low in front while charging)
   else if (a.phase === 'active') {
-    const k = easeInOut(clamp(a.t / ANCHOR_ARC.time, 0, 1));
+    const k = easeInOut(clamp(a.t / ARC_T, 0, 1));
     g = k < 0.5 ? lerpG(LOW, TOP, k * 2) : lerpG(TOP, BACK, k * 2 - 1); phi = lerp(phiLow, phiBack, k);
   } else { const k = clamp(a.t / 0.2, 0, 1); g = lerpG(BACK, [-12, -80], k); phi = phiBack; alpha = 1 - k; }   // ...and away
   const A = { x: f.x + g[0] * F, y: f.y + g[1], th: F > 0 ? phi : Math.PI - phi, alpha, scale: 0.92 };
   a.anchor = A;
-  const k = a.phase === 'active' ? a.t / ANCHOR_ARC.time : a.phase === 'end' ? 1 : 0;
-  a.poseOverride = pose({ lean: lerp(0.35, -0.35, k), bob: a.phase === 'active' ? -4 : -12, legA: [0.75, 0.6], legB: [-0.65, 0.35], grip: [g[0], g[1] + 4], lowFree: false });
+  const k = a.phase === 'active' ? a.t / ARC_T : a.phase === 'end' ? 1 : 0;
+  const legs = f.ground ? { legA: [0.75, 0.6], legB: [-0.65, 0.35] } : { legA: [1.0, 1.6], legB: [0.45, 1.3] };   // (in the air: knees tucked)
+  a.poseOverride = pose({ lean: lerp(0.35, -0.35, k), bob: a.phase === 'active' ? -4 : -12, ...legs, grip: [g[0], g[1] + 4], lowFree: false });
   if (a.phase === 'active') {
-    const h = f.moveset.upGround.hitboxes[0];
+    const h = a.move.hitboxes[0];                                                         // (this move's hit: up J or up air)
     anchorBodyHit(f, a, A, h, F, 0);
     if (!a.swooshed) { a.swooshed = true; sfx.whoosh(true); }
     if (Math.random() < dt * 50) ghosts.push({ fig: figureOf(f), life: 0.12, max: 0.12, color: '#8d8d9a' });
@@ -3989,6 +4000,14 @@ function shipImpact(f, a) {
     if (t === f || allies(f, t) || t.respawnTimer > 0 || t.dead || t.out || t.poofT > 0 || t.halo > 0) continue;
     const inCage = caged.includes(t);
     if (!inCage && (t.x < x0 || t.x > x1)) continue;
+    // PERFECT BLOCK: shield thrown up right as the ship comes down (the usual perfect-block timing) = no damage, even
+    // shut in the cage. (A shield that's just held up gets crushed anyway.)
+    const aiParryOk = t.controller !== 'dummy' || Math.random() < ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3);
+    if (t.shielding && t.shieldAge <= PARRY_WINDOW && aiParryOk) {
+      perfectBlock(t, {}, t.x, t.y - 60);                       // (the flash, the sound, a full shield - Heel isn't staggered: he's mid-ult)
+      painTexts.push({ x: t.x, y: t.y - 160, t: 0.9, max: 0.9, text: 'PERFECT BLOCK!', big: true });
+      continue;
+    }
     if (!t.ground && !inCage) { painTexts.push({ x: t.x, y: t.y - 130, t: 0.7, max: 0.7, text: 'DODGED!', big: false }); continue; }   // in the air = safe (unless caged)
     if (inCage) { t.invuln = 0; if (t.action && ['air', 'roll', 'spot'].includes(t.action.type)) t.action = null; t.y = gy; t.vy = 0; t.ground = true; }
     t.shielding = false; if (t.action && ['grabbed', 'whipped'].includes(t.action.type)) t.action = null;
