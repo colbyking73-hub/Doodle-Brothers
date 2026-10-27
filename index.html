@@ -24,7 +24,7 @@
 <script src="lib/peerjs.min.js"></script>
 <style>
   html, body { margin: 0; height: 100%; background: #0e0c0c; overflow: hidden; }
-  canvas { display: block; margin: 0 auto; image-rendering: pixelated; }
+  canvas { display: block; margin: 0 auto; }
 </style>
 </head>
 <body>
@@ -55,12 +55,19 @@ lo.width = LW; lo.height = LH;
 const loCtx = lo.getContext('2d', { willReadFrequently: true });
 let ctx = loCtx;                                 // whichever canvas the world is being drawn on
 
+// The screen canvas is made as sharp as the window it's shown in: everything is still drawn in 1280x720 game units,
+// just scaled up by RS (render scale) - so COMBAT GODS / SKETCHBOOK stay crisp at any size (fullscreen, big
+// monitors). Only the PIXEL style is chunky, on purpose (it draws small and blows that up).
+let RS = 1;
 function fit() {
   const s = Math.min(innerWidth / W, innerHeight / H);
   canvas.style.width = W * s + 'px';
   canvas.style.height = H * s + 'px';
   canvas.style.marginTop = (innerHeight - H * s) / 2 + 'px';
   canvas.style.marginLeft = 'auto';
+  RS = Math.max(0.5, Math.min(2, s * (window.devicePixelRatio || 1)));   // (capped at 2x so huge screens stay fast)
+  const cw = Math.round(W * RS), ch = Math.round(H * RS);
+  if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
 }
 addEventListener('resize', fit);
 fit();
@@ -10097,7 +10104,7 @@ function render() {
   // Pixel mode: draw the world small, then blow it up with chunky pixels.
   // Smooth mode: draw straight onto the full-size screen.
   ctx = pixelMode ? loCtx : sctx;
-  ctx.setTransform(pixelMode ? 1 / PIX : 1, 0, 0, pixelMode ? 1 / PIX : 1, 0, 0);
+  ctx.setTransform(pixelMode ? 1 / PIX : RS, 0, 0, pixelMode ? 1 / PIX : RS, 0, 0);
   ctx.imageSmoothingEnabled = false;
   if (shake > 0) ctx.translate(snap((Math.random() - 0.5) * shake), snap((Math.random() - 0.5) * shake));
   sketchStroke = 0;
@@ -10152,6 +10159,7 @@ function render() {
     ctx.restore();
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  sctx.setTransform(RS, 0, 0, RS, 0, 0);            // (the screen is drawn on in game units, scaled to the real size)
   if (pixelMode) {
     pixelate();
     sctx.imageSmoothingEnabled = false;
@@ -10723,7 +10731,7 @@ function drawMenuBackground(accent) {
 function withMenuDrawing(fn) {
   const keep = [pixelMode, sketch, ctx];
   pixelMode = false; sketch = false; ctx = sctx;
-  sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.globalAlpha = 1;
+  sctx.setTransform(RS, 0, 0, RS, 0, 0); sctx.globalAlpha = 1;
   try { fn(); } finally { [pixelMode, sketch, ctx] = keep; }
 }
 
