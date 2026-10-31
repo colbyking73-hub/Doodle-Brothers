@@ -11172,7 +11172,8 @@ function stepAction(f, inp, dt) {
     }
     if (a.phase === 'startup' && a.t >= m.startup * (a.startupMul || 1)) {
       a.t = 0;
-      if (m.charge && btnHeld) a.phase = 'charge';
+      // (ANY grounded C-stick move can be charged: keep the right stick pushed, let go to fire - for every character)
+      if ((m.charge || a.cStick) && btnHeld) a.phase = 'charge';
       else beginActive(f, a);
     } else if (a.phase === 'charge') {
       a.charge += dt * (m.chargeRate || 1);            // (some moves charge faster)
@@ -15759,7 +15760,7 @@ function selectClick(p) {
       q.team = ((q.team || 0) + 1) % TEAM_COLORS.length; menuSfx('move'); return;
     }
     if (!q.cpu && inRect(pt, presetRectOn(c))) {          // this player's CONTROLS PRESET
-      const names = profileNames(); q.profile = names[(names.indexOf(q.profile || 'DEFAULT') + 1) % names.length];
+      const names = profileNames(); q.profile = names[(names.indexOf(q.profile || 'DEFAULT') + 1) % names.length]; rememberDevPreset(q.dev, q.profile);
       selMsg = { text: q.name + ' NOW USES THE ' + q.profile + ' CONTROLS', t: 1.6 }; menuSfx('move'); return;
     }
     if (inRect(pt, toggleRect(c)) && netRoom()) {          // ONLINE ROOM: CPU -> open seat (host), couch player -> steps out
@@ -15948,6 +15949,7 @@ function startMatch() {
     f.team = matchTeams ? pl.team : undefined;
     f.color = matchTeams ? TEAM_COLORS[pl.team].main : FIGHTER_INIT[i].color;   // TEAMS: the team's colour
     f.binds = profileOf(pl.profile);                                              // this player's CONTROLS PRESET
+    if (!pl.cpu) rememberDevPreset(pl.dev, pl.profile || 'DEFAULT');               // (so the MOVESETS page shows this device's buttons later)
     f.kos = 0; f.ult = 0; f.disp = null;
     f.stocks = gameOptions.stocks > 0 ? gameOptions.stocks : Infinity;   // lives
     f.cpuLevel = pl.cpu ? pl.level : null;                                // each CPU plays at its own level
@@ -16886,9 +16888,19 @@ function openMovesets(dev) { scene = 'movesets'; ms.scroll = 0; ms.dev = dev || 
 // ---- YOUR buttons: the move list is written as keyboard defaults (J, K, I, SIDE / UP / DOWN...), and shown in
 // whatever the person reading it actually uses - their keyboard keys, or their controller's buttons (Xbox or
 // GameCube names, from THEIR controls preset). The last device used on the page decides.
+// WHICH controls preset to show (read fresh every frame, so a remap on the CONTROLS screen shows up straight away):
+// the preset of the player using this device -> the preset this device last played with -> the preset last edited
+// on the CONTROLS screen -> DEFAULT
+let devPresets = (() => { try { return JSON.parse(localStorage.getItem('db-dev-presets') || '{}') || {}; } catch (e) { return {}; } })();
+function rememberDevPreset(dev, profile) {
+  if (!dev || dev === 'net' || !profile) return;
+  devPresets[dev] = profile;
+  try { localStorage.setItem('db-dev-presets', JSON.stringify(devPresets)); } catch (e) {}
+}
 function msBinds(dev) {
   const p = players.find(q => q.dev === dev && !q.cpu && !q.off);
-  return profileOf(p ? p.profile : 'DEFAULT');
+  const name = (p && p.profile) || devPresets[dev] || ctl.profile || 'DEFAULT';
+  return profileOf(profiles[name] ? name : 'DEFAULT');
 }
 function msDevInfo(dev = ms.dev || 'keyboard') {
   const pad = typeof dev === 'string' && dev.startsWith('pad');
@@ -16944,7 +16956,7 @@ function msBasicsControls(D = msDevInfo()) {
     [msBtn('grab', D), 'Grab', 'Grab, then a direction to throw.'],
     [msBtn('ult', D), 'Ultimate', 'Full meter = TRANSFORM. Transformed = ULTIMATE (hold DOWN for a second ultimate if they have one).'],
     [msBtn('shield', D), 'Shield', 'Hold to block. With a direction = roll / spot dodge. In the air = Z VANISH (air dodge).'],
-    ...(pad && D.B.cStick !== 'off' ? [['RIGHT STICK', 'C-stick', 'Flick it for that direction\'s ' + (D.B.cStick === 'special' ? 'special (K)' : 'physical (J)') + ' move - comes out faster.']] : []),
+    ...(pad && D.B.cStick !== 'off' ? [['RIGHT STICK', 'C-stick', 'Flick it for that direction\'s ' + (D.B.cStick === 'special' ? 'special (K)' : 'physical (J)') + ' move - comes out faster. On the ground, HOLD it to charge the move and let go to fire.']] : []),
     [msBtn('tauntUp', D) + ' / ' + msBtn('tauntSide', D) + ' / ' + msBtn('tauntDown', D), 'Taunts', 'Up / side / down taunt.'] ] };
 }
 function movesetsUpdate(dt) {
