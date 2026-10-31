@@ -5848,6 +5848,185 @@ function drawLegionCrowd(U) {
   }
 }
 
+// ---------------- GOD SPEED: LIGHTNING BLADE (Colby, DOWN + ultimate) ----------------
+// God Speed + Chidori. He vanishes and ZIPS across the screen - from one end, through them (a blow lands), gone; then
+// from the OTHER end; then straight down from ABOVE. Lightning strikes them both: they're BOUND in chains of lightning.
+// He drops into the Chidori stance - low and wide, his right arm down at his side, his left hand clamped round its
+// wrist - and charges the most powerful Chidori he's ever made: lightning crackling and screaming off his hand,
+// tearing at the ground. Then he charges, hand carving a trench through the floor, and drives it through their HEART.
+// A giant lightning explosion.
+const GOD_CHIDORI = { zip: 0.34, zipDmg: 3, bind: 0.85, bindDmg: 2, charge: 1.7, dash: 0.3, impale: 0.55, impaleDmg: 6,
+                      far: 560, stance: 290, blue: ['#7fd8ff', '#bfeaff', '#ffffff', '#3aa0ff'] };
+const GC_POSE = {
+  dash: pose({ lean: 0.85, bob: -6, legA: [1.2, 0.3], legB: [-1.1, 0.4], armA: [1.6, 0], armB: [-1.4, -0.3] }),          // fist first, streaking
+  dive: pose({ lean: 0.3, legA: [0.7, 1.4], legB: [0.2, 1.0], armA: [0.4, 0], armB: [-1.0, -0.4] }),                    // coming down on them
+  land: pose({ lean: 0.3, bob: -20, legA: [1.1, 1.3], legB: [-0.8, 0.6], armA: [0.9, -0.5], armB: [-0.9, -0.3] }),
+  // THE CHIDORI STANCE: crouched low and wide, chidori arm down and back at his side, the other hand gripping its wrist
+  stance: pose({ lean: 0.45, bob: -26, legA: [1.15, 1.3], legB: [-0.95, 0.45], armA: [-0.45, 0.05], armB: [-0.15, -0.75] }),
+  run: k => pose({ lean: 0.9, bob: -14, legA: [Math.sin(k) * 1.2 + 0.2, 0.8], legB: [-Math.sin(k) * 1.2 + 0.2, 0.8], armA: [-0.85, 0.05], armB: [-1.6, -0.4] }),   // hand dragging behind, low
+  thrust: pose({ lean: 0.65, bob: -10, legA: [1.1, 0.6], legB: [-1.1, 0.2], armA: [1.6, 0], armB: [-1.3, -0.4] }),       // straight through them
+};
+const GC_VICTIM = {
+  hit: pose({ lean: -0.4, bob: -4, legA: [0.5, 0.3], legB: [-0.6, 0.3], armA: [-0.8, -0.4], armB: [0.6, -0.5] }),
+  bound: pose({ lean: -0.1, bob: 0, legA: [0.12, 0.05], legB: [-0.12, 0.05], armA: [0.15, 0.05], armB: [-0.15, 0.05] }),   // pinned rigid, arms at their sides
+  impaled: pose({ lean: -0.55, bob: -2, legA: [0.4, 0.4], legB: [-0.3, 0.6], armA: [-2.3, 0.3], armB: [2.2, -0.3] }),       // arched back on it
+};
+function gcHit(U, dmg, sx, sy) {
+  const v = U.target;
+  v.damage += dmg * U.power; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + dmg);
+  v.hitFlash = 0.08; U.jolt = 0.12;
+  for (let k = 0; k < 6; k++) bolt(sx, sy, Math.random() * Math.PI * 2, 50 + Math.random() * 60, 0.14, GOD_CHIDORI.blue[k % 4]);
+  burst(sx, sy, GOD_CHIDORI.blue, 16, 0, Math.PI, 620, { grav: 0 });
+  hitstop = Math.max(hitstop, 0.06); shake = Math.max(shake, 10);
+  sfx.hit(0.9); sfx.clash(false);
+}
+function updateGodChidoriUlt(U, dt) {
+  const u = U.user, v = U.target, d = U.dir, G = GOD_CHIDORI;
+  const once = k => !U.events.has(k) && U.events.add(k);
+  u.vx = u.vy = 0; v.vx = v.vy = 0;
+  u.anim += dt; v.anim += dt;
+  v.hitFlash = Math.max(0, v.hitFlash - dt);
+  U.jolt = Math.max(0, (U.jolt || 0) - dt);
+  if (once('setup')) { U.phase = 'zip'; U.t = 0; U.zipN = 0; U.victimPose = GC_VICTIM.hit; }
+  v.x = U.baseX + (U.jolt > 0 ? (Math.random() - 0.5) * 8 : 0); v.y = U.baseY; v.face = -d;
+  const vx = U.baseX, vy = U.baseY, chest = vy - 60;
+  const streak = (x0, y0, x1, y1) => {                          // a lightning streak along his path
+    for (let k = 0; k < 3; k++) bolt(lerp(x0, x1, k / 3), lerp(y0, y1, k / 3) - 50, Math.atan2(-(y1 - y0), x1 - x0), Math.hypot(x1 - x0, y1 - y0) / 3, 0.16, GOD_CHIDORI.blue[k % 4]);
+  };
+  if (U.phase === 'zip') {                                       // 1. ZIP - ZIP - ZIP: left, right, above
+    const n = U.zipN, k = U.t / G.zip;
+    const from = n === 0 ? { x: vx - d * G.far, y: vy } : n === 1 ? { x: vx + d * G.far, y: vy } : { x: vx, y: vy - 620 };
+    const to = n === 0 ? { x: vx + d * G.far, y: vy } : n === 1 ? { x: vx - d * G.far, y: vy } : { x: vx, y: vy };
+    const e = clamp(k, 0, 1);
+    u.x = lerp(from.x, to.x, e); u.y = lerp(from.y, to.y, n === 2 ? Math.min(1, e * 2) : e);
+    u.face = n === 2 ? d : Math.sign(to.x - from.x) || d;
+    U.userPose = n === 2 ? GC_POSE.dive : GC_POSE.dash;
+    ghosts.push({ fig: figureOf(u), life: 0.18, max: 0.18, color: '#7fd8ff' });
+    if (once('zipIn' + n)) { sfx.vanish(1.4); burst(from.x, from.y - 50, GOD_CHIDORI.blue, 12, 0, Math.PI, 420, { grav: 0 }); }
+    if (k >= 0.5 && once('zipHit' + n)) {                         // ...the blow lands as he passes through
+      gcHit(U, G.zipDmg, vx, n === 2 ? vy - 100 : chest);
+      streak(from.x, from.y, to.x, to.y);
+      U.victimPose = { ...GC_VICTIM.hit, lean: n === 2 ? 0.5 : GC_VICTIM.hit.lean };
+      impactFrame = Math.max(impactFrame, 0.05); impactAt = { x: vx, y: chest, ang: n === 2 ? Math.PI / 2 : 0, all: false, focus: true };
+    }
+    if (k >= 1) {
+      U.zipN++; U.t = 0;
+      if (U.zipN >= 3) { U.phase = 'bind'; U.t = 0; u.x = vx - d * G.stance; u.y = vy; u.face = d; }
+      else u.x = vx + 3000;                                       // (gone - off the screen until the next one)
+    }
+    return;
+  }
+  if (U.phase === 'bind') {                                      // 2. LIGHTNING STRIKES them both - they're BOUND
+    U.userPose = GC_POSE.land; U.victimPose = GC_VICTIM.bound;
+    if (once('strike')) {
+      lightningStrike(v); lightningStrike(u);
+      gcHit(U, G.bindDmg, vx, chest);
+      impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: vx, y: chest, ang: Math.PI / 2, all: true, focus: false, invert: true };
+      shake = Math.max(shake, 20); sfx.beam(0.6);
+      painTexts.push({ x: vx, y: vy - 170, t: 1.0, max: 1.0, text: 'BOUND!', big: true });
+    }
+    if (U.t >= G.bind) { U.phase = 'charge'; U.t = 0; }
+    return;
+  }
+  if (U.phase === 'charge') {                                    // 3. THE CHIDORI - the most powerful one he's ever made
+    U.userPose = GC_POSE.stance; U.victimPose = GC_VICTIM.bound;
+    const c = clamp(U.t / G.charge, 0, 1), fist = chidoriFist(u);
+    U.orb = 0.3 + 0.7 * c;
+    if (Math.random() < dt * (30 + 90 * c)) bolt(fist.x, fist.y, Math.random() * Math.PI * 2, 30 + Math.random() * (40 + 90 * c), 0.08, GOD_CHIDORI.blue[(Math.random() * 4) | 0]);
+    if (Math.random() < dt * (10 + 40 * c)) {                     // ...arcs tearing into the ground round his feet
+      const gx = u.x + (Math.random() - 0.5) * 160;
+      bolt(fist.x, fist.y, Math.atan2(-(vy - fist.y), gx - fist.x), Math.hypot(gx - fist.x, vy - fist.y), 0.1, '#bfeaff');
+      burst(gx, vy, ['#bfeaff', '#ffffff'], 3, -Math.PI / 2, 0.8, 260);
+    }
+    if (Math.random() < dt * 12) dust(u.x, vy, 2, 0.6);
+    shake = Math.max(shake, 2 + 6 * c);
+    U.chirp = (U.chirp || 0) - dt;
+    if (U.chirp <= 0) { U.chirp = 0.12 - 0.06 * c; sfx.clash(false); }   // the chirping of a thousand birds
+    if (once('cry')) painTexts.push({ x: u.x, y: u.y - 170, t: 1.2, max: 1.2, text: 'CHIDORI!', big: true, ult: true });
+    if (U.t >= G.charge) { U.phase = 'dash'; U.t = 0; U.dashX0 = u.x; sfx.whoosh(true); sfx.beam(0.5); }
+    return;
+  }
+  if (U.phase === 'dash') {                                      // 4. the charge - hand carving through the floor
+    const k = clamp(U.t / G.dash, 0, 1);
+    u.x = lerp(U.dashX0, vx - d * 34, easeIn2(k)); u.y = vy; u.face = d;
+    U.userPose = GC_POSE.run(U.t * 40); U.victimPose = GC_VICTIM.bound;
+    const fist = chidoriFist(u);
+    burst(fist.x, vy, ['#bfeaff', '#ffffff', '#8a7d6b'], 3, -Math.PI / 2 - d * 0.6, 0.6, 380, { grav: 600 });   // the trench: sparks + rubble
+    if (Math.random() < 0.5) dust(fist.x, vy, 1, 0.8);
+    ghosts.push({ fig: figureOf(u), life: 0.16, max: 0.16, color: '#7fd8ff' });
+    if (k >= 1) { U.phase = 'impale'; U.t = 0; }
+    return;
+  }
+  if (U.phase === 'impale') {                                    // 5. THROUGH THE HEART
+    u.x = vx - d * 34; u.y = vy; u.face = d;
+    U.userPose = GC_POSE.thrust; U.victimPose = GC_VICTIM.impaled;
+    if (once('pierce')) {
+      gcHit(U, G.impaleDmg, vx, chest);
+      impactFrame = Math.max(impactFrame, 0.14); impactAt = { x: vx, y: chest, ang: 0, all: false, focus: true, invert: true };
+      hitstop = Math.max(hitstop, 0.2); shake = Math.max(shake, 22);
+      if (gore) burst(vx + d * 20, chest, BLOOD, 30, d > 0 ? 0 : Math.PI, 0.7, 620, { stain: true });
+      for (let k = 0; k < 6; k++) bolt(vx + d * 20, chest, (d > 0 ? 0 : Math.PI) + (Math.random() - 0.5) * 1.2, 90 + Math.random() * 90, 0.2, GOD_CHIDORI.blue[k % 4]);   // out of their back
+      sfx.hit(1); sfx.clash(true);
+    }
+    if (Math.random() < dt * 60) bolt(vx, chest, Math.random() * Math.PI * 2, 40 + Math.random() * 50, 0.08, GOD_CHIDORI.blue[(Math.random() * 4) | 0]);
+    if (U.t >= G.impale) {                                       // 6. ...and it all EXPLODES
+      for (let k = 0; k < 18; k++) bolt(vx, chest, k / 18 * Math.PI * 2, 160 + Math.random() * 160, 0.3, GOD_CHIDORI.blue[k % 4]);
+      for (let k = 0; k < 3; k++) ring(vx, chest);
+      burst(vx, chest, GOD_CHIDORI.blue, 80, 0, Math.PI, 1100, { grav: 0 });
+      lightningStrike(v);
+      impactFrame = Math.max(impactFrame, 0.18); impactAt = { x: vx, y: chest, ang: 0, all: true, focus: true, invert: true };
+      shake = Math.max(shake, 34); hitstop = Math.max(hitstop, 0.12);
+      sfx.blast(); sfx.beam(0.9);
+      endGodChidoriUlt(U);
+    }
+  }
+}
+function endGodChidoriUlt(U) {
+  const u = U.user, v = U.target, d = U.dir;
+  ult = null;
+  v.action = null; v.x = U.baseX; v.y = U.baseY;
+  u.action = { type: 'land', t: 0, dur: 0.4 };
+  knock(v, { ...U.def.final, ultFinal: true }, d, U.power, v.x, v.y - 60);
+}
+// the lightning CHAINS binding them, and the Chidori in his hand
+function drawGodChidori(U) {
+  const u = U.user, v = U.target, G = GOD_CHIDORI;
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const jag = (x0, y0, x1, y1, segs, amp) => {                   // a flickering jagged line
+    ctx.beginPath(); ctx.moveTo(x0, y0);
+    for (let i = 1; i < segs; i++) { const t = i / segs; ctx.lineTo(lerp(x0, x1, t) + (Math.random() - 0.5) * amp, lerp(y0, y1, t) + (Math.random() - 0.5) * amp); }
+    ctx.lineTo(x1, y1); ctx.stroke();
+  };
+  if (U.phase === 'bind' || U.phase === 'charge' || U.phase === 'dash') {
+    const vx = v.x, vy = v.y;
+    for (const [w, col, a] of [[6, 'rgba(127,216,255,0.45)', 1], [2, '#ffffff', 1]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      for (const [hy, rx] of [[-78, 24], [-52, 22], [-24, 17]]) {   // coils of lightning round chest, waist and legs
+        ctx.beginPath();
+        for (let i = 0; i <= 14; i++) { const t = i / 14 * Math.PI * 2; ctx.lineTo(vx + Math.cos(t) * rx + (Math.random() - 0.5) * 4, vy + hy + Math.sin(t) * 6 + (Math.random() - 0.5) * 4); }
+        ctx.stroke();
+      }
+      jag(vx - 18, vy - 70, vx - 90, vy, 6, 10);                  // ...anchored to the ground on both sides
+      jag(vx + 18, vy - 70, vx + 90, vy, 6, 10);
+      jag(vx, vy - 90, vx + (Math.random() - 0.5) * 30, vy - 260, 6, 14);   // and up into the sky
+    }
+  }
+  if ((U.phase === 'charge' || U.phase === 'dash' || U.phase === 'impale') && u.disp) {
+    const fist = chidoriFist(u), c = U.orb || 1, r = 12 + 20 * c + Math.sin(time * 40) * 2;
+    const gl = ctx.createRadialGradient(fist.x, fist.y, 0, fist.x, fist.y, r * 3.2);
+    gl.addColorStop(0, 'rgba(230, 250, 255, 0.85)'); gl.addColorStop(0.4, 'rgba(90, 195, 255, 0.4)'); gl.addColorStop(1, 'rgba(40, 110, 255, 0)');
+    ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(fist.x, fist.y, r * 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#bfeaff'; ctx.lineWidth = 2.2;
+    for (let k = 0; k < 6; k++) {                                 // arcs whipping round the orb
+      const a0 = time * (11 + k * 3) + k * 1.3;
+      ctx.beginPath();
+      for (let i = 0; i <= 5; i++) { const aa = a0 + i * 0.45, rr = r * (1.1 + Math.random() * 0.8); ctx.lineTo(fist.x + Math.cos(aa) * rr, fist.y + Math.sin(aa) * rr); }
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(fist.x, fist.y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
 const HELL_MISSILE = { stun: 0.55 };   // seconds they're frozen when the Hell Missile hits
 
 // ---------------- DEMON'S GAZE (Colbalias, down K) ----------------
@@ -7397,6 +7576,13 @@ CHARACTERS.COLBY.ult = {
   perHit: 1.0, final: { dmg: 12, base: 480, growth: 6, angle: 40 }, cutscene: true,
   reapAt: 225,   // only at 225% or more (counting the ult's own hits) does it cut them in half: the cutscene, then an automatic KO
 };
+// Colby's SECOND ultimate (DOWN + ult): GOD SPEED: LIGHTNING BLADE - see updateGodChidoriUlt
+CHARACTERS.COLBY.altUlt = {
+  name: 'GOD SPEED: LIGHTNING BLADE',
+  godChidori: true,
+  finalWind: GC_POSE.dash, finalStrike: GC_POSE.dash,     // (his pose on the first frame, before the sequence takes over)
+  final: { dmg: 14, base: 560, growth: 6.6, angle: 32 },
+};
 // Lance: a full-power Kamehameha fired from wherever he is, straight ahead, across the whole stage
 CHARACTERS.LANCE.ult = {
   name: 'FINAL KAMEHAMEHA',
@@ -7849,6 +8035,16 @@ function burst(x, y, colors, n, ang = 0, spread = Math.PI, speed = 400, opts = {
 }
 const BLOOD = ['#5e1414', '#7e1c1c', '#a8261e', '#3d0c0c'];
 const SWEAT = ['#b4b4bb', '#ffffff', '#a8ecff'];
+// CINDERS (Aiden's hits): glowing embers that drift up slowly and linger, with a little dark ash mixed in
+const CINDER = ['#ff7a1a', '#ffb02e', '#ffe066', '#ff4a10', '#3a2a22'];
+function cinders(x, y, n, spread = 60) {
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2, s = 40 + Math.random() * 160;
+    particles.push({ x: x + (Math.random() - 0.5) * spread * 0.4, y: y + (Math.random() - 0.5) * spread * 0.4,
+      vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.7 + Math.random() * 0.9, max: 1.6, size: Math.random() < 0.35 ? 2 : 1,
+      color: CINDER[(Math.random() * CINDER.length) | 0], type: 'bit', grav: -90 });
+  }
+}
 
 // A jagged lightning bolt that lasts a moment
 function bolt(x, y, ang, len, life = 0.12, color = '#ffd23f') {
@@ -9504,7 +9700,7 @@ function stepUltStart(f, a, dt) {
   }
   // COLBALIAS: no lunge - he clasps his hands and the statue rises; it locks onto the nearest enemy on screen
   // (Z-vanishing at exactly the right moment dodges it). The Hundred Clone Rush locks on the same way.
-  if (def.statue || def.legion) {
+  if (def.statue || def.legion || def.godChidori) {   // (Colby's GOD SPEED: LIGHTNING BLADE locks on too - he zips in from off screen)
     f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = Math.min(f.vy, 0);
     if (a.t >= 0.25 && !a.summoned) {
       a.summoned = true;
@@ -9589,6 +9785,7 @@ function updateUlt(dt) {
   if (U.def.deck) return updateDeckUlt(U, dt);               // Aiden (from a grab): Dead Man's Deck Match
   if (U.def.statue) return updateStatueUlt(U, dt);           // Colbalias: 100-Type Guanyin Bodhisattva
   if (U.def.legion) return updateLegionUlt(U, dt);           // Colbalias (DOWN + ult): Hundred Clone Rush
+  if (U.def.godChidori) return updateGodChidoriUlt(U, dt);    // Colby (DOWN + ult): God Speed: Lightning Blade
   if (U.def.greatsword) return updateSwordUlt(U, dt);        // Colten: Warlord's Judgment
   if (U.def.rush) return updateRushUlt(U, dt);               // Lance: It's My Turn
   U.jolt = Math.max(0, U.jolt - dt);
@@ -11171,6 +11368,10 @@ function updateFighter(f, inp, dt) {
   if (f.kaioken) f.damage += kaiokenLv(f).drain * dt;             // Kaioken strain: 1% / 2% / 4% per second (x1 / x2 / x3)
   if (f.tc) updateTotalConc(f, dt);                               // Sevon's Total Concentration: strain + flames
   updateBleed(f, dt);                                             // scythe wounds
+  if (f.cinderT > 0) {                                            // smouldering from one of Aiden's hits: embers rising off them
+    f.cinderT -= dt;
+    if (Math.random() < dt * 40) cinders(f.x + (Math.random() - 0.5) * 24, f.y - 20 - Math.random() * 60, 1, 20);
+  }
   if (f.look && f.look.hype && !(f.action && f.action.type === 'taunt')) f.hype = Math.max(0, (f.hype || 0) - HYPE.drain * dt);   // Aiden's HYPE slowly drains (not while he's taunting)
   f.hypePulse = Math.max(0, (f.hypePulse || 0) - dt);
   if (f.look && f.look.demonMeter) updateGaze(f, dt);            // Colbalias's gaze mark wears off
@@ -11777,6 +11978,11 @@ function aiDecide(f, o, ai, L) {
   }
   // TRANSFORM as soon as the meter is full
   else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { ai.tapUlt = true; return; }
+  // COLBY: his second ultimate (God Speed: Lightning Blade) locks on by itself - so from any range, now and then
+  const alt = CHARACTERS[f.char].altUlt;
+  if (alt && alt.godChidori && f.transformed && f.ult > 0 && adx < 1000 && (f.ult < 20 || Math.random() < 0.04) && Math.random() < 0.5) {
+    ai.down = true; ai.tapUlt = true; return;
+  }
   // ULTIMATE while transformed: beam ults fire from any range when lined up; others need them right in front
   const beamUlt = (CHARACTERS[f.char].ult || {}).beamUlt;
   const ultRange = beamUlt ? adx < 900 && Math.abs(dy) < 50 : adx < 140 && Math.abs(dy) < 40;
@@ -12201,11 +12407,19 @@ function update(dt) {
           }
           // REVENGE: his powered-up hit lands - the stored power is used up in a huge burst of fire
           if (f.revenge > 0 && t.damage > d0 && !a.move.noRevenge) consumeRevenge(f, hx, hy);
-          // HEAVY HITTER (Aiden): every clean hit freezes a beat longer and rocks the screen
-          if (f.look && f.look.heavyHits && clean && h.dmg >= 4) {
-            hitstop = Math.max(hitstop, Math.min(0.24, 0.07 + h.dmg * 0.007));
-            shake = Math.max(shake, Math.min(24, 6 + h.dmg * 0.9));
-            if (h.dmg >= 9) dust(t.x, t.y, 8, 1.6);
+          // HEAVY HITTER (Aiden): EVERY hit lands like a truck - a longer freeze, the screen rocks, a shockwave on the
+          // bigger ones, and CINDERS: embers burst off the impact and the spot keeps SMOULDERING on them for a moment
+          if (f.look && f.look.heavyHits && t.damage > d0) {
+            const D = h.dmg;
+            cinders(hx, hy, 8 + Math.round(D * 1.8));
+            t.cinderT = Math.max(t.cinderT || 0, 0.45 + D * 0.06);             // (smouldering - see the embers rising off them)
+            if (clean) {
+              hitstop = Math.max(hitstop, Math.min(0.26, 0.05 + D * 0.009));
+              shake = Math.max(shake, Math.min(26, 5 + D * 1.1));
+              particles.push({ x: hx, y: hy, vx: 0, vy: 0, life: 0.1, max: 0.1, r: 14 + D * 1.8, type: 'impact' });
+              if (D >= 5) ring(hx, hy);                                         // shockwave
+              if (D >= 8) { dust(t.x, t.y, 10, 1.8); sfx.hit(Math.min(1, 0.4 + D * 0.04)); }   // (a second, deeper thud)
+            }
           }
           if (a.move.onHit) a.move.onHit(f, t, a, h, clean);
           if (a.move.impactOnHit && clean) {                   // impact frame when it connects
@@ -14954,6 +15168,7 @@ function render() {
     }
     drawProjectiles();
     drawOdmCables();                                  // Sevon's ODM gear: the steel cable + hook
+    if (ult && ult.def && ult.def.godChidori) drawGodChidori(ult);   // Colby's lightning chains + the Chidori (in front of them)
     drawKiMarks();                                    // Lance's purple ki mark over whoever he's marked
     drawBleed();                                      // bleed stacks from Colby's scythe
     drawGazeMarks();                                  // Colbalias's red eye over whoever he's looked at
