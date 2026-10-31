@@ -1470,6 +1470,7 @@ function kameVanish(f, a, inp) {
 function kiTeleport(f, t) {
   if (f.kiMark && (f.kiMark.stacks || 1) > 1) f.kiMark.stacks--;    // spends ONE mark (the rest stay for more teleports)
   else f.kiMark = null;
+  f.dodgeBuf = 0; f.dirBuf = 0; f.kiTpWait = true;                   // (Z must be let go before the next teleport - holding it used to chain them all)
   const from = { x: f.x, y: f.y - 45 };
   ghosts.push({ fig: figureOf(f), life: 0.35, max: 0.35, color: KI_MARK.color });
   burst(from.x, from.y, [KI_MARK.color, '#ffffff'], 12, 0, Math.PI, 360, { grav: 0 });
@@ -6771,7 +6772,7 @@ const CHARACTERS = {
       smoke: true,              // cigarette (like the Boss and Mr. Red)
       bossAura: '#ff1a1a',      // a dark red aura that never goes out
       demonMeter: true,         // D-E-M-O-N meter
-      doubleUlt: true,          // TWO ultimate bars: tap I at half a bar = an ultimate (each costs half); HOLD I at full = transform
+      doubleUlt: true,          // TWO ultimate bars: tap I at half a bar = an ultimate (each costs half); HOLD I at half = transform (also half)
       glassJaw: true,           // takes the MOST base knockback in the game (see GLASS_JAW)
       transformAura: '#ff1a1a',
       // Colby's bowed-leg stance, but no scythe: one hand at his mouth with the cigarette, the other hanging loose
@@ -9468,6 +9469,10 @@ function drawGodSpeedArcs(p) {
 }
 function startTransform(f) {
   f.transformed = true; f.ultBuf = 0;
+  if (f.look && f.look.doubleUlt) {                 // COLBALIAS: transforming costs HALF a bar (one ult) and lasts the normal ~14s on its own timer
+    f.ult = Math.max(0, (f.ult || 0) - ULT_MAX / 2);
+    f.tfTime = ULT_MAX / TRANSFORM.drain;
+  }
   heelSay(f, 'roar');                                        // (Captain Heel roars as the cage drops)
   f.baseStats = f.stats;
   f.stats = { ...f.stats, runSpeed: f.stats.runSpeed * tfStats(f).speed, airSpeed: f.stats.airSpeed * tfStats(f).speed };
@@ -10447,11 +10452,12 @@ function freeControl(f, inp, dt) {
   // I: full meter = TRANSFORM. Already transformed = ULTIMATE (spends what's left of the meter).
   if (f.look && f.look.doubleUlt) {
     // COLBALIAS - DOUBLE ULT BAR: TAP I with at least half a bar = an ultimate (spends half; DOWN = Hundred Clone
-    // Rush), so a full bar is two ultimates back to back - or save them. HOLD I with a full bar = transform.
-    if (f.tfBuf > 0 && !f.transformed && f.ult >= ULT_MAX) { f.tfBuf = 0; f.ultBuf = 0; startTransform(f); }
+    // Rush), so a full bar is two ultimates back to back - or save them. HOLD I with half a bar = transform
+    // (it also costs just half a bar - half what everyone else pays - so a full bar = transform + an ultimate).
+    if (f.tfBuf > 0 && !f.transformed && f.ult >= ULT_MAX / 2) { f.tfBuf = 0; f.ultBuf = 0; startTransform(f); }
     else if (f.ultBuf > 0 && f.ult >= ULT_MAX / 2 && !ult) {
-      // (the CPU has no "hold": with a full bar it sometimes transforms instead)
-      if (!humanControlled(f) && !f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { f.ultBuf = 0; startTransform(f); }
+      // (the CPU has no "hold": it sometimes transforms instead)
+      if (!humanControlled(f) && !f.transformed && Math.random() < 0.45) { f.ultBuf = 0; startTransform(f); }
       else { startUltimate(f, !!inp.down); return; }
     }
   } else if (f.ultBuf > 0) {
@@ -10499,7 +10505,7 @@ function freeControl(f, inp, dt) {
       if (f.shieldHP <= 0) breakShield(f);
       return;
     }
-  } else if (!f.ground && fresh && canAirDodge(f)) {
+  } else if (!f.ground && fresh && canAirDodge(f) && !f.kiTpWait) {
     startDodge(f, dir, inp.down, inp.up);
     return;
   }
@@ -10627,6 +10633,7 @@ function updateFighter(f, inp, dt) {
   }
   f.flyCD = Math.max(0, (f.flyCD || 0) - dt);
   if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
+  if (f.kiTpWait && !inp.blockHeld) f.kiTpWait = false;           // (Z let go: the next mark teleport is ready)
   if (f.kaioken) f.damage += kaiokenLv(f).drain * dt;             // Kaioken strain: 1% / 2% / 4% per second (x1 / x2 / x3)
   updateBleed(f, dt);                                             // scythe wounds
   if (f.look && f.look.hype && !(f.action && f.action.type === 'taunt')) f.hype = Math.max(0, (f.hype || 0) - HYPE.drain * dt);   // Aiden's HYPE slowly drains (not while he's taunting)
@@ -10636,7 +10643,9 @@ function updateFighter(f, inp, dt) {
   syncKame(f);
   const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam'].includes(f.action.type);
   if (f.transformed) {                                            // transformed: the meter slowly drains
-    if (!inUlt) {
+    if (f.look && f.look.doubleUlt) {                            // Colbalias: the transformation runs on its own timer (his bars stay put)
+      if (!inUlt) { f.tfTime = (f.tfTime || 0) - dt; if (f.tfTime <= 0) endTransform(f); }
+    } else if (!inUlt) {
       f.ult = Math.max(0, (f.ult || 0) - TRANSFORM.drain * dt);
       if (f.ult <= 0) endTransform(f);
     }
@@ -11138,13 +11147,22 @@ function aiDecide(f, o, ai, L) {
   const toward = Math.sign(dx) || 1;
   const oa = o.action;
   const r = Math.random();
-  // Its thrown scythe is hovering: usually call it back (after letting it spin a moment)
-  if (f.noScythe) {
+  // COLBY: fights bare-handed about as much as with the scythe. Each time he throws it he stays empty-handed
+  // for a while (punches / kicks / Annihilator / chokeslam) before he goes back for it - and with the
+  // scythe in hand, once he's held it a while he looks for a chance to throw it again.
+  const bareFighter = !!CHARACTERS[f.char].bareMoves && !f.minion;
+  if (bareFighter) {
+    if (f.noScythe) { if (!ai.bareUntil || ai.bareUntil - time > 10) ai.bareUntil = time + 5 + Math.random() * 5; ai.armedSince = 0; }
+    else { ai.bareUntil = 0; if (!ai.armedSince || ai.armedSince > time) ai.armedSince = time; }
+  }
+  const stayBare = bareFighter && f.noScythe && time < ai.bareUntil && !(adx > 650 && Math.random() < 0.02);
+  // Its thrown scythe is hovering: usually call it back (after letting it spin a moment) - unless he's staying bare
+  if (f.noScythe && !stayBare) {
     const hs = scythes.find(q => q.owner === f && q.state === 'hover');
     if (hs && hs.hoverT < SCYTHE_THROW.hoverTime - 0.3 && Math.random() < 0.6) { ai.tapSpc = true; return; }
   }
-  // Threw the scythe? Go get it (unless the opponent is right on top of us)
-  if (f.noScythe && f.ground) {
+  // Threw the scythe? Go get it (unless the opponent is right on top of us, or he's fighting bare-handed for now)
+  if (f.noScythe && f.ground && !stayBare) {
     const s = scythes.find(q => q.owner === f && q.state === 'stuck');
     if (s && !(adx < 80 && Math.random() < 0.5)) {
       if (Math.hypot(s.x - f.x, s.y - (f.y - 20)) < SCYTHE_THROW.pickup * 0.8) { ai.tapSpc = true; return; }
@@ -11187,9 +11205,22 @@ function aiDecide(f, o, ai, L) {
   if (f.look && f.look.demonMeter && (f.demon || 0) >= 100 && adx < 180 && Math.abs(dy) < 120 && Math.random() < 0.6) {
     ai.down = true; ai.tapSpc = true; return;
   }
-  // ...and send a shadow clone in from mid range now and then
-  if (f.look && f.look.demonMeter && f.ground && (f.cloneCD || 0) <= 0 && adx > 200 && adx < 600 && Math.abs(dy) < 60 && Math.random() < 0.05) {
-    f.face = toward; ai.down = true; ai.tapSpc = true; return;
+  // COLBALIAS fights at RANGE with his clones: summons whenever he can (more often when they get close, so a
+  // clone is always between them), then hangs back and shoots while the clones do the up-close work
+  if (f.look && f.look.demonMeter && !f.minion) {
+    const n = cloneCount(f);
+    const canSummon = (f.cloneCD || 0) <= 0 && n < cloneMax(f) && canAirDodge(f) && (f.demon || 0) < 100;
+    if (canSummon && adx < 800 && Math.abs(dy) < 220 && Math.random() < (adx < 180 ? 0.4 : 0.18)) {
+      f.face = toward; ai.down = true; ai.tapSpc = true; return;
+    }
+    if (n > 0 && adx < 240 && Math.abs(dy) < 160 && !(oa && (oa.type === 'hitstun' || oa.type === 'dizzy')) && Math.random() < 0.45) {
+      ai.dir = safeDir(f, -toward);                                       // back off - let the clones keep them busy
+      if (f.ground && Math.random() < 0.12) ai.tapJump = true;
+      return;
+    }
+    if (n > 0 && adx >= 240 && adx < 750 && Math.abs(dy) < 120 && Math.random() < 0.12) {
+      f.face = toward; ai.tapSpc = true; ai.holdBtn = 'spc'; ai.hold = Math.random() * 0.5; return;   // Hellfire Shot from range
+    }
   }
   // AIDEN: low on HYPE and safely far away = TAUNT to pump it back up
   if (f.look && f.look.hype && f.ground && (f.hype || 0) < 60 && adx > 420 && !(oa && oa.type === 'attack') && Math.random() < 0.04) {
@@ -11229,7 +11260,24 @@ function aiDecide(f, o, ai, L) {
 
   // 3a) SCYTHE RANGE: characters whose K button is a melee weapon swing from further out
   const scythe = !f.moveset.neutralRanged.fire;
-  if (scythe && f.ground && adx < 135 && adx > 45 && Math.abs(dy) < 60 && Math.random() < 0.5) {
+  // COLBY holding the scythe for a while: throw it (side K) to switch to his bare-handed game
+  if (bareFighter && !f.noScythe && f.ground && ai.armedSince && time - ai.armedSince > 6 && adx < 500 && Math.abs(dy) < 60 &&
+      Math.random() < 0.25) {
+    ai.dir = toward; ai.tapSpc = true; return;
+  }
+  // COLBY bare-handed up close: his punch / kick game (J), plus the bare K moves
+  if (bareFighter && f.noScythe && f.ground && adx < 150 && Math.abs(dy) < 60 && Math.random() < 0.55) {
+    const hovering = scythes.some(q => q.owner === f && q.state === 'hover');   // (side K would just call it back)
+    const rr = Math.random();
+    f.face = toward;
+    if (adx < 80 && rr < 0.45) ai.tapAtk = true;                          // jab -> kick string
+    else if (rr < 0.65) { ai.dir = toward; ai.tapAtk = true; }           // side J (dash kick / straight)
+    else if (rr < 0.8) { ai.down = true; ai.tapSpc = true; }             // down K (dash chokeslam)
+    else if (rr < 0.9 && !hovering) { ai.dir = toward; ai.tapSpc = true; }   // side K (Annihilator)
+    else { ai.up = true; ai.tapAtk = true; }                             // up J (Heaven Splitter)
+    return;
+  }
+  if (scythe && !(bareFighter && f.noScythe) && f.ground && adx < 135 && adx > 45 && Math.abs(dy) < 60 && Math.random() < 0.5) {
     const rr = Math.random();
     if (stuck || o.damage > 70) {                                         // charged long stride to KO
       ai.dir = toward; ai.tapSpc = true; ai.holdBtn = 'spc'; ai.hold = 0.2 + Math.random() * 0.5;
@@ -14008,7 +14056,10 @@ function drawHUD() {
         sctx.fillStyle = flash ? '#ffffff' : '#ff2a2a'; sctx.fillRect(x + 2 + b * 103, y + 80, 103, 2);
       }
       sctx.fillStyle = '#0e0c0c'; sctx.fillRect(x + 104, y + 79, 3, 12);
-      if (um >= 0.5 && !f.out) text((um >= 1 ? 'x2' : 'x1') + ' ULT [I]' + (um >= 1 && !f.transformed ? '   HOLD [I] TRANSFORM' : ''), x + 105, y - 8, 9, flash ? '#ffffff' : '#ff6a6a', 'center');
+      if (f.transformed) {                                 // the transformation's own timer: a thin gold line above the bars
+        sctx.fillStyle = '#ffd23f'; sctx.fillRect(x + 2, y + 76, 206 * clamp((f.tfTime || 0) / (ULT_MAX / TRANSFORM.drain), 0, 1), 3);
+      }
+      if (um >= 0.5 && !f.out) text((um >= 1 ? 'x2' : 'x1') + ' ULT [I]' + (!f.transformed ? '   HOLD [I] TRANSFORM' : ''), x + 105, y - 8, 9, flash ? '#ffffff' : '#ff6a6a', 'center');
     }
   });
 
