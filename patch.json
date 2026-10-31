@@ -1,5 +1,5 @@
 {
-    "version":  "0.7.1",
+    "version":  "0.7.2",
     "shell":  "2c7f2e991c796adb",
     "files":  {
                   "build/icon.png":  {
@@ -7,16 +7,16 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "8f5365700636a8494404f6e764a659f2a1aa70044495199dc873b562187f0ef0",
-                                     "size":  1147970
+                                     "hash":  "dc13e617365c38a928b44b500786f18bc87b84fec306656c41a08e84dac35327",
+                                     "size":  1188167
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
                                             "size":  92865
                                         },
                   "net.js":  {
-                                 "hash":  "45d863507e35a2f9e5f3fc246d4ad1fc73b3ed12e8ce9ff97ca09b2e14ff5fc5",
-                                 "size":  54430
+                                 "hash":  "4975b516a242f61a98b61f86c9e70469a9faf2adf164fde36c79ec000215c194",
+                                 "size":  55096
                              },
                   "sounds/battle/battle-without-honor-or-humanity.mp3":  {
                                                                              "hash":  "eda0873dca9a6311e4534976a0744dbef308d28731e1b775be9f4cc1145694fc",
@@ -34,6 +34,10 @@
                                                          "hash":  "f71fd937ea290d9b260782bbdaab4ae2dbf4f8ea40129ae8ca7cafbe1443bc47",
                                                          "size":  3071278
                                                      },
+                  "sounds/battle/devils-never-cry.mp3":  {
+                                                             "hash":  "e6d9384978008e9e153b8aa358e39c1d3f6933905b4f7082d5662f9c153a10c8",
+                                                             "size":  4735073
+                                                         },
                   "sounds/battle/f.mp3":  {
                                               "hash":  "869e11c5aeb214d55e35536bc292797fcecb146f1970096c0d788ae5479f472c",
                                               "size":  6329940
