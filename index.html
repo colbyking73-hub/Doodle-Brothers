@@ -2925,6 +2925,10 @@ const AIDEN_MOVES = {
     strike: pose({ lean: 0, bob: -4, legA: [0.5, 0.3], legB: [-0.5, 0.3], armA: [2.4, 0], armB: [-2.4, 0], armC: [1.9, 0], armD: [-1.9, 0] }),
     fire(f) { burst(f.x, f.y - 56, FIRE, 40, 0, Math.PI, 700, { grav: -300 }); ring(f.x, f.y - 56); ring(f.x, f.y - 30); } },
 };
+// CAPTAIN HEEL'S DROPKICKS reach further (they felt short): every dropkick's hitboxes are bigger and further out
+for (const k of ['sideGround', 'dashAttack', 'dropkickAir', 'bair']) for (const h of (AIDEN_MOVES[k] && AIDEN_MOVES[k].hitboxes) || []) {
+  h.r = Math.round(h.r * 1.3); if (Math.abs(h.x) > 20) h.x = Math.round(h.x * 1.18);
+}
 
 const LARIAT_HOLD_MAX = 9;   // Darkest Lariat: the longest you can keep it spinning by holding K (seconds)
 // ---------------- REVENGE -> BLAZE MODE ----------------
@@ -6385,6 +6389,10 @@ const cloneAiLevel = () => REAL_FIGHTERS >= 4 ? 'MASTER' : REAL_FIGHTERS >= 3 ? 
 const CLONE_DODGE = { HARD: 0.5, MASTER: 0.78 };         // chance to dodge an attack that's about to land on it
 // Colbalias's CPU: backOff = how often he backs away from them while his clones are fighting (to keep his range)
 const COLBALIAS_AI = { backOff: 0.45 };
+// COLBALIAS'S CPU IS A PARRY MACHINE: he perfect-blocks almost everything (by difficulty) and punishes it with his
+// clone string - and he parries YOUR punish back too. Beating him means winning the parry RALLY: perfect-block his
+// punish, then don't get parried back... a tennis match where every return can be the winner.
+const COLB_PARRY = { EASY: 0.3, NORMAL: 0.55, HARD: 0.75, MASTER: 0.88, IMPOSSIBLE: 0.97, FERAL: 0 };
 function minionInput(f) {
   const lvl = cloneAiLevel();
   const inp = aiInput(f, lvl);
@@ -8765,7 +8773,7 @@ function applyHit(t, h, dirSign, mult, hx, hy, src = {}) {
   // PERFECT BLOCK: shield went up just as the hit arrived
   // (The AI only lands some of its perfect blocks, depending on difficulty - otherwise it would counter everything.)
   const aiParryOk = t.controller !== 'dummy' ||
-    Math.random() < ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7, IMPOSSIBLE: 0.97 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3);
+    Math.random() < ((t.look && t.look.demonMeter && !t.minion) ? 0.97 : ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7, IMPOSSIBLE: 0.97 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3));   // (Colbalias: his parry reflex already decided - see COLB_PARRY)
   if (t.shielding && t.shieldAge <= PARRY_WINDOW && aiParryOk) {
     perfectBlock(t, src, hx, hy);
     return true;
@@ -9500,8 +9508,13 @@ function perfectBlock(def, src, hx, hy) {
     s.reflected = true;
     return;
   }
-  const atk = src.fighter;
+  let atk = src.fighter;
   if (!atk) return;
+  // Parrying one of Colbalias's STRING CLONES staggers HIM (it's his attack) - the clone just bursts. That keeps the
+  // parry rally going between the two players instead of it dying on a clone.
+  if (atk.strikeClone && atk.owner && !atk.owner.minion && atk.owner.respawnTimer <= 0 && !ult && fighters.includes(atk.owner)) {
+    killMinion(atk, false); atk = atk.owner;
+  }
   // NO automatic counter any more - a perfect block is an OPENING. The attacker staggers (and can still try to
   // parry YOUR punish - see 'reparry'), while you drop your shield instantly and your next attack comes out fast.
   // So two equal fighters can trade parries back and forth, each waiting for the other to slip.
@@ -10287,6 +10300,7 @@ function powerOf(f) {
   return (f.transformed ? tfStats(f).power : 1) * (f.kaioken ? kaiokenLv(f).dealt : 1) *   // both stack
          (f.tc ? TC.dealt : 1) *                                                      // Sevon's TOTAL CONCENTRATION
          (f.look && f.look.glassJaw ? GLASS_JAW.dmgBonus : 1) *                         // Colbalias: hits harder to make up for his glass jaw + debuffs
+         (f.look && f.look.heavyHits ? 0.92 : 1) *                                     // Captain Heel: a touch less damage (he topped the CPU tournament)
          (f.revenge > 0 ? 1 + f.revenge : 1) *                                        // Aiden's stored REVENGE power
          hypePower(f);                                                                // Aiden's HYPE (weaker at low hype)
 }
@@ -11967,9 +11981,9 @@ function aiInput(f, level) {
     const oa = o.action, left = oa.move.startup * (oa.startupMul || 1) - oa.t;   // seconds until it's live
     if (left <= 0.06 && left > 0 && oa.reflexFor !== f) {
       oa.reflexFor = f;                                         // (one roll per attack)
-      const lv = { EASY: 0.06, NORMAL: 0.25, HARD: 0.45, MASTER: 0.65, IMPOSSIBLE: 0.95, FERAL: 0 }[level] ?? 0.25;   // (then the difficulty's perfect-block success roll in applyHit)
+      const lv = (f.look && f.look.demonMeter ? COLB_PARRY : { EASY: 0.06, NORMAL: 0.25, HARD: 0.45, MASTER: 0.65, IMPOSSIBLE: 0.95, FERAL: 0 })[level] ?? 0.25;   // (then the difficulty's perfect-block success roll in applyHit)
       const free = !f.action || f.action.type === 'land', staggered = f.action && f.action.type === 'parried' && !f.action.tried;
-      if ((free && f.ground && Math.random() < lv) || (staggered && Math.random() < lv * 1.6)) {
+      if ((free && f.ground && Math.random() < lv) || (staggered && Math.random() < Math.min(0.97, lv * 1.6))) {
         ai.tapBlock = true; ai.block = true; ai.dir = 0; ai.down = false; ai.tapAtk = ai.tapSpc = false;
       }
     }
@@ -12063,7 +12077,8 @@ function aiDecide(f, o, ai, L) {
   if (f.opening > 0 && o && Math.abs(o.x - f.x) < 150 && Math.abs(o.y - f.y) < 90) {
     f.face = Math.sign(o.x - f.x) || f.face;
     const r0 = Math.random();
-    if (r0 < 0.45) ai.tapAtk = true; else if (r0 < 0.75) { ai.dir = f.face; ai.tapAtk = true; } else { ai.up = true; ai.tapAtk = true; }
+    if (f.look && f.look.demonMeter) { if (r0 < 0.8) ai.tapAtk = true; else ai.tapGrab = true; }      // Colbalias: into the CLONE STRING (he follows it through) - or a grab
+    else if (r0 < 0.45) ai.tapAtk = true; else if (r0 < 0.75) { ai.dir = f.face; ai.tapAtk = true; } else { ai.up = true; ai.tapAtk = true; }
     return;
   }
   if (!o || o.respawnTimer > 0 || o.halo > 0) {               // opponent gone: wait in the middle
@@ -12145,6 +12160,9 @@ function aiDecide(f, o, ai, L) {
   // COLBALIAS fights at RANGE with his clones: summons whenever he can (more often when they get close, so a
   // clone is always between them), then hangs back and shoots while the clones do the up-close work
   if (f.look && f.look.demonMeter && !f.minion) {
+    // (patience comes FIRST: up close he'd rather stand ready to perfect-block than back off - see COLB_PARRY)
+    if (f.ground && adx < 160 && Math.abs(dy) < 60 && !(oa && (oa.type === 'hitstun' || oa.type === 'parried' || oa.type === 'dizzy')) &&
+        !(f.opening > 0) && Math.random() < L.defend * 0.6) { f.face = toward; ai.dir = 0; return; }
     const n = cloneCount(f);
     const canSummon = (f.cloneCD || 0) <= 0 && n < cloneMax(f) && f.dodgeCount <= airDodgeMax(f) - 3 && (f.demon || 0) < 100 && f.ground;   // (always keeps 3 Z vanishes in reserve for getting home)
     if (canSummon && adx < 800 && Math.abs(dy) < 220 && Math.random() < (adx < 180 ? 0.4 : 0.18)) {
@@ -12197,6 +12215,12 @@ function aiDecide(f, o, ai, L) {
   // the Clone Flail / Swipe when they're beside / above him in the air.
   if (f.look && f.look.demonMeter && !f.minion) {
     const rr = Math.random();
+    // PATIENCE: up close he often just stands his ground, waiting for YOU to commit - so he can perfect-block it
+    // (see COLB_PARRY) and punish. Higher difficulties wait more.
+    if (f.ground && adx < 160 && Math.abs(dy) < 60 && !(oa && (oa.type === 'hitstun' || oa.type === 'parried' || oa.type === 'dizzy')) &&
+        !(f.opening > 0) && Math.random() < L.defend * 0.6) {
+      f.face = toward; ai.dir = 0; return;
+    }
     if (f.ground && adx < 110 && Math.abs(dy) < 50) {
       const cloneOnThem = fighters.some(c => c.minion && c.owner === f && !c.strikeClone && !c.dead && Math.hypot(c.x - o.x, c.y - o.y) < 100);
       f.face = toward;
