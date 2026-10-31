@@ -6065,7 +6065,8 @@ function demonGaze(f) {
   // recover, sacrificing it, or to throw it into the opponent's face. No clones out = the closest opponent.
   const near = list => list.sort((p, q) => Math.hypot(p.x - f.x, p.y - f.y) - Math.hypot(q.x - f.x, q.y - f.y))[0];
   const alive = o => o !== f && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0);
-  const t = near(fighters.filter(o => alive(o) && o.minion && !o.strikeClone && o.owner === f)) || near(fighters.filter(o => alive(o) && !allies(f, o)));
+  const foeOnly = f.gazeFoe; f.gazeFoe = false;                 // (the CPU's gaze-swap sacrifice wants the OPPONENT, not a clone)
+  const t = (!foeOnly && near(fighters.filter(o => alive(o) && o.minion && !o.strikeClone && o.owner === f))) || near(fighters.filter(o => alive(o) && !allies(f, o) && !(foeOnly && o.minion)));
   const ex = f.x + f.face * 6, ey = f.y - 100;                  // his eyes
   burst(ex, ey, [GAZE.color, '#ffffff'], 8, 0, Math.PI, 200, { grav: 0 });
   sfx.parry();
@@ -11898,11 +11899,12 @@ function dummyInput(f) {
 // =====================================================================
 const AI_LEVELS = {
   // mash = button presses per second when grabbed (human-like)
-  EASY:   { think: 0.38, defend: 0.12, aggro: 0.55, combo: 0.3,  mash: 2.5 },
-  NORMAL: { think: 0.2,  defend: 0.4,  aggro: 0.75, combo: 0.7,  mash: 5 },
-  HARD:   { think: 0.09, defend: 0.75, aggro: 0.92, combo: 0.97, mash: 8 },
-  MASTER: { think: 0.05, defend: 0.9,  aggro: 0.96, combo: 1,    mash: 11 },   // top level: reacts almost instantly
-  IMPOSSIBLE: { think: 0.016, defend: 0.99, aggro: 1, combo: 1, mash: 18, precog: true },   // reacts instantly - and READS you (see precog in aiInput)
+  // sac = how often (per second, when it's set up) Colbalias goes for the GAZE-SWAP SACRIFICE - see aiSafety
+  EASY:   { think: 0.38, defend: 0.12, aggro: 0.55, combo: 0.3,  mash: 2.5, sac: 0 },
+  NORMAL: { think: 0.2,  defend: 0.4,  aggro: 0.75, combo: 0.7,  mash: 5, sac: 0.008 },
+  HARD:   { think: 0.09, defend: 0.75, aggro: 0.92, combo: 0.97, mash: 8, sac: 0.02 },
+  MASTER: { think: 0.05, defend: 0.9,  aggro: 0.96, combo: 1,    mash: 11, sac: 0.35 },   // reacts almost instantly
+  IMPOSSIBLE: { think: 0.016, defend: 0.99, aggro: 1, combo: 1, mash: 18, precog: true, sac: 0.6 },   // reacts instantly - and READS you (see precog in aiInput)
   FERAL:  AI_FERAL,                                                              // Colbalias's shadow clones
 };
 
@@ -12102,6 +12104,16 @@ function aiDecide(f, o, ai, L) {
     if (canAirDodge(f)) { ai.tapBlock = true; return; }
   }
 
+  // COLBALIAS - THE GAZE-SWAP SACRIFICE (what real players do): mark them with the gaze, jump off the stage on
+  // purpose, fall until JUST above the death line... then SWAP - he's back on the stage, they're left falling to
+  // their doom. Rare on Normal / Hard, regular on Master, all the time on Impossible. (Only with no clones out,
+  // since the gaze would mark a clone instead. The rest of it runs every frame in aiSafety.)
+  if (f.look && f.look.demonMeter && !f.minion && !ai.sac && L.sac && f.ground && !f.onPlatform &&
+      (f.gazeCD || 0) <= 0 && !f.gazeMark && o && !o.minion && o.y <= STAGE.y + 5 && o.x > STAGE.x + 60 && o.x < STAGE.x + STAGE.w - 60 &&
+      (o.damage >= 25 || L.precog) && Math.random() < L.sac * L.think * 4) {   // (x4: the set-up is only there a fraction of the time)
+    ai.sac = { phase: 'mark', t: 0, target: o }; f.gazeFoe = true;
+    ai.up = true; ai.tapSpc = true; return;
+  }
   // COLBALIAS: full D-E-M-O-N meter and they're close = HELLWAVE (freeze them), then go in for the kill
   if (f.look && f.look.demonMeter && (f.demon || 0) >= 100 && adx < 180 && Math.abs(dy) < 120 && Math.random() < 0.6) {
     ai.down = true; ai.tapSpc = true; return;
@@ -12275,9 +12287,52 @@ function aiDecide(f, o, ai, L) {
   }
 }
 
+// THE GAZE-SWAP SACRIFICE, frame by frame: (1) the gaze lands on them -> (2) run off the nearest edge -> (3) fall,
+// no jumps, no recovery... -> (4) just above the bottom death line: up K = SWAP. He ends up where they were (on the
+// stage), they end up down there with his falling speed. Returns true while it's in charge of the inputs.
+// It calls the whole thing off (and recovers normally) if he's hit, the mark is lost, or they've left the stage.
+const SAC = { swapAbove: 190, giveUp: 7 };                   // swapAbove: how far above the bottom death line he swaps
+function aiSacrifice(f, ai) {
+  const S = ai.sac, a = f.action, t = S.target;
+  S.t += STEP;
+  const quit = () => { ai.sac = null; return false; };
+  if (S.t > SAC.giveUp || !t || !fighters.includes(t) || t.respawnTimer > 0 || f.respawnTimer > 0) return quit();
+  if (a && a.type === 'ledge' && S.phase !== 'mark') { ai.down = true; ai.dir = 0; ai.tapAtk = ai.tapSpc = ai.tapJump = false; return true; }   // (caught the ledge anyway: let go)
+  if (a && (a.type === 'hitstun' || a.type === 'dizzy' || a.type === 'grabbed')) return quit();
+  ai.tapAtk = ai.tapGrab = ai.tapBlock = false; ai.block = false; ai.hold = 0;
+  if (S.phase === 'mark') {                                         // waiting for the gaze to land on THEM
+    if (f.gazeMark && f.gazeMark.t === t) { S.phase = 'dive'; S.edge = f.x < W / 2 ? -1 : 1; }
+    else if (f.gazeMark && f.gazeMark.t !== t) return quit();         // (it marked someone else)
+    else if (S.t > 0.6) return quit();
+    ai.dir = 0;                                                     // (leave the up K press from aiDecide alone - that IS the gaze)
+    return true;
+  }
+  if (!f.gazeMark || f.gazeMark.t !== t || f.gazeMark.time < 0.8) return quit();   // mark gone / about to run out
+  const theyreSafe = t.y <= STAGE.y + 5 && t.x > STAGE.x - 10 && t.x < STAGE.x + STAGE.w + 10;
+  if (S.phase === 'dive') {                                         // run straight off the edge
+    ai.dir = S.edge; ai.up = false; ai.down = !f.ground; ai.tapSpc = false; ai.tapJump = false;   // (holding DOWN in the air = no ledge grab on the way past)
+    if (!f.ground && (f.x < STAGE.x || f.x > STAGE.x + STAGE.w)) S.phase = 'fall';
+    else if (!f.ground && f.y < STAGE.y - 40) ai.dir = S.edge;       // (still over the stage in the air: drift out)
+    return true;
+  }
+  if (S.phase === 'fall') {                                         // drop... and swap at the last moment
+    ai.dir = 0; ai.up = false; ai.down = true; ai.tapJump = false; ai.tapSpc = false;          // (down: never grabs the ledge, falls fast)
+    if (!theyreSafe) {                                               // they left the stage too: if they're above him, swap now to escape
+      if (!a && t.y < f.y - 150 && (f.gazeCD || 0) <= 0) { ai.up = true; ai.down = false; ai.tapSpc = true; ai.sac = null; return true; }
+      return quit();
+    }
+    if (!a && f.y + Math.max(0, f.vy) * 0.1 >= BLAST.bottom - SAC.swapAbove && (f.gazeCD || 0) <= 0) {
+      ai.up = true; ai.down = false; ai.tapSpc = true;               // up K = SWAP
+      ai.sac = null;
+    }
+    return true;
+  }
+  return quit();
+}
 // Every frame: get back to the stage if knocked off, and don't run off the edge.
 function aiSafety(f, ai) {
   const a = f.action;
+  if (ai.sac && aiSacrifice(f, ai)) return;                       // Colbalias mid gaze-swap sacrifice (see aiDecide)
   if (a && (a.type === 'hitstun' || a.type === 'dizzy')) return;
   const offLeft = f.x < STAGE.x, offRight = f.x > STAGE.x + STAGE.w;
   if (!f.ground && (offLeft || offRight || f.y > STAGE.y + 5)) {
