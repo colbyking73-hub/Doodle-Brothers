@@ -367,8 +367,12 @@ const SHIELD_BREAK_STUN = 1.4;
 
 // Attacks & knockback
 const COMBO_GRACE  = 0.35;  // after a combo hit ends, pressing again this soon continues the combo
-const PARRY_WINDOW = 0.15;  // block this close to a hit landing = PERFECT block + counter
+const PARRY_WINDOW = 0.15;  // block this close to a hit landing = PERFECT block (an opening - no automatic counter)
 const PARRY_STUN   = 0.5;   // how long the attacker staggers after being perfect-blocked
+// opening = how long the blocker's next attack comes out faster (startup x openStartup);
+// reWindow = the staggered fighter's one parry-back attempt (a perfect-block stance this long); rePenalty = extra
+// stagger if they mistime it
+const PARRY = { opening: 0.55, openStartup: 0.55, reWindow: 0.15, rePenalty: 0.12 };
 const CLASH_WINDOW = 0.06;  // both attacks (same button) started this close together = CLASH. Any earlier and
                             // whoever pressed first just hits (interrupts) the other - clashes happen, but not every time
 // A clash is a string of MINI CLASHES: they trade a quick burst of blows at one spot, ZIP somewhere else on the
@@ -9390,7 +9394,7 @@ function perfectBlock(def, src, hx, hy) {
   ring(def.x, def.y - 40);
 
   if (src.shot) {                                  // reflect the projectile back, faster and stronger
-    if (def.look && def.look.auraShield) kiaiBlast(def);   // Lance roars and his aura blows it back
+    // (no Tenma Kiai blast any more - perfect blocks never counter-attack; the shot just flies back)
     const s = src.shot;
     s.owner = def; s.color = def.energy;
     s.vx = -s.vx * 1.3; s.vy = -s.vy * 0.5;
@@ -9400,19 +9404,19 @@ function perfectBlock(def, src, hx, hy) {
   }
   const atk = src.fighter;
   if (!atk) return;
-  // Attacker staggers back, wide open
+  // NO automatic counter any more - a perfect block is an OPENING. The attacker staggers (and can still try to
+  // parry YOUR punish - see 'reparry'), while you drop your shield instantly and your next attack comes out fast.
+  // So two equal fighters can trade parries back and forth, each waiting for the other to slip.
   const away = Math.sign(atk.x - def.x) || atk.face * -1;
+  if (atk.action && atk.action.type === 'attack' && atk.action.helper && atk.action.helper.strikeClone) killMinion(atk.action.helper, true);
   atk.action = { type: 'parried', t: 0, dur: PARRY_STUN };
-  atk.vx = away * 260;
+  atk.vx = away * 220;
   atk.comboTimer = 0;
-  // Defender counters immediately
-  const m = def.moveset.counter;
-  if (m) {
-    def.shielding = false;
-    def.face = away;
-    def.action = { type: 'attack', key: 'counter', move: m, btn: 'atk', phase: 'startup', t: 0,
-                   charge: 0, mult: 1, hit: new Set(), air: !def.ground, started: time, noClash: true };
-  }
+  def.shielding = false; def.action = null;
+  def.face = away;
+  def.opening = PARRY.opening;                    // (a quicker punish - see startAttack)
+  def.dodgeBuf = 0;
+  painTexts.push({ x: def.x, y: def.y - 150, t: 0.5, max: 0.5, text: 'OPENING!', big: false });
 }
 
 // =====================================================================
@@ -10552,7 +10556,8 @@ function startAttack(f, inp, btn) {
   f.atkBuf = 0; f.spcBuf = 0; f.jumpBuf = 0; f.flip = 0; f.comboTimer = 0;
   f.action = { type: 'attack', key, move, btn, phase: 'startup', t: 0,
                charge: 0, mult: 1, hit: new Set(), air: !f.ground, started: time, cStick: fromC && f.ground, fromC,
-               startupMul: (fromC ? C_STICK.speed : 1) * (f.tc ? TC.startup : 1) };   // (Total Concentration: quicker too)              // C-stick moves come out faster
+               startupMul: (fromC ? C_STICK.speed : 1) * (f.tc ? TC.startup : 1) * (f.opening > 0 ? PARRY.openStartup : 1) };   // (Total Concentration: quicker too)              // C-stick moves come out faster
+  if (f.opening > 0) { f.opening = 0; f.action.punish = true; }   // (the punish after a perfect block: used up)
   if (btn === 'atk' && f.look && f.look.trackDash) startTrackDash(f, f.action);
   if (f.noScythe && /^(p[1-5]|k1)$/.test(key) && f.action.move.chain) colbyBlink(f, f.action);   // bare Colby's K string: BLINK round them
   // CAPTAIN HEEL'S VOICE: specials and smash attacks get a yell, normal attacks a grunt now and then
@@ -11146,6 +11151,17 @@ function stepAction(f, inp, dt) {
   } else if (a.type === 'parried') {
     f.vx = approach(f.vx, 0, FRICTION * 0.6 * dt);
     if (Math.random() < dt * 8) burst(f.x, f.y - f.h - 6, ['#ffd23f'], 1, Math.PI / 2, 0.8, 90, { grav: -40 });
+    // STAGGERED - but not helpless: ONE shield press = a split-second parry stance. Time it right as their punish
+    // lands and it's YOUR perfect block (and their opening is gone). Mistime it and you're stuck a little longer.
+    if (inp.blockTap && !a.tried && a.t < a.dur - 0.04) {
+      f.action = { type: 'reparry', t: 0, dur: PARRY.reWindow, rest: Math.max(0.05, a.dur - a.t) + PARRY.rePenalty };
+      return;
+    }
+  } else if (a.type === 'reparry') {                    // the parry stance: a perfect-block window, nothing else
+    f.vx = approach(f.vx, 0, FRICTION * dt);
+    f.shielding = true; f.shieldAge = 0;
+    if (a.t >= a.dur) { f.shielding = false; f.action = { type: 'parried', t: 0, dur: a.rest, tried: true }; }   // too early: still open
+    return;
   }
 
   if (isIntangible(f) && a.type !== 'air') {          // (air vanishes don't leave a trail - you're just gone)
@@ -11376,6 +11392,7 @@ function updateFighter(f, inp, dt) {
   f.hypePulse = Math.max(0, (f.hypePulse || 0) - dt);
   if (f.look && f.look.demonMeter) updateGaze(f, dt);            // Colbalias's gaze mark wears off
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
+  f.opening = Math.max(0, (f.opening || 0) - dt);               // the window to punish after a perfect block
   syncKame(f);
   const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam'].includes(f.action.type);
   if (f.transformed) {                                            // transformed: the meter slowly drains
@@ -11820,6 +11837,22 @@ function aiInput(f, level) {
   }
   aiSafety(f, ai);
 
+  // PARRY REFLEX (every frame, not just when it "thinks"): an attack is about to land on us - now and then snap the
+  // shield up at just the right moment for a PERFECT BLOCK (better CPUs more often). Staggered from one of our own
+  // attacks being perfect-blocked: the same reflex = parrying their punish back.
+  if (o && o.action && o.action.type === 'attack' && o.action.phase === 'startup' && !f.minion &&
+      Math.abs(o.x - f.x) < 150 && Math.abs(o.y - f.y) < 110) {
+    const oa = o.action, left = oa.move.startup * (oa.startupMul || 1) - oa.t;   // seconds until it's live
+    if (left <= 0.06 && left > 0 && oa.reflexFor !== f) {
+      oa.reflexFor = f;                                         // (one roll per attack)
+      const lv = { EASY: 0.06, NORMAL: 0.25, HARD: 0.45, MASTER: 0.65, FERAL: 0 }[level] ?? 0.25;   // (then the difficulty's perfect-block success roll in applyHit)
+      const free = !f.action || f.action.type === 'land', staggered = f.action && f.action.type === 'parried' && !f.action.tried;
+      if ((free && f.ground && Math.random() < lv) || (staggered && Math.random() < lv * 1.6)) {
+        ai.tapBlock = true; ai.block = true; ai.dir = 0; ai.down = false; ai.tapAtk = ai.tapSpc = false;
+      }
+    }
+  }
+
   // Grabbed: mash to break free
   const ga = f.action;
   if (ga && ga.type === 'grabbed' && Math.random() < L.mash * STEP) ai.tapAtk = true;
@@ -11876,7 +11909,19 @@ function safeDir(f, d) {
 function aiDecide(f, o, ai, L) {
   ai.dir = 0; ai.up = false; ai.down = false; ai.block = false;
   const a = f.action;
+  // PERFECT-BLOCKED: try to parry their punish back - press shield as their attack is about to land
+  if (a && a.type === 'parried' && !a.tried && o && o.action && o.action.type === 'attack' && o.action.phase === 'startup' &&
+      Math.abs(o.x - f.x) < 170 && o.action.t >= o.action.move.startup * (o.action.startupMul || 1) * 0.45 && Math.random() < L.defend * 0.8) {
+    ai.tapBlock = true; return;
+  }
   if (a && a.type !== 'land') return;                       // busy (attacking, dodging, hit...)
+  // OPENING (we just perfect-blocked them): punish straight away with something quick
+  if (f.opening > 0 && o && Math.abs(o.x - f.x) < 150 && Math.abs(o.y - f.y) < 90) {
+    f.face = Math.sign(o.x - f.x) || f.face;
+    const r0 = Math.random();
+    if (r0 < 0.45) ai.tapAtk = true; else if (r0 < 0.75) { ai.dir = f.face; ai.tapAtk = true; } else { ai.up = true; ai.tapAtk = true; }
+    return;
+  }
   if (!o || o.respawnTimer > 0 || o.halo > 0) {               // opponent gone: wait in the middle
     if (Math.abs(W / 2 - f.x) > 80) ai.dir = Math.sign(W / 2 - f.x);
     return;
@@ -12000,7 +12045,7 @@ function aiDecide(f, o, ai, L) {
   }
 
   // 2) PUNISH: opponent is stuck (shield broken, landing, end of a move)
-  const stuck = oa && (oa.type === 'dizzy' || oa.type === 'land' || (oa.type === 'attack' && oa.phase === 'end'));
+  const stuck = oa && (oa.type === 'dizzy' || oa.type === 'parried' || oa.type === 'land' || (oa.type === 'attack' && oa.phase === 'end'));
 
   // Dash kick from mid range to close the gap
   if (f.moveset.sideGround.dash && f.ground && adx > 110 && adx < 260 && Math.abs(dy) < 40 && Math.random() < 0.3) {
@@ -13098,6 +13143,7 @@ function basePose(p) {
     return { ...pose({ lean: -0.3, legA: [0.5 + w, 0.9], legB: [-0.4, 0.6], armA: [2.2 - w, 0.3], armB: [-2.0, -0.3], spin }),
              raw: true };
   }
+  if (a && a.type === 'reparry') return pose({ lean: 0.05, bob: -10, legA: [0.7, 0.6], legB: [-0.6, 0.2], armA: [1.2, -1.9], armB: [1.0, -2.0] });   // snapping the guard up
   if (a && a.type === 'parried') {   // staggering back, arms flung open
     const w = Math.sin(p.anim * 14) * 0.15;
     return pose({ lean: -0.55 + w, bob: -2, legA: [0.5, 0.4], legB: [-0.45, 0.2], armA: [-2.4, 0.3], armB: [2.5, -0.3] });
@@ -16337,8 +16383,7 @@ const COLBY_SECTIONS = {
     ['AIR K', 'Crescent Wheel', 'Spins a full circle with the scythe at arm\'s length: a cut, then a launching cut.'],
     ['AIR FWD K', 'Sky Reaper', 'A big diagonal cleave - the very end of the swing SPIKES.'],
     ['AIR BACK K', 'Backhand Reap', 'A flat swing round to behind him.'],
-    ['AIR DOWN K', 'Grave Drop', 'Raises the scythe, then dives with it plunged straight down (spike).'],
-    ['PERFECT BLOCK', "Reaper's Counter", 'Block at the last instant: a lightning-fast slash fires back automatically.'] ] },
+    ['AIR DOWN K', 'Grave Drop', 'Raises the scythe, then dives with it plunged straight down (spike).'] ] },
   bare: { title: 'BARE-HANDED (AFTER THROWING THE SCYTHE)', rows: [
     ['J J J...', 'Jab > Blink: Back of the Head', 'A punch-and-kick string - he blinks round them for the back-of-the-head shot.'],
     ['SIDE J', 'Thunder Bolt', 'An explosive straight that crackles with lightning.'],
@@ -16365,7 +16410,8 @@ const MOVESETS = {
     { title: 'UNIVERSAL MECHANICS', notes: [
       'SMASH ATTACKS: hold J on side / up / down J to charge many of them - the longer, the harder.',
       'J + JUMP together = a short-hop air attack. Combo strings: keep tapping J (or K) to flow into the next hit.',
-      'PERFECT BLOCK: shield right as a hit lands - most characters fire back a COUNTER automatically.',
+      'PERFECT BLOCK: shield right as a hit lands = no damage, a full shield, and they STAGGER - an OPENING: your next attack comes out extra fast. There is no automatic counter: you have to punish them yourself.',
+      'PARRY BACK: staggered from a perfect block? Press shield ONCE, right as their punish is about to land, to perfect-block it back - and now the opening is yours. Mistime it and you stay open a little longer. Two equal fighters can trade parries back and forth until someone slips.',
       'BLUE DOTS = dodges / Z vanishes left. Spend them all and you get TIRED (slower, less safe dodges). They come back on the ground.',
       'ULTIMATE METER: fills as you take damage (and slowly over time). Full = press I to transform. While transformed the meter drains - press I to fire your ultimate before it runs out.',
       'GRABS beat shields. Throws do set damage; forward / back throws near the edge are KO setups.',
@@ -16402,8 +16448,7 @@ const MOVESETS = {
       ['K (HOLD)', 'Kamehameha', 'Hold to charge, let go to fire a beam that hits over and over. Z VANISH while charging = blink (up to 3 times, still charging). With someone MARKED = Instant Transmission behind them and fire at once.'],
       ['SIDE K', 'Destructo Disc', 'A spinning disc of ki that flies out and comes back like a boomerang - it cuts on the way out AND back (and can nick him).'],
       ['UP K', 'Rising Axe Kick', 'His recovery: flips upward driving his heel up - carries them up with him, then pops them higher to keep the combo going.'],
-      ['DOWN K', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (1% / 2% / 4% damage every second).'],
-      ['PERFECT BLOCK', 'Tenma Kiai', 'His aura explodes outward, blasting away anyone on both sides.'] ] },
+      ['DOWN K', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (1% / 2% / 4% damage every second).'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER)', 'SUPER SAIYAN', 'Golden hair and aura - faster.'],
@@ -16433,8 +16478,7 @@ const MOVESETS = {
       ['AIR K', 'Star Burst', 'Four quick shots fired out in an X.'],
       ['AIR FWD K', 'Air Lance', 'A fast bolt angled forward and down that pierces through.'],
       ['AIR BACK K', 'Back Blast', 'Fires behind him - the recoil boosts him forward.'],
-      ['AIR DOWN K', 'Bomb Drop', 'A heavy orb that falls and hits downward - he stalls in the air.'],
-      ['PERFECT BLOCK', 'Palm Counter', 'A palm strike fires back automatically.'] ] },
+      ['AIR DOWN K', 'Bomb Drop', 'A heavy orb that falls and hits downward - he stalls in the air.'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
       ['I (FULL METER)', 'POWER UP', 'He hits harder and moves faster.'],
@@ -16459,8 +16503,7 @@ const MOVESETS = {
       ['K', 'Darkest Lariat', 'Spins with all four arms out like a whirlwind - steer it left / right. 5 hits, the last launches.'],
       ['SIDE K', 'Alolan Whip', 'Dashes forward grabbing anyone he runs into, whips them into the ropes - press K just as they bounce back for a CRITICAL lariat.'],
       ['UP K', 'Cross Chop', 'Leaps straight up, then dives down at an angle with his arms crossed.'],
-      ['DOWN K', 'Revenge', 'A counter stance: get hit during it = NO damage, he blasts back and goes into BLAZE MODE (+25% damage for a while).'],
-      ['PERFECT BLOCK', 'Palm Counter', 'A palm strike fires back automatically.'] ] },
+      ['DOWN K', 'Revenge', 'A counter stance: get hit during it = NO damage, he blasts back and goes into BLAZE MODE (+25% damage for a while).'] ] },
     { title: 'GRABS + THROWS', rows: [
       ['FWD / BACK', 'RKO', 'Out of nowhere.'],
       ['UP', 'Spinning Piledriver', 'Locks their head between his knees, leaps and corkscrews, and sits them down head-first.'],
@@ -16493,8 +16536,7 @@ const MOVESETS = {
       ['SIDE K', 'Hell Missile', 'A slow bolt of hellfire that crosses the whole stage - a hit STUNS them for a moment.'],
       ['UP K', "Demon's Gaze", 'His recovery: he LOOKS at someone and marks them (a clone first, if one is out). Up K again = SWAP PLACES with them instantly. In the air it gives him a lift.'],
       ['DOWN K', 'Shadow Clone', 'Summons a clone that fights on its own (costs one blue dodge dot). Up to 2 at once (3 transformed).'],
-      ['DOWN K (FULL D-E-M-O-N)', 'Hellwave', 'With a full D-E-M-O-N meter: a wave that FREEZES everyone near him.'],
-      ['PERFECT BLOCK', 'Palm Counter', 'A palm strike fires back automatically.'] ] },
+      ['DOWN K (FULL D-E-M-O-N)', 'Hellwave', 'With a full D-E-M-O-N meter: a wave that FREEZES everyone near him.'] ] },
     { title: 'GRAB (U) + DIRECTION', rows: [
       ['FWD / BACK', 'Volleyball Spike', 'A one-handed shoulder throw half the stage away - a clone SETS them, and he leaps up and SPIKES them.'],
       ['UP', 'Sky Throw', 'The highest throw in the game.'],
@@ -16542,8 +16584,7 @@ const MOVESETS = {
       ['Z VANISH (TETHERED)', 'Cut the Line', 'At ANY point while the cable is connected: cut it and vanish - the hook is ready to fire again straight away.'],
       ['SIDE K', 'First Form: Unknowing Fire', 'A blazing dash cut straight through them.'],
       ['UP K', 'Second Form: Rising Scorching Sun', 'His recovery: a rising slash that carries him up.'],
-      ['DOWN K', 'Total Concentration', 'Switches his breathing form on / off (ground or air). See below.'],
-      ['PERFECT BLOCK', 'Palm Counter', 'A palm strike fires back automatically.'] ] },
+      ['DOWN K', 'Total Concentration', 'Switches his breathing form on / off (ground or air). See below.'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
       ['I (FULL METER)', 'FLAME HASHIRA', 'A burning aura - faster and stronger.'],
