@@ -15266,6 +15266,7 @@ canvas.addEventListener('mousemove', e => { const p = canvasPoint(e); mouse.x = 
 canvas.addEventListener('mousedown', e => { const p = canvasPoint(e); mouse.x = p.x; mouse.y = p.y; if (e.button === 2) mouse.right = true; else { mouse.click = true; mouse.down = true; } });
 addEventListener('mouseup', () => { mouse.down = false; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('wheel', e => { mouse.wheel = (mouse.wheel || 0) + e.deltaY; }, { passive: true });   // (scrolls the MOVESETS page)
 addEventListener('pointerdown', unlockAudio);
 
 // ---------------- CHARACTER SELECT ----------------
@@ -16309,8 +16310,381 @@ function drawUpdateToast(dt) {
     sctx.globalAlpha = 1; sctx.textAlign = 'left';
   });
 }
-const homeItems = () => (appUpdate().state === 'ready' ? ['UPDATE NOW'] : []).concat(['PLAY', 'ONLINE', 'CONTROLS', 'OPTIONS']).concat(window.appInfo ? ['QUIT'] : []);
-const homeItemRect = k => ({ x: W / 2 - 170, y: 334 + k * 64, w: 340, h: 52 });
+// ---------------- MOVESETS (home menu): every character's moves for every input, and what makes their kit unique ----------------
+// Each entry: blurb + sections. A section is { title, rows: [[input, move name, what it does], ...] } or
+// { title, notes: [lines...] } for the mechanics. LEFT / RIGHT picks the character, UP / DOWN (or the mouse wheel) scrolls.
+const MS_STD_THROWS = { title: 'GRAB (U) + DIRECTION', rows: [
+  ['GRAB', 'Grab', 'Grabs whoever is right in front of you - grabs beat shields. Tap J while holding them to pummel.'],
+  ['FWD / BACK / UP / DOWN', 'Throws', 'Throws them that way. Down throws set up combos; forward / back throws near the edge set up KOs.'] ] };
+const COLBY_SECTIONS = {
+  ground: { title: 'GROUND J (WITH THE SCYTHE)', rows: [
+    ['J', 'Chidori Impale', 'A Chidori through them, then slams them over his head into the ground and lays into them with lightning kicks while they are down.'],
+    ['SIDE J', 'Reaper Tornado', 'Whirls round and round with the scythe held out at arm\'s length.'],
+    ['UP J', "Reaper's Arc", 'A fast overhead swipe of the scythe from in front, up over his head.'],
+    ['DOWN J', 'Axe Kick', 'His heel comes down on their head - on the ground they bounce up for a follow-up.'],
+    ['RUN + J', 'Reaper Wheel', 'Springs into a somersault with the scythe locked out - the blade carves a full 360.'] ] },
+  air: { title: 'AIR J', rows: [
+    ['AIR J', 'Reaper Cyclone', 'The scythe whips flat around him over two full spins: 3 cuts, the last one launches.'],
+    ['AIR FWD J', 'Reaper Somersault', 'A front flip with the scythe locked out in both hands - a 360 slice in front.'],
+    ['AIR BACK J', 'Reaper Backflip', 'A backflip that carves the blade round behind him.'],
+    ['AIR UP J', "Reaper's Arc", 'The overhead swipe, in the air.'],
+    ['AIR DOWN J', "Reaper's Undercut", 'Hops up and sweeps the scythe in a big arc right underneath himself.'] ] },
+  k: { title: 'K (SCYTHE SPECIALS)', rows: [
+    ['K, K, K', 'Horizontal Slash > Reaping Pull > Diagonal Cleave', 'A 3-hit scythe string with long reach. Hold K on the last one to charge it.'],
+    ['SIDE K', "Reaper's Toss", 'Hurls the scythe. It flies, then HOVERS spinning (chips anyone who touches it) - press K to call it back. If not, it drops and sticks: walk over and press K to pick it up.'],
+    ['UP K', "Reaper's Aether", 'His recovery: hurls the scythe straight up (impaling anyone next to him), warps up to it and spins back down with it.'],
+    ['DOWN K', 'Reaper Whirl', 'A full 360 spin with the scythe out at waist height - hits everything around him.'],
+    ['AIR K', 'Crescent Wheel', 'Spins a full circle with the scythe at arm\'s length: a cut, then a launching cut.'],
+    ['AIR FWD K', 'Sky Reaper', 'A big diagonal cleave - the very end of the swing SPIKES.'],
+    ['AIR BACK K', 'Backhand Reap', 'A flat swing round to behind him.'],
+    ['AIR DOWN K', 'Grave Drop', 'Raises the scythe, then dives with it plunged straight down (spike).'],
+    ['PERFECT BLOCK', "Reaper's Counter", 'Block at the last instant: a lightning-fast slash fires back automatically.'] ] },
+  bare: { title: 'BARE-HANDED (AFTER THROWING THE SCYTHE)', rows: [
+    ['J J J...', 'Jab > Blink: Back of the Head', 'A punch-and-kick string - he blinks round them for the back-of-the-head shot.'],
+    ['SIDE J', 'Thunder Bolt', 'An explosive straight that crackles with lightning.'],
+    ['UP J', 'Heaven Splitter', 'A huge rising uppercut. Slow to start - land it and the game goes into slow-mo with an X-RAY.'],
+    ['DOWN J', 'Inferno Axe Kick', 'A blazing axe kick.'],
+    ['RUN + J', 'Superman Punch', 'Leaps into a flying punch.'],
+    ['AIR J / FWD / BACK / UP / DOWN', 'Split Kick Spin / Air Dash Kick / Back Spin Kick / Dragon Bicycle / Meteor Punch', 'His bare-handed airs - Meteor Punch spikes.'],
+    ['SIDE K', 'Annihilator', 'A charged rush punch - hold K to wind it up.'],
+    ['UP K', 'Rising Uppercut', 'His bare-handed recovery.'],
+    ['DOWN K', 'Time Stop / Dash Chokeslam', 'With a FULL time meter: a purple aura that freezes anyone it touches in time (knockback piles up and lands all at once). Otherwise a dashing chokeslam.'],
+    ['K (NEAR THE SCYTHE)', 'Pick Up', 'Picks his scythe (or ANY weapon lying on the floor) back up.'] ] },
+};
+const MOVESETS = {
+  BASICS: { blurb: 'How every fighter works. Pick a character with LEFT / RIGHT to see their whole kit.', sections: [
+    { title: 'CONTROLS (KEYBOARD - CHANGE THEM IN CONTROLS)', rows: [
+      ['A / D', 'Move', 'Walk. Double-tap to RUN.'],
+      ['W / SPACE', 'Jump', 'Jump, then jump again in the air. Tap = short hop.'],
+      ['J', 'Physical attack', 'Punches, kicks, weapon swings. Add a direction for a different move.'],
+      ['K', 'Ranged / special', 'Each character\'s specials. Add a direction for a different move.'],
+      ['U', 'Grab', 'Grab, then a direction to throw.'],
+      ['I', 'Ultimate', 'Full meter = TRANSFORM. Transformed = ULTIMATE (hold DOWN for a second ultimate if they have one).'],
+      ['SHIFT / L', 'Shield', 'Hold to block. With a direction = roll / spot dodge. In the air = Z VANISH (air dodge).'],
+      ['Y / X / Z', 'Taunts', 'Up / side / down taunt.'] ] },
+    { title: 'UNIVERSAL MECHANICS', notes: [
+      'SMASH ATTACKS: hold J on side / up / down J to charge many of them - the longer, the harder.',
+      'J + JUMP together = a short-hop air attack. Combo strings: keep tapping J (or K) to flow into the next hit.',
+      'PERFECT BLOCK: shield right as a hit lands - most characters fire back a COUNTER automatically.',
+      'BLUE DOTS = dodges / Z vanishes left. Spend them all and you get TIRED (slower, less safe dodges). They come back on the ground.',
+      'ULTIMATE METER: fills as you take damage (and slowly over time). Full = press I to transform. While transformed the meter drains - press I to fire your ultimate before it runs out.',
+      'GRABS beat shields. Throws do set damage; forward / back throws near the edge are KO setups.',
+      'DAMAGE %: the higher it is, the further you fly. Get knocked past the edge of the screen = lose a stock.' ] } ] },
+  COLBY: { blurb: 'Taekwondo kicks and a long-reach scythe. Throw the scythe away and he becomes a bare-handed brawler with a whole second moveset.', sections: [
+    COLBY_SECTIONS.ground, COLBY_SECTIONS.air, COLBY_SECTIONS.k, COLBY_SECTIONS.bare,
+    { title: 'GRAB (U) + DIRECTION', rows: [
+      ['FWD / BACK', "Reaper's Run", 'Chokes them up by the neck, slams them down and sprints them along the floor to the edge, then hurls them out low - set up for a spike.'],
+      ['UP', 'Sky Spin', 'Leaps high with them, spins 3-4 times, then throws them into the stage so they bounce up for a combo.'],
+      ['DOWN', 'Thunder Knee', 'Throws them flat, leaps up spinning and crashes down knees-first - lightning strikes as he lands.'] ] },
+    { title: 'TRANSFORM + ULTIMATES (I)', rows: [
+      ['I (FULL METER)', 'GOD SPEED', 'Electric aura, faster and stronger - and EVERY hit adds extra lightning damage. Bare-handed neutral K becomes a teleport.'],
+      ['I (TRANSFORMED)', "Reaper's Requiem", 'A teleporting flurry of slashes and kicks. At 225% or more it cuts them in half: an automatic KO.'],
+      ['DOWN + I (TRANSFORMED)', 'God Speed: Lightning Blade', 'Zips through them from both ends of the screen and from above, binds them in lightning chains, charges his strongest Chidori and drives it through their heart. Locks on from anywhere.'] ] },
+    { title: 'WHAT MAKES HIM UNIQUE', notes: [
+      'BLEED: every scythe hit (and the thrown scythe) adds a stack of bleed - up to 10 stacks, each doing 0.5% every 2 seconds.',
+      'TWO MOVESETS: with the scythe he has reach and bleed; without it he is a fast puncher with the Annihilator and Time Stop.',
+      'TIME METER: fills as he lands hits - at full, bare-handed down K is TIME STOP.',
+      'RIVAL WEAPONS: if Colten throws his greatsword while Colby is empty-handed, Colby can press K to CATCH it and fight with it.' ] } ] },
+  LANCE: { blurb: 'A one-armed ki fighter: fast combos, beams and discs, and a ki mark that lets him teleport right behind you.', sections: [
+    { title: 'GROUND J', rows: [
+      ['J x6', 'Straight Punch > Backfist > Switch Kicks > Body Hook > Ki Palm Blast', 'A six-hit string thrown with one arm and both legs - the palm blast finisher sends them away.'],
+      ['SIDE J', 'Shuriken Kick', 'A spinning kick.'],
+      ['UP J', 'Rising Uppercut', 'An uppercut that launches straight up.'],
+      ['DOWN J', 'Headspin', 'Flips onto his head and breakdance-spins, legs whirling - hits both sides over and over, the last spin launches.'],
+      ['RUN + J', 'Cartwheel Kick', 'Cartwheels in with his legs split wide: two hits, the second sends them flying.'] ] },
+    { title: 'AIR J', rows: [
+      ['AIR J', 'Spinning Backfist', 'His arm sweeps all the way round him: front, back, front - the last one launches.'],
+      ['AIR FWD J', 'Shuriken Kick', 'The spinning kick, in the air.'],
+      ['AIR BACK J', 'Backhand Chop', 'Swings his arm straight out behind him.'],
+      ['AIR UP J', 'Upward Palm', 'A palm thrust straight up.'],
+      ['AIR DOWN J', 'Spinning Axe Kick', 'A spinning heel brought down on them.'] ] },
+    { title: 'K (KI)', rows: [
+      ['K (HOLD)', 'Kamehameha', 'Hold to charge, let go to fire a beam that hits over and over. Z VANISH while charging = blink (up to 3 times, still charging). With someone MARKED = Instant Transmission behind them and fire at once.'],
+      ['SIDE K', 'Destructo Disc', 'A spinning disc of ki that flies out and comes back like a boomerang - it cuts on the way out AND back (and can nick him).'],
+      ['UP K', 'Rising Axe Kick', 'His recovery: flips upward driving his heel up - carries them up with him, then pops them higher to keep the combo going.'],
+      ['DOWN K', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (1% / 2% / 4% damage every second).'],
+      ['PERFECT BLOCK', 'Tenma Kiai', 'His aura explodes outward, blasting away anyone on both sides.'] ] },
+    MS_STD_THROWS,
+    { title: 'TRANSFORM + ULTIMATES (I)', rows: [
+      ['I (FULL METER)', 'SUPER SAIYAN', 'Golden hair and aura - faster.'],
+      ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage.'],
+      ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
+    { title: 'WHAT MAKES HIM UNIQUE', notes: [
+      'KI MARKS: every separate ki attack that hits marks them (up to 3 marks, they last 6 seconds).',
+      'MARK TELEPORT: Z VANISH in the air with someone marked = INSTANT TRANSMISSION right behind them. Each teleport uses ONE mark - let go of the shield between teleports.',
+      'A Kamehameha fired by Instant Transmission never gives a mark back.',
+      'FLY DASH: double-tap a direction to rocket at the opponent (strong, but punishable if it misses).',
+      'AURA SHIELD: instead of a bubble, his aura flares up around him when he blocks.' ] } ] },
+  STICKMAN: { blurb: 'The original: a balanced all-rounder with simple smash attacks and energy shots. The best place to start.', sections: [
+    { title: 'GROUND J', rows: [
+      ['J', 'Jab', 'A quick punch.'],
+      ['SIDE J (HOLD)', 'Side Smash', 'A chargeable forward smash - his main KO move.'],
+      ['UP J (HOLD)', 'Up Smash', 'A chargeable launcher straight up.'],
+      ['DOWN J (HOLD)', 'Down Smash', 'A chargeable sweep that hits both sides.'] ] },
+    { title: 'AIR J', rows: [
+      ['AIR J', 'Neutral Air', 'A kick out around him.'],
+      ['AIR FWD / BACK J', 'Forward Air / Back Air', 'Strikes in front / behind.'],
+      ['AIR UP / DOWN J', 'Up Air / Down Air', 'Hits above / below - down air spikes.'] ] },
+    { title: 'K (ENERGY)', rows: [
+      ['K (HOLD)', 'Energy Ball', 'Hold to charge a bigger, stronger ball.'],
+      ['SIDE K', 'Triple Shot', 'Three quick shots.'],
+      ['UP K', 'Rocket Jump', 'His recovery: blasts himself upward.'],
+      ['DOWN K', 'Shockwave', 'A burst of energy around him.'],
+      ['AIR K', 'Star Burst', 'Four quick shots fired out in an X.'],
+      ['AIR FWD K', 'Air Lance', 'A fast bolt angled forward and down that pierces through.'],
+      ['AIR BACK K', 'Back Blast', 'Fires behind him - the recoil boosts him forward.'],
+      ['AIR DOWN K', 'Bomb Drop', 'A heavy orb that falls and hits downward - he stalls in the air.'],
+      ['PERFECT BLOCK', 'Palm Counter', 'A palm strike fires back automatically.'] ] },
+    MS_STD_THROWS,
+    { title: 'TRANSFORM + ULTIMATE (I)', rows: [
+      ['I (FULL METER)', 'POWER UP', 'He hits harder and moves faster.'],
+      ['I (TRANSFORMED)', 'Overdrive', 'A lunge - whoever it catches takes a blinding flurry and a big final hit.'] ] },
+    { title: 'WHAT MAKES HIM UNIQUE', notes: [
+      'No gimmicks - every input does what you\'d expect, which makes him the best character to learn the game with.',
+      'Air K has its own set of shots, separate from his ground K.' ] } ] },
+  AIDEN: { blurb: 'Captain Heel: a four-armed skeleton pirate wrestler. Slow and heavy, hits like a truck, and a grappler - every hit throws cinders.', sections: [
+    { title: 'GROUND J', rows: [
+      ['J J J', 'Left Double Hammer > Right Double Hammer > Gigantic Headbutt', 'His lower arms clamp on and drag you in while the upper arms do the damage - the whole string connects.'],
+      ['SIDE J (HOLD)', 'Massive Dropkick', 'Aim left or right while charging, then he launches himself feet-first - further and harder the longer you charge.'],
+      ['UP J (HOLD)', 'Anchor Arc', 'Whips the anchor up over his head, front to back - made for juggling.'],
+      ['DOWN J (HOLD)', 'Anchor Slam', 'Slams the anchor down into the floor.'],
+      ['RUN + J', 'Dropkick', 'Leaps feet-first into them.'] ] },
+    { title: 'AIR J', rows: [
+      ['AIR J', 'Flame Spin', 'Whirls round with all four arms out, fire trailing - hits both sides.'],
+      ['AIR FWD J', 'Giant Flying Knee', 'Catch them in the VERY first instant for a monster hit (fire, freeze, impact frame). Later = a weak bump.'],
+      ['AIR BACK J', 'Back Dropkick', 'Both feet driven straight out behind him - one of his strongest air hits.'],
+      ['AIR UP J', 'Anchor Arc', 'The anchor whipped up over his head.'],
+      ['AIR DOWN J', 'Inferno Stomp', 'Both feet driven straight down - the first instant is a brutal spike.'] ] },
+    { title: 'K (INCINEROAR SPECIALS)', rows: [
+      ['K', 'Darkest Lariat', 'Spins with all four arms out like a whirlwind - steer it left / right. 5 hits, the last launches.'],
+      ['SIDE K', 'Alolan Whip', 'Dashes forward grabbing anyone he runs into, whips them into the ropes - press K just as they bounce back for a CRITICAL lariat.'],
+      ['UP K', 'Cross Chop', 'Leaps straight up, then dives down at an angle with his arms crossed.'],
+      ['DOWN K', 'Revenge', 'A counter stance: get hit during it = NO damage, he blasts back and goes into BLAZE MODE (+25% damage for a while).'],
+      ['PERFECT BLOCK', 'Palm Counter', 'A palm strike fires back automatically.'] ] },
+    { title: 'GRABS + THROWS', rows: [
+      ['FWD / BACK', 'RKO', 'Out of nowhere.'],
+      ['UP', 'Spinning Piledriver', 'Locks their head between his knees, leaps and corkscrews, and sits them down head-first.'],
+      ['DOWN', 'Giant Swing', 'Grabs their legs and spins round and round, then lets go.'],
+      ['SPIN THE STICK 360 + GRAB', 'Spinning Piledriver (command grab)', 'A full circle on the stick, then grab: the piledriver from further away.'],
+      ['GRAB + I (FULL METER)', "Dead Man's Deck Match", 'His grab ultimate - straight from a grab.'] ] },
+    { title: 'TRANSFORM + ULTIMATE (I)', rows: [
+      ['I (FULL METER)', 'CAGE MATCH', 'A steel cage drops over him and everyone nearby - nobody can leave until he lands his ultimate.'],
+      ['I (TRANSFORMED)', 'Pirate Ship Slam', 'A pirate ship comes crashing down - anyone in the cage is a guaranteed hit.'] ] },
+    { title: 'WHAT MAKES HIM UNIQUE', notes: [
+      'HYPE: taunt (Y / X / Z) to fill it; it slowly drains. At low hype he only does 80% damage and is lighter. Full hype = full strength and full weight.',
+      'HEAVY HITTER: every hit freezes longer, rocks the screen and throws CINDERS - they keep smouldering for a moment after.',
+      'BLAZE MODE: from Revenge - he burns and hits 25% harder until it runs out.',
+      'FOUR ARMS: his lower arms clamp onto you during his strings, so they connect from point-blank too.' ] } ] },
+  COLBALIAS: { blurb: 'The final boss: a shadow-clone ninja. His clones fight beside him, throw him around, become his weapons and explode. Two meter bars.', sections: [
+    { title: 'GROUND J', rows: [
+      ['J J J J', 'Clone Catapult > Slingshot Sweep > Clone Vault > Twin Crush', 'He and his clones throw each other around: a clone is hurled into a flying kick, a clone shoves him into a slide, a clone vaults over them into an axe kick - then TWO clones punch their head from both sides at once.'],
+      ['SIDE J (HOLD)', 'Red Chidori', 'Charge red lightning, then a clone spins him and HURLS him. On the ground he skims the floor and stops at the edge; in the air it is a huge rising throw. A hit IMPALES them - he rips his hand out for a stun you can combo or grab.'],
+      ['UP J', 'Clone Launch Headbutt', 'A clone crouches, he steps into its hands and it heaves him skyward into a giant headbutt.'],
+      ['DOWN J', 'Clone Detonation', 'KATSU! Every one of his clones on the stage EXPLODES. No clones out = a small burst round himself.'],
+      ['RUN + J', 'Demon Scissors', 'A flying flip that comes down on them legs-first, scissoring.'] ] },
+    { title: 'AIR J', rows: [
+      ['AIR J', 'Clone Flail', 'Summons a clone, grabs its ankle and swings it a full 360 round himself like a weapon.'],
+      ['AIR FWD J', 'Jumping Knuckle', 'A big overhand punch hammered forward.'],
+      ['AIR BACK J', 'Devil Back Kick', 'A straight mule kick behind him.'],
+      ['AIR UP J', 'Clone Swipe', 'Swings a clone\'s body in one big arc over his head.'],
+      ['AIR DOWN J', 'Clone Falcon Dive', 'A clone appears above him and dives in a flaming kick - whoever it catches is CARRIED DOWN with it and spiked.'] ] },
+    { title: 'K (SPECIALS)', rows: [
+      ['K (HOLD)', 'Hellfire Shot', 'A charge shot - hold to power it up.'],
+      ['SIDE K', 'Hell Missile', 'A slow bolt of hellfire that crosses the whole stage - a hit STUNS them for a moment.'],
+      ['UP K', "Demon's Gaze", 'His recovery: he LOOKS at someone and marks them (a clone first, if one is out). Up K again = SWAP PLACES with them instantly. In the air it gives him a lift.'],
+      ['DOWN K', 'Shadow Clone', 'Summons a clone that fights on its own (costs one blue dodge dot). Up to 2 at once (3 transformed).'],
+      ['DOWN K (FULL D-E-M-O-N)', 'Hellwave', 'With a full D-E-M-O-N meter: a wave that FREEZES everyone near him.'],
+      ['PERFECT BLOCK', 'Palm Counter', 'A palm strike fires back automatically.'] ] },
+    { title: 'GRAB (U) + DIRECTION', rows: [
+      ['FWD / BACK', 'Volleyball Spike', 'A one-handed shoulder throw half the stage away - a clone SETS them, and he leaps up and SPIKES them.'],
+      ['UP', 'Sky Throw', 'The highest throw in the game.'],
+      ['DOWN', 'German Suplex', 'Drives them head-first into the floor - then four clones and him stomp them into the ground.'] ] },
+    { title: 'TRANSFORM + ULTIMATES (I) - TWO BARS', rows: [
+      ['I (ONE BAR FULL)', 'TRUE DEMON', 'Transforms on one bar (the other stays saved). Transformed: +1 clone out at once, his clones take +1 hit and rage.'],
+      ['I (TRANSFORMED)', '100-Type Guanyin Bodhisattva', 'A giant hundred-armed statue rises behind him and pummels them. Locks on from anywhere.'],
+      ['DOWN + I (TRANSFORMED)', 'Shadow Clone Rush', '25 clones fight them one exchange at a time - each lands a combo and gets countered - then he teleports behind them for a dead-flat launching punch to the back of the head.'] ] },
+    { title: 'WHAT MAKES HIM UNIQUE', notes: [
+      'TWO METER BARS: each bar is a full transform + ultimate. Use one, and the second can do it all again.',
+      'HIS CLONES have his whole moveset (slower and weaker) except ultimates, the gaze and summoning. Each takes 2 hits, and ANY damage a clone takes goes to Colbalias.',
+      'MORE DODGES: 7 Z vanishes in the air and 6 ground dodges (everyone else: 5 / 4) - because summoning spends them.',
+      'GLASS JAW: he takes the most knockback in the game. Keep your distance and let the clones work.',
+      'D-E-M-O-N METER: fills as he lands hits - full = Hellwave on down K.' ] } ] },
+  COLTEN: { blurb: 'Colby\'s rival: the same kit as Colby, but every weapon move is done with a HUGE greatsword - more reach, more damage, slower.', sections: [
+    { title: 'SAME INPUTS AS COLBY', notes: [
+      'Colten has Colby\'s whole moveset (look at COLBY for every input) - kicks on J, weapon moves on K, side K throws the weapon, and the bare-handed set while it is thrown.',
+      'Every weapon move uses the GREATSWORD: about 15% more reach and 25% more damage, but about 15% slower.',
+      'His kicks hit 10% harder and are a touch slower - he is the heavier rival.' ] },
+    COLBY_SECTIONS.ground, COLBY_SECTIONS.k, COLBY_SECTIONS.bare,
+    MS_STD_THROWS,
+    { title: 'TRANSFORM + ULTIMATE (I)', rows: [
+      ['I (FULL METER)', 'WARLORD', 'A suit of glowing AURA ARMOR: small hits don\'t flinch him, and he takes less knockback.'],
+      ['I (TRANSFORMED)', "Warlord's Judgment", 'Three giant greatsword swings - every one a CRITICAL hit.'] ] },
+    { title: 'WHAT MAKES HIM UNIQUE', notes: [
+      'RIVAL WEAPONS: if Colby throws his scythe while Colten is empty-handed, Colten can press K to CATCH it - he hits even harder with it, but swings slower.',
+      'TIME STOP: like Colby, bare-handed down K with a full time meter freezes them in time.' ] } ] },
+  SEVON: { blurb: 'The Flame Hashira: a fast samurai with flaming sword forms, ODM gear to grapple onto you, and Total Concentration breathing.', sections: [
+    { title: 'GROUND J', rows: [
+      ['J J J', 'Flame Cut > Rising Flame > Flame Crash', 'A three-hit flaming sword string.'],
+      ['SIDE J', 'Flame Thrust', 'A burning thrust straight ahead.'],
+      ['UP J', 'Sun Arc', 'A rising arc of flame over his head.'],
+      ['DOWN J', 'Flame Sweep', 'A low flaming sweep.'],
+      ['RUN + J', 'Burning Draw', 'A running draw-cut.'] ] },
+    { title: 'AIR J', rows: [
+      ['AIR J', 'Bloom of Flame', 'A blossom of flaming cuts around him.'],
+      ['AIR FWD J', 'Falling Flame', 'A downward cut in front.'],
+      ['AIR BACK J', 'Reverse Flame', 'A cut behind him.'],
+      ['AIR UP J', 'Sky Flame', 'A slash straight up over his head.'],
+      ['AIR DOWN J', 'Flame Drop', 'The blade stabbed straight down - spikes.'] ] },
+    { title: 'K (BREATH OF FLAME + ODM GEAR)', rows: [
+      ['K', 'ODM Hook', 'Fires the grapple hook at whoever is in front of him. If it sticks, they are TETHERED for 4 seconds.'],
+      ['K (TETHERED)', 'Reel In', 'Fires the gas and yanks himself straight to them.'],
+      ['K (AGAIN)', 'Levi Spin', 'Whirls at them like a saw blade. While the cable holds it ALWAYS reaches them - only a last-second shield or Z vanish stops it.'],
+      ['Z VANISH (TETHERED)', 'Cut the Line', 'At ANY point while the cable is connected: cut it and vanish - the hook is ready to fire again straight away.'],
+      ['SIDE K', 'First Form: Unknowing Fire', 'A blazing dash cut straight through them.'],
+      ['UP K', 'Second Form: Rising Scorching Sun', 'His recovery: a rising slash that carries him up.'],
+      ['DOWN K', 'Total Concentration', 'Switches his breathing form on / off (ground or air). See below.'],
+      ['PERFECT BLOCK', 'Palm Counter', 'A palm strike fires back automatically.'] ] },
+    MS_STD_THROWS,
+    { title: 'TRANSFORM + ULTIMATE (I)', rows: [
+      ['I (FULL METER)', 'FLAME HASHIRA', 'A burning aura - faster and stronger.'],
+      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'A flurry of flaming slashes ending in a roaring fire tiger.'] ] },
+    { title: 'WHAT MAKES HIM UNIQUE', notes: [
+      'TOTAL CONCENTRATION (down K): +12% damage, +18% speed, quicker attacks, and flames on every windup and hit - but it strains him: 1.5% damage every second.',
+      'He CAN\'T enter Total Concentration at 200% or more.',
+      'Out of it, every J hit that lands HEALS him 0.5% - fight your way back under 200% and go in again.',
+      'The ODM cable snaps if he gets hit, if it times out (4s), or if they get too far apart.',
+      'FIRE: his hits burst into flames.' ] } ] },
+};
+const MS_TABS = () => ['BASICS', ...ROSTER.filter(c => c && MOVESETS[c])];
+const ms = { tab: 1, scroll: 0, maxScroll: 0 };
+function openMovesets() { scene = 'movesets'; ms.scroll = 0; }
+function movesetsUpdate(dt) {
+  const devs = menuDevices(dt), tabs = MS_TABS();
+  const turn = d => { ms.tab = (ms.tab + d + tabs.length) % tabs.length; ms.scroll = 0; menuSfx('move'); };
+  for (const d of devs) {
+    if (d.tap.left) turn(-1);
+    if (d.tap.right) turn(1);
+    if (d.tap.up) ms.scroll -= 90;
+    if (d.tap.down) ms.scroll += 90;
+    if (d.tap.back || d.tap.esc) { goHome(); return; }
+  }
+  // (held UP / DOWN keeps scrolling)
+  if (keys.ArrowDown || keys.KeyS) ms.scroll += 900 * dt;
+  if (keys.ArrowUp || keys.KeyW) ms.scroll -= 900 * dt;
+  if (mouse.wheel) { ms.scroll += mouse.wheel; mouse.wheel = 0; }
+  if (mouse.click) {
+    msTabRects().forEach((r, k) => { if (inRect(mouse, r)) { ms.tab = k; ms.scroll = 0; menuSfx('pick'); } });
+    if (inRect(mouse, MS_BACK)) { goHome(); mouse.click = false; return; }
+  }
+  if (mouse.right) goHome();
+  ms.scroll = clamp(ms.scroll, 0, ms.maxScroll);
+  mouse.click = mouse.right = mouse.moved = false;
+}
+const MS_BACK = { x: W - 190, y: 26, w: 150, h: 48 };
+const MS_BODY = { x: 380, y: 176, w: 860, h: 500 };
+function msTabRects() {
+  const tabs = MS_TABS(), w = Math.floor((W - 80) / tabs.length);
+  return tabs.map((t, k) => ({ x: 40 + k * w, y: 110, w: w - 8, h: 46 }));
+}
+// wrap a string to a width (in the current font)
+function msWrap(str, width) {
+  const words = String(str).split(' '), lines = [];
+  let line = '';
+  for (const w of words) { const t = line ? line + ' ' + w : w; if (sctx.measureText(t).width > width && line) { lines.push(line); line = w; } else line = t; }
+  if (line) lines.push(line);
+  return lines;
+}
+function drawMovesets() {
+  const th = menuTheme(), px = th === 'pixel', sk = th === 'sketch';
+  const F = (s, bold) => px ? `${Math.max(8, Math.round(s * 0.5))}px ${PX_FONT}` : sk ? `${s}px ${DOODLE_FONT}` : `${bold ? 'italic ' : ''}${s}px ${CG_FONT}`;
+  const ink = sk ? INK : '#ffffff', dim = sk ? '#5a5470' : '#c9bfc4', accent = sk ? MARKERS[0] : px ? '#ffd23f' : '#ffd23f';
+  const tabs = MS_TABS(), key = tabs[ms.tab], data = MOVESETS[key];
+  withMenuDrawing(() => {
+    if (sk) drawNotebook(); else if (px) { drawPXBackground(); blitPX(); } else drawCGBackground();
+    // title + back
+    sctx.textAlign = 'left';
+    if (sk) { sctx.font = F(64); sctx.fillStyle = 'rgba(29,27,42,0.9)'; sctx.fillText('MOVESETS', 46, 90); sctx.fillStyle = MARKERS[4]; sctx.fillText('MOVESETS', 40, 84); }
+    else { if (!px) cgSlash(20, 22, 470, 80, 'rgba(200,30,30,0.9)', 3); sctx.font = F(58, true); sctx.fillStyle = '#000'; sctx.fillText('MOVESETS', 44, 88); sctx.fillStyle = '#ffffff'; sctx.fillText('MOVESETS', 40, 84); }
+    const bk = MS_BACK, onBack = inRect(mouse, bk);
+    if (sk) doodleRect(bk.x, bk.y, bk.w, bk.h, 3, INK, 2.5); else slantRect(bk.x, bk.y, bk.w, bk.h, 10, onBack ? '#d62a22' : 'rgba(0,0,0,0.6)');
+    sctx.font = F(24); sctx.textAlign = 'center'; sctx.fillStyle = ink; sctx.fillText('< BACK', bk.x + bk.w / 2, bk.y + 32);
+    // character tabs
+    msTabRects().forEach((r, k) => {
+      const on = k === ms.tab, name = tabs[k] === 'BASICS' ? 'BASICS' : charName(tabs[k]);
+      const col = tabs[k] !== 'BASICS' && CHARACTERS[tabs[k]] ? (CHARACTERS[tabs[k]].look.body || '#888') : '#888';
+      if (sk) { if (on) { sctx.fillStyle = 'rgba(255,224,40,0.75)'; sctx.fillRect(r.x, r.y, r.w, r.h); } doodleRect(r.x, r.y, r.w, r.h, k + 10, INK, on ? 3 : 1.5); }
+      else { slantRect(r.x, r.y, r.w, r.h, 10, on ? '#d62a22' : 'rgba(20,16,18,0.85)'); sctx.fillStyle = col; sctx.fillRect(r.x + 8, r.y + r.h - 6, r.w - 16, 3); }
+      sctx.font = F(name.length > 10 ? 15 : 19, true); sctx.textAlign = 'center'; sctx.fillStyle = on ? (sk ? INK : '#ffffff') : dim;
+      sctx.fillText(name, r.x + r.w / 2, r.y + 30);
+    });
+    // left panel: the fighter + their blurb
+    const lx = 40, lw = 320;
+    if (!sk) slantRect(lx, 176, lw, 500, 12, px ? 'rgba(10,6,24,0.8)' : 'rgba(0,0,0,0.45)');
+    if (key !== 'BASICS') {
+      const keep = sketch; if (sk) sketch = true;
+      drawPortrait(key, lx + lw / 2, 470, 2.4, sk ? INK : (CHARACTERS[key].look.body || '#ffffff'), menuTime);
+      sketch = keep;
+      sctx.textAlign = 'center'; sctx.font = F(30, true); sctx.fillStyle = ink; sctx.fillText(charName(key), lx + lw / 2, 520);
+      if (CHAR_INFO[key]) { sctx.font = F(16); sctx.fillStyle = accent; sctx.fillText(CHAR_INFO[key].title, lx + lw / 2, 546); }
+    } else { sctx.textAlign = 'center'; sctx.font = F(40, true); sctx.fillStyle = ink; sctx.fillText('HOW TO', lx + lw / 2, 300); sctx.fillText('PLAY', lx + lw / 2, 350); }
+    sctx.font = F(16); sctx.fillStyle = dim; sctx.textAlign = 'left';
+    msWrap(data.blurb, lw - 30).forEach((l, i) => sctx.fillText(l, lx + 15, 580 + i * 22));
+    // right panel: the moves (scrolls)
+    const B = MS_BODY;
+    if (!sk) slantRect(B.x - 10, B.y, B.w + 20, B.h, 12, px ? 'rgba(10,6,24,0.85)' : 'rgba(0,0,0,0.5)');
+    sctx.save(); sctx.beginPath(); sctx.rect(B.x - 10, B.y + 4, B.w + 20, B.h - 8); sctx.clip();
+    let y = B.y + 34 - ms.scroll;
+    const inputW = 210, nameX = B.x + inputW + 14, descW = B.w - inputW - 30;
+    for (const S of data.sections) {
+      // section header
+      if (sk) { sctx.fillStyle = 'rgba(47,127,224,0.18)'; sctx.fillRect(B.x, y - 24, B.w, 34); }
+      else { sctx.fillStyle = px ? 'rgba(255,90,200,0.35)' : 'rgba(214,42,34,0.8)'; sctx.fillRect(B.x, y - 24, B.w, 34); }
+      sctx.font = F(20, true); sctx.fillStyle = sk ? MARKERS[1] : '#ffffff'; sctx.textAlign = 'left';
+      sctx.fillText(S.title, B.x + 12, y);
+      y += 40;
+      if (S.notes) {
+        sctx.font = F(17);
+        for (const n of S.notes) {
+          const lines = msWrap(n, B.w - 40);
+          sctx.fillStyle = accent; sctx.fillText('-', B.x + 12, y);
+          sctx.fillStyle = ink; lines.forEach((l, i) => sctx.fillText(l, B.x + 30, y + i * 23));
+          y += lines.length * 23 + 10;
+        }
+      } else for (const [inp, name, desc] of S.rows) {
+        // the input chip
+        sctx.font = F(15, true);
+        const chips = msWrap(inp, inputW - 16);
+        const chipH = 8 + chips.length * 19;
+        if (sk) { sctx.fillStyle = 'rgba(242,154,31,0.35)'; sctx.fillRect(B.x + 4, y - 18, inputW, chipH); }
+        else slantRect(B.x + 4, y - 18, inputW, chipH, 6, px ? '#2a2048' : '#3a1414');
+        sctx.fillStyle = sk ? INK : accent; sctx.textAlign = 'center';
+        chips.forEach((c, i) => sctx.fillText(c, B.x + 4 + inputW / 2, y + i * 19));
+        // name + description
+        sctx.textAlign = 'left';
+        sctx.font = F(20, true); sctx.fillStyle = ink;
+        const nl = msWrap(name, descW);
+        nl.forEach((l, i) => sctx.fillText(l, nameX, y + i * 24));
+        sctx.font = F(16); sctx.fillStyle = dim;
+        const dl = msWrap(desc, descW);
+        dl.forEach((l, i) => sctx.fillText(l, nameX, y + nl.length * 24 + i * 21));
+        y += Math.max(chipH + 6, nl.length * 24 + dl.length * 21) + 16;
+      }
+      y += 12;
+    }
+    sctx.restore();
+    const total = y + ms.scroll - (B.y + 34);
+    ms.maxScroll = Math.max(0, total - B.h + 40);
+    if (ms.maxScroll > 0) {                                        // scrollbar
+      const k = ms.scroll / ms.maxScroll, bh = Math.max(40, B.h * B.h / (total + 40));
+      sctx.fillStyle = sk ? 'rgba(29,27,42,0.2)' : 'rgba(255,255,255,0.15)'; sctx.fillRect(B.x + B.w + 14, B.y, 6, B.h);
+      sctx.fillStyle = sk ? INK : accent; sctx.fillRect(B.x + B.w + 14, B.y + (B.h - bh) * k, 6, bh);
+    }
+    sctx.font = F(16); sctx.textAlign = 'center'; sctx.fillStyle = dim;
+    sctx.fillText('LEFT / RIGHT = CHARACTER   -   UP / DOWN / MOUSE WHEEL = SCROLL   -   B / ESC = BACK', W / 2, H - 14);
+  });
+}
+const homeItems = () => (appUpdate().state === 'ready' ? ['UPDATE NOW'] : []).concat(['PLAY', 'ONLINE', 'MOVESETS', 'CONTROLS', 'OPTIONS']).concat(window.appInfo ? ['QUIT'] : []);
+const homeItemRect = k => { const step = homeItems().length > 6 ? 54 : 64; return { x: W / 2 - 170, y: 334 + k * step, w: 340, h: step - 12 }; };   // (tighter when there are 7 items)
 function goHome() { scene = 'home'; home.phase = 'menu'; menuSfx('back'); }
 function homeUpdate(dt) {
   const devs = menuDevices(dt);
@@ -16338,6 +16712,7 @@ function homeChoose(item) {
   if (item === 'PLAY') scene = 'select';
   else if (item === 'UPDATE NOW') { if (window.appInfo && window.appInfo.installUpdate) window.appInfo.installUpdate(); }   // installs + restarts
   else if (item === 'ONLINE') { scene = 'select'; sbNet.ui.show('menu'); }
+  else if (item === 'MOVESETS') openMovesets();
   else if (item === 'CONTROLS') openControls('home');
   else if (item === 'OPTIONS') { scene = 'options'; opt.row = 0; }
   else if (item === 'QUIT') window.close();
@@ -16808,10 +17183,12 @@ function frame(now) {
     else if (scene === 'home') homeUpdate(elapsed);
     else if (scene === 'options') optionsUpdate(elapsed);
     else if (scene === 'controls') controlsUpdate(elapsed);
+    else if (scene === 'movesets') movesetsUpdate(elapsed);
     else if (scene === 'results') resultsUpdate(elapsed);
     for (const k in pressed) delete pressed[k];
     if (scene === 'select') drawSelect(); else if (scene === 'controls') drawControls();
     else if (scene === 'home') drawHome(); else if (scene === 'options') drawOptions();
+    else if (scene === 'movesets') drawMovesets();
     else if (scene === 'results' && results) drawResults();
     drawUpdateToast(elapsed);
     acc = 0;
