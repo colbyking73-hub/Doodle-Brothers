@@ -461,13 +461,16 @@
     const worst = Math.max(80, ...N.slots.filter(s => s.kind === 'human').map(s => s.ping || 0));
     const relay = N.conns.size > 1 ? worst : worst / 2;
     const delay = clamp(Math.ceil((relay + 40) / (STEP * 1000)), 5, 40);   // (+40ms of headroom for ping spikes)
-    const m = { k: 'start', seed: (realRandom() * 2 ** 32) >>> 0, slots: N.slots.map(s => ({ ...s })), opts: { ...N.opts }, gore, delay };
+    // song = the battle song EVERYONE hears this match (the host's next pick) - so the big moments line up for everybody
+    const m = { k: 'start', seed: (realRandom() * 2 ** 32) >>> 0, slots: N.slots.map(s => ({ ...s })), opts: { ...N.opts }, gore, delay, song: nextBattleSong() };
     broadcast(m);
     beginMatch(m);
   }
   function beginMatch(m) {
     const N = netplay;
     N.slots = m.slots; N.opts = m.opts;
+    netSong = Number.isInteger(m.song) ? m.song : -1;   // (the host's battle song for this match)
+    if (battleMusic.el) { try { battleMusic.el.pause(); } catch (e) {} battleMusic.el = null; battleMusic.song = -1; }   // (a song still fading out from last match: gone, so everyone starts the same one)
     N.humans = m.slots.map((s, i) => s.kind === 'human' ? i : -1).filter(i => i >= 0);
     N.mine = mySlots(N);
     // rebuild every fighter from scratch, so nothing left over from earlier games can differ
@@ -646,7 +649,7 @@
     }
     netplay = null;
     if (saved && !quiet) {
-      turbo = saved.turbo; netTurbo = false; gore = saved.gore; gameOptions.stage = saved.stage; gameOptions.stocks = saved.stocks; gameOptions.teams = saved.teams;
+      turbo = saved.turbo; netTurbo = false; netSong = -1; gore = saved.gore; gameOptions.stage = saved.stage; gameOptions.stocks = saved.stocks; gameOptions.teams = saved.teams;
       saved.players.forEach((p, i) => Object.assign(players[i], p, { char: null, remote: false, mineSeat: false }));
       showControls = saved.showControls;
       saved = null;

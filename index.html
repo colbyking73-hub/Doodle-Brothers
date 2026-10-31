@@ -8375,9 +8375,13 @@ function nextBattleSong() {
 // THE FINAL BOSS THEME: plays ONLY in arcade mode's last fight (vs the boss Colbalias) - never in the shuffle. It loops.
 const BOSS_SONG = { file: 'devils-never-cry.mp3', from: 0 };
 const bossFight = () => !!(arcade && arcade.active && fighters.some(f => f.arcadeBoss));
+// ONLINE: everyone plays the HOST'S song (sent with the match start), and if it ends mid-fight everyone moves on to
+// the same next one - so the big moments line up for the whole lobby
+let netSong = -1;
 function startBattleSong() {
-  const boss = bossFight();
-  const i = boss ? -2 : nextBattleSong(), s = boss ? BOSS_SONG : BATTLE_MUSIC.songs[i];
+  const boss = bossFight(), online = netActive() && netSong >= 0 && netSong < BATTLE_MUSIC.songs.length;
+  const i = boss ? -2 : online ? netSong : nextBattleSong(), s = boss ? BOSS_SONG : BATTLE_MUSIC.songs[i];
+  if (online && !boss) netSong = (netSong + 1) % BATTLE_MUSIC.songs.length;   // (the one after it, for everyone, if this one runs out)
   if (battleMusic.el) { try { battleMusic.el.pause(); } catch (e) {} }
   const el = new Audio('sounds/battle/' + s.file + (s.from ? '#t=' + s.from : ''));
   el.volume = 0; el.preload = 'auto';
