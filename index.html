@@ -16882,11 +16882,76 @@ const MOVESETS = {
 };
 const MS_TABS = () => ['BASICS', ...ROSTER.filter(c => c && MOVESETS[c])];
 const ms = { tab: 1, scroll: 0, maxScroll: 0 };
-function openMovesets() { scene = 'movesets'; ms.scroll = 0; }
+function openMovesets(dev) { scene = 'movesets'; ms.scroll = 0; ms.dev = dev || 'keyboard'; }
+// ---- YOUR buttons: the move list is written as keyboard defaults (J, K, I, SIDE / UP / DOWN...), and shown in
+// whatever the person reading it actually uses - their keyboard keys, or their controller's buttons (Xbox or
+// GameCube names, from THEIR controls preset). The last device used on the page decides.
+function msBinds(dev) {
+  const p = players.find(q => q.dev === dev && !q.cpu && !q.off);
+  return profileOf(p ? p.profile : 'DEFAULT');
+}
+function msDevInfo(dev = ms.dev || 'keyboard') {
+  const pad = typeof dev === 'string' && dev.startsWith('pad');
+  const gp = pad ? getPads()[+dev.slice(3)] : null;
+  const gc = pad && (settings.padType === 'GAMECUBE' || !!(gp && gp.gc));
+  return { pad, gc, B: msBinds(dev), n: pad ? +dev.slice(3) + 1 : 0 };
+}
+function msBtn(act, D = msDevInfo()) {
+  if (D.pad) {
+    const list = (D.B[D.gc ? 'gcPad' : 'pad'][act] || []).map(n => padBtnName(n, D.gc));
+    return list.slice(0, 2).join('/') || '(UNSET)';
+  }
+  return (D.B.keys[act] || []).map(keyName).slice(0, 2).join('/') || '(UNSET)';
+}
+function msDir(word, D) {
+  if (D.pad) return { SIDE: 'STICK L/R', UP: 'STICK UP', DOWN: 'STICK DOWN' }[word];
+  const k = a => keyName((D.B.keys[a] || [])[0] || '');
+  return { SIDE: k('left') + '/' + k('right'), UP: k('up'), DOWN: k('down') }[word];
+}
+// an input chip ("SIDE J", "AIR DOWN K", "DOWN + I (TRANSFORMED)", "Z VANISH (TETHERED)"...) in the reader's buttons
+function msInputLabel(str, D = msDevInfo()) {
+  const BTN = { J: 'attack', K: 'special', I: 'ult' };
+  const parts = String(str).split(/(\s+|,|\+|\/|\(|\))/).filter(s => s !== '' && s !== undefined);
+  const out = []; let prevKind = null;
+  for (let i = 0; i < parts.length; i++) {
+    const w = parts[i];
+    let text = w, kind = /^\s+$/.test(w) ? 'space' : 'word';
+    if (BTN[w]) { text = msBtn(BTN[w], D); kind = 'btn'; }
+    else if (w === 'SIDE' || w === 'UP' || w === 'DOWN') { text = msDir(w, D); kind = 'dir'; }
+    else if (w === 'AIR' || w === 'FWD' || w === 'BACK' || w === 'RUN') kind = 'mod';
+    else if (w === 'GRAB' && D) { text = 'GRAB (' + msBtn('grab', D) + ')'; kind = 'btn'; }
+    else if (w === 'VANISH' && out.length && out[out.length - 2] === 'Z') { text = 'VANISH (' + msBtn('shield', D) + ')'; }
+    // "SIDE J" -> "A/D + J": a direction / modifier straight before a button gets a "+"
+    if (kind === 'btn' && (prevKind === 'dir' || prevKind === 'mod') && out.length && /^\s+$/.test(out[out.length - 1])) out[out.length - 1] = ' + ';
+    out.push(text);
+    if (kind !== 'space') prevKind = kind;
+  }
+  return out.join('');
+}
+// descriptions mention "press K", "J hits"... - swap those single letters for the reader's buttons too
+function msDescLabel(str, D = msDevInfo()) {
+  if (!D.pad && msBtn('attack', D) === 'J' && msBtn('special', D) === 'K') return str;
+  return String(str).replace(/\b([JK])\b/g, (m, c) => msBtn(c === 'J' ? 'attack' : 'special', D));
+}
+// the BASICS tab's control list, built from the reader's real bindings
+function msBasicsControls(D = msDevInfo()) {
+  const pad = D.pad;
+  return { title: 'CONTROLS (' + (pad ? (D.gc ? 'GAMECUBE CONTROLLER ' : 'CONTROLLER ') + D.n : 'KEYBOARD') + ' - CHANGE THEM IN CONTROLS)', rows: [
+    [pad ? 'LEFT STICK' : msBtn('left', D) + ' / ' + msBtn('right', D), 'Move', pad ? 'Tilt to walk, push all the way to jog. Double-tap to RUN.' : 'Walk. Double-tap to RUN.'],
+    [msBtn('jump', D), 'Jump', 'Jump, then jump again in the air. Tap = short hop.' + (pad && D.B.tapJump ? ' (Flicking the stick up jumps too.)' : '')],
+    [msBtn('attack', D), 'Physical attack', 'Punches, kicks, weapon swings. Add a direction for a different move.'],
+    [msBtn('special', D), 'Ranged / special', 'Each character\'s specials. Add a direction for a different move.'],
+    [msBtn('grab', D), 'Grab', 'Grab, then a direction to throw.'],
+    [msBtn('ult', D), 'Ultimate', 'Full meter = TRANSFORM. Transformed = ULTIMATE (hold DOWN for a second ultimate if they have one).'],
+    [msBtn('shield', D), 'Shield', 'Hold to block. With a direction = roll / spot dodge. In the air = Z VANISH (air dodge).'],
+    ...(pad && D.B.cStick !== 'off' ? [['RIGHT STICK', 'C-stick', 'Flick it for that direction\'s ' + (D.B.cStick === 'special' ? 'special (K)' : 'physical (J)') + ' move - comes out faster.']] : []),
+    [msBtn('tauntUp', D) + ' / ' + msBtn('tauntSide', D) + ' / ' + msBtn('tauntDown', D), 'Taunts', 'Up / side / down taunt.'] ] };
+}
 function movesetsUpdate(dt) {
   const devs = menuDevices(dt), tabs = MS_TABS();
   const turn = d => { ms.tab = (ms.tab + d + tabs.length) % tabs.length; ms.scroll = 0; menuSfx('move'); };
   for (const d of devs) {
+    if (Object.values(d.tap).some(Boolean)) ms.dev = d.dev;   // (the move list shows the buttons of whoever's using it)
     if (d.tap.left) turn(-1);
     if (d.tap.right) turn(1);
     if (d.tap.up) ms.scroll -= 90;
@@ -16896,7 +16961,8 @@ function movesetsUpdate(dt) {
   // (held UP / DOWN keeps scrolling)
   if (keys.ArrowDown || keys.KeyS) ms.scroll += 900 * dt;
   if (keys.ArrowUp || keys.KeyW) ms.scroll -= 900 * dt;
-  if (mouse.wheel) { ms.scroll += mouse.wheel; mouse.wheel = 0; }
+  if (mouse.wheel) { ms.scroll += mouse.wheel; mouse.wheel = 0; ms.dev = 'keyboard'; }
+  if (mouse.click) ms.dev = 'keyboard';
   if (mouse.click) {
     msTabRects().forEach((r, k) => { if (inRect(mouse, r)) { ms.tab = k; ms.scroll = 0; menuSfx('pick'); } });
     if (inRect(mouse, MS_BACK)) { goHome(); mouse.click = false; return; }
@@ -16923,7 +16989,8 @@ function drawMovesets() {
   const th = menuTheme(), px = th === 'pixel', sk = th === 'sketch';
   const F = (s, bold) => px ? `${Math.max(8, Math.round(s * 0.5))}px ${PX_FONT}` : sk ? `${s}px ${DOODLE_FONT}` : `${bold ? 'italic ' : ''}${s}px ${CG_FONT}`;
   const ink = sk ? INK : '#ffffff', dim = sk ? '#5a5470' : '#c9bfc4', accent = sk ? MARKERS[0] : px ? '#ffd23f' : '#ffd23f';
-  const tabs = MS_TABS(), key = tabs[ms.tab], data = MOVESETS[key];
+  const tabs = MS_TABS(), key = tabs[ms.tab], D = msDevInfo();
+  const data = key === 'BASICS' ? { ...MOVESETS.BASICS, sections: [msBasicsControls(D), ...MOVESETS.BASICS.sections.slice(1)] } : MOVESETS[key];
   withMenuDrawing(() => {
     if (sk) drawNotebook(); else if (px) { drawPXBackground(); blitPX(); } else drawCGBackground();
     // title + back
@@ -16965,12 +17032,12 @@ function drawMovesets() {
       if (sk) { sctx.fillStyle = 'rgba(47,127,224,0.18)'; sctx.fillRect(B.x, y - 24, B.w, 34); }
       else { sctx.fillStyle = px ? 'rgba(255,90,200,0.35)' : 'rgba(214,42,34,0.8)'; sctx.fillRect(B.x, y - 24, B.w, 34); }
       sctx.font = F(20, true); sctx.fillStyle = sk ? MARKERS[1] : '#ffffff'; sctx.textAlign = 'left';
-      sctx.fillText(S.title, B.x + 12, y);
+      sctx.fillText(msDescLabel(S.title, D), B.x + 12, y);
       y += 40;
       if (S.notes) {
         sctx.font = F(17);
         for (const n of S.notes) {
-          const lines = msWrap(n, B.w - 40);
+          const lines = msWrap(msDescLabel(n, D), B.w - 40);
           sctx.fillStyle = accent; sctx.fillText('-', B.x + 12, y);
           sctx.fillStyle = ink; lines.forEach((l, i) => sctx.fillText(l, B.x + 30, y + i * 23));
           y += lines.length * 23 + 10;
@@ -16978,7 +17045,7 @@ function drawMovesets() {
       } else for (const [inp, name, desc] of S.rows) {
         // the input chip
         sctx.font = F(15, true);
-        const chips = msWrap(inp, inputW - 16);
+        const chips = msWrap(msInputLabel(inp, D), inputW - 16);
         const chipH = 8 + chips.length * 19;
         if (sk) { sctx.fillStyle = 'rgba(242,154,31,0.35)'; sctx.fillRect(B.x + 4, y - 18, inputW, chipH); }
         else slantRect(B.x + 4, y - 18, inputW, chipH, 6, px ? '#2a2048' : '#3a1414');
@@ -16990,7 +17057,7 @@ function drawMovesets() {
         const nl = msWrap(name, descW);
         nl.forEach((l, i) => sctx.fillText(l, nameX, y + i * 24));
         sctx.font = F(16); sctx.fillStyle = dim;
-        const dl = msWrap(desc, descW);
+        const dl = msWrap(msDescLabel(desc, D), descW);
         dl.forEach((l, i) => sctx.fillText(l, nameX, y + nl.length * 24 + i * 21));
         y += Math.max(chipH + 6, nl.length * 24 + dl.length * 21) + 16;
       }
@@ -17005,7 +17072,8 @@ function drawMovesets() {
       sctx.fillStyle = sk ? INK : accent; sctx.fillRect(B.x + B.w + 14, B.y + (B.h - bh) * k, 6, bh);
     }
     sctx.font = F(16); sctx.textAlign = 'center'; sctx.fillStyle = dim;
-    sctx.fillText('LEFT / RIGHT = CHARACTER   -   UP / DOWN / MOUSE WHEEL = SCROLL   -   B / ESC = BACK', W / 2, H - 14);
+    sctx.fillText(D.pad ? 'STICK LEFT / RIGHT = CHARACTER   -   STICK UP / DOWN = SCROLL   -   B = BACK   -   BUTTONS SHOWN FOR ' + (D.gc ? 'GAMECUBE ' : '') + 'CONTROLLER ' + D.n
+                        : 'LEFT / RIGHT = CHARACTER   -   UP / DOWN / MOUSE WHEEL = SCROLL   -   ESC = BACK   -   KEYS SHOWN FOR YOUR KEYBOARD', W / 2, H - 14);
   });
 }
 // ---------------- ARCADE MODE: a gauntlet of 1v1s, ending with COLBALIAS as the final boss ----------------
@@ -17187,18 +17255,18 @@ function homeUpdate(dt) {
   for (const d of devs) {
     if (d.tap.up) { home.sel = (home.sel + items.length - 1) % items.length; menuSfx('move'); }
     if (d.tap.down) { home.sel = (home.sel + 1) % items.length; menuSfx('move'); }
-    if (d.tap.ok || d.tap.start) { homeChoose(items[home.sel]); mouse.click = false; return; }
+    if (d.tap.ok || d.tap.start) { homeChoose(items[home.sel], d.dev); mouse.click = false; return; }
     if (d.tap.back || d.tap.esc) { home.phase = 'title'; menuSfx('back'); }
   }
   if (mouse.moved || mouse.click) items.forEach((it, k) => { if (inRect(mouse, homeItemRect(k))) { if (home.sel !== k && mouse.moved) menuSfx('move'); home.sel = k; if (mouse.click) homeChoose(it); } });
   mouse.click = mouse.right = mouse.moved = false;
 }
-function homeChoose(item) {
+function homeChoose(item, dev = 'keyboard') {
   menuSfx('go');
   if (item === 'PLAY') scene = 'select';
   else if (item === 'UPDATE NOW') { if (window.appInfo && window.appInfo.installUpdate) window.appInfo.installUpdate(); }   // installs + restarts
   else if (item === 'ONLINE') { scene = 'select'; sbNet.ui.show('menu'); }
-  else if (item === 'MOVESETS') openMovesets();
+  else if (item === 'MOVESETS') openMovesets(dev);
   else if (item === 'ARCADE') openArcade();
   else if (item === 'CONTROLS') openControls('home');
   else if (item === 'OPTIONS') { scene = 'options'; opt.row = 0; }
