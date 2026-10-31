@@ -1142,7 +1142,7 @@ const LANCE_MOVES = {
     overcharge: true,                                                      // keep holding past full: up to 200% (double power + size)
     wind: pose({ armA: [-0.6, -1.6], lean: -0.25, bob: -8, legA: [0.7, 0.6], legB: [-0.7, 0.2] }),      // hand cupped back at the hip
     strike: pose({ armA: [1.57, 0], lean: 0.2, bob: -8, legA: [0.75, 0.6], legB: [-0.75, 0.2] }),      // thrust forward
-    fire(f, mult, c, a) { spawnBeam(f, mult, c, a ? a.over || 0 : 0); if (a && a.noMark) projectiles[projectiles.length - 1].noMark = true; },
+    fire(f, mult, c, a) { spawnBeam(f, mult, c, a ? a.over || 0 : 0, a ? a.aim || 0 : 0); if (a && a.noMark) projectiles[projectiles.length - 1].noMark = true; },
     // Z VANISH WHILE CHARGING (block / dodge): he blinks away in any direction and KEEPS charging. With someone KI-MARKED,
     // it's an Instant Transmission right behind them - and the Kamehameha goes off point-blank, straight away.
     step(f, a, dt, inp) {
@@ -1150,6 +1150,18 @@ const LANCE_MOVES = {
       if ((a.phase === 'charge' || a.phase === 'startup') && (inp.blockTap || f.dodgeBuf > 0) && (a.vanishes || 0) < 3) {
         if (a.phase === 'startup') { a.phase = 'charge'; a.t = 0; }   // (vanishing during the wind-up drops straight into the charge)
         kameVanish(f, a, inp); return true;
+      }
+      // AIM IT while charging: the last direction pressed before letting go decides where it fires -
+      // LEFT / RIGHT / UP on the ground, and DOWN too in the air (aim: -1 = up, 1 = down, 0 = straight ahead)
+      if (a.phase === 'charge' || a.phase === 'startup') {
+        if (inp.up) a.aim = -1;
+        else if (inp.down && !f.ground) a.aim = 1;
+        else if (inp.dir) { a.aim = 0; f.face = inp.dir; }
+        if (f.ground && a.aim === 1) a.aim = 0;                 // (landed: no aiming into the floor)
+      }
+      if (a.phase === 'active' && a.aim) {                      // hands thrust up / down instead of forward
+        a.poseOverride = a.aim < 0 ? pose({ armA: [3.0, 0.02], lean: -0.15, bob: -8, legA: [0.75, 0.6], legB: [-0.75, 0.2] })
+                                   : pose({ armA: [0.15, 0.02], lean: 0.3, bob: -4, legA: [0.8, 1.2], legB: [-0.2, 0.8] });
       }
       return false;
     } },
@@ -5147,7 +5159,7 @@ CLONE_STRING.heave = { name: 'Clone Heave', startup: 0.18, active: 0.14, endlag:
 // lunge. Whoever the Chidori hits is IMPALED on his arm for a moment, then he RIPS it out: a short stun you can combo
 // or grab out of. (Shields stop it. His clones do it without a helper.)
 // GLASS JAW: when COLBALIAS himself gets hit, his launch is multiplied by mult and then add is added on top
-const GLASS_JAW = { mult: 1.12, add: 240 };
+const GLASS_JAW = { mult: 1.12, add: 240, dmgBonus: 1.15 };   // dmgBonus: his own hits do 15% more (he takes the most knockback, so he deals more)
 const RED_CHIDORI = { spin: 0.16, fly: 0.3, speed: 1250, perCharge: 900, lift: 360, impale: 0.28, r: 30,
                       stab: { dmg: 2.5, base: 0, growth: 0, angle: 0, noStop: true },
                       rip: { dmg: 3, base: 230, growth: 0.9, angle: 38 }, ripStun: 0.42,
@@ -5577,7 +5589,7 @@ function afterVolley(f) {                                        // he's free in
 // take their time; the last ones come faster and faster. When the last clone's gone, he INSTANT TRANSMISSIONS
 // behind them and dash-punches the back of their head: a launch that's PURELY HORIZONTAL.
 const LEGION = { count: 25, summon: 0.95, perHit: 0.42, smallHit: 0.16, wind: 0.32, back: 330, reach: 46,
-                 slow: 1.0, fast: 0.55 };      // time scale of the first and last exchanges
+                 slow: 0.86, fast: 0.48 };     // time scale of the first and last exchanges (a touch quicker)
 // the clones' poses
 const LP = {
   run: k => pose({ lean: 0.55, bob: -4, legA: [Math.sin(k) * 1.1, 0.6], legB: [-Math.sin(k) * 1.1, 0.6], armA: [-1.4, -0.4], armB: [-1.7, -0.3] }),
@@ -7059,7 +7071,8 @@ SEVON_MOVES.downRanged = { name: 'Total Concentration', startup: 0.02, active: 0
 // 3. K again (while reeling, or after): the LEVI SPIN - he whirls at them, blade out, spinning like a saw. While the
 //    cable holds it ALWAYS gets to them - the only answers are a last-second SHIELD or a last-second Z VANISH.
 // (The cable snaps if he's hit, if it times out, or if they get too far apart.)
-const ODM = { hookSpeed: 3400, hookLife: 0.34, hookR: 18, dur: 4, maxDist: 1500,   // (a fast hook: it sticks almost the moment it fires)
+const ODM = { hookSpeed: 3400, hookLife: 0.5, hookR: 20, dur: 4, maxDist: 1500,   // (a fast hook: it sticks almost the moment it fires)
+              turn: 9, missChance: 0.08,                          // tracking: turn rate (rad/s), and the chance it's fired a hair off and misses
               reel: 3900, reelTime: 0.42, arrive: 80,             // (a SNAPPY reel: yanked in almost instantly)
               spin: 2700, spinTime: 0.9, contact: 62, hits: 4, every: 0.06,
               hookHit: { dmg: 1.5, base: 60, growth: 0, angle: 30, noStop: true },
@@ -7068,15 +7081,19 @@ const ODM = { hookSpeed: 3400, hookLife: 0.34, hookR: 18, dur: 4, maxDist: 1500,
               steel: '#c9ced8' };
 function fireOdmHook(f) {
   if (f.minion || f.odmHook || f.odm) return;
-  // aim: at the nearest foe roughly in front of him (within ~40 degrees), otherwise straight ahead, a touch up
+  // aim: the nearest foe ANYWHERE on the stage (he turns to face them) - the hook then HOMES in on them in flight,
+  // so it almost always lands... but now and then (ODM.missChance) it's fired a hair off and sails past
   const sx = f.x + f.face * 16, sy = f.y - 52;
   let ang = f.face > 0 ? -0.12 : Math.PI + 0.12;
-  const t = fighters.filter(o => !allies(f, o) && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0))
+  const t = fighters.filter(o => !allies(f, o) && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0) && !(o.minion && o.strikeClone))
     .map(o => ({ o, a: Math.atan2((o.y - 45) - sy, o.x - sx), d: Math.hypot(o.x - sx, o.y - 45 - sy) }))
-    .filter(q => q.d < ODM.hookSpeed * ODM.hookLife && Math.cos(q.a) * f.face > Math.cos(0.7))
-    .sort((p, q) => p.d - q.d)[0];
-  if (t) ang = t.a;
-  f.odmHook = { x: sx, y: sy, vx: Math.cos(ang) * ODM.hookSpeed, vy: Math.sin(ang) * ODM.hookSpeed, life: ODM.hookLife };
+    .filter(q => q.d < ODM.maxDist)
+    .sort((p, q) => (p.o.minion ? 1 : 0) - (q.o.minion ? 1 : 0) || p.d - q.d)[0];   // (real opponents before clones)
+  if (t) { ang = t.a; f.face = Math.sign(t.o.x - f.x) || f.face; }
+  const miss = !!t && Math.random() < ODM.missChance;
+  if (miss) ang += (Math.random() < 0.5 ? -1 : 1) * (0.28 + Math.random() * 0.15);
+  f.odmHook = { x: sx, y: sy, vx: Math.cos(ang) * ODM.hookSpeed, vy: Math.sin(ang) * ODM.hookSpeed, life: ODM.hookLife,
+                target: t ? t.o : null, homing: !miss };
   burst(f.x - f.face * 10, f.y - 46, ['#ffffff', '#d8dde6'], 8, f.face > 0 ? Math.PI : 0, 0.5, 300, { grav: 0 });   // a puff of gas
   sfx.whoosh(false);
 }
@@ -7089,6 +7106,13 @@ function updateOdm(f, dt) {
   if (f.respawnTimer > 0 || f.out) { f.odmHook = null; f.odm = null; return; }
   const H = f.odmHook;
   if (H) {
+    const T = H.target;
+    if (H.homing && T && fighters.includes(T) && T.respawnTimer <= 0 && !isIntangible(T)) {   // TRACKING: steers onto them
+      const want = Math.atan2((T.y - 45) - H.y, T.x - H.x), cur = Math.atan2(H.vy, H.vx);
+      let d = want - cur; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+      const turn = clamp(d, -ODM.turn * dt, ODM.turn * dt), na = cur + turn;
+      H.vx = Math.cos(na) * ODM.hookSpeed; H.vy = Math.sin(na) * ODM.hookSpeed;
+    } else if (H.homing && T && isIntangible(T)) H.homing = false;   // (a Z vanish shakes it off)
     H.x += H.vx * dt; H.y += H.vy * dt; H.life -= dt;
     let done = H.life <= 0;
     for (const t of fighters) {
@@ -7190,7 +7214,7 @@ function stepOdm(f, a, dt, inp) {
       applyHit(t, ODM.spinHit, f.face, powerOf(f), t.x, t.y - 50, { fighter: f });
       slashLine(t.x, t.y - 50, Math.random() * Math.PI, 140, 0.12);
       burst(t.x, t.y - 50, SEVON_FIRE, 8, Math.PI / 2, 1.2, 380, { grav: -250 });
-      if (gore) burst(t.x, t.y - 50, BLOOD, 6, Math.random() * Math.PI * 2, 1, 360, { stain: true });
+      if (gore) burst(t.x, t.y - 50, BLOOD, 14, Math.random() * Math.PI * 2, Math.PI, 520, { stain: true });   // (a spray of blood off the spinning blades)
     }
     if (T >= ODM.hits * ODM.every) {                           // ...and the last one sends them flying
       if (t.action) t.action.locked = false;
@@ -7208,10 +7232,40 @@ function stepOdm(f, a, dt, inp) {
     if (a.t - a.t0 >= 0.15) { f.vx *= 0.3; f.action = { type: 'flyRecover', t: 0, dur: 0.45 }; }
   }
 }
+// THE LEVI SPIN, drawn like the anime: he's a blur at the centre of a glowing blue-white RING of blade-light - the two
+// blades whipping round so fast they become a spinning disc, seen edge-on along the way he's flying - with a fainter
+// echo of it trailing behind, and the edge of the ring flickering as it turns
+function drawLeviSpin(f) {
+  const a = f.action; if (!a || a.type !== 'odmSpin' || (a.phase !== 'fly' && a.phase !== 'hits')) return;
+  const cx = f.x, cy = f.y - 46;
+  const ang = a.phase === 'fly' && (f.vx || f.vy) ? Math.atan2(f.vy, f.vx) : (f.face > 0 ? 0 : Math.PI);
+  const big = a.phase === 'hits' ? 1.15 : 1;
+  ctx.save();
+  const ring = (ox, alpha, s) => {
+    ctx.save(); ctx.translate(cx + ox * Math.cos(ang), cy + ox * Math.sin(ang)); ctx.rotate(ang);
+    const rx = 20 * s, ry = 64 * s;
+    for (const [w, col, al] of [[18, 'rgba(110,190,255,1)', 0.22], [8, 'rgba(160,220,255,1)', 0.7], [3, '#ffffff', 1]]) {
+      ctx.globalAlpha = al * alpha; ctx.strokeStyle = sketch ? '#333' : col; ctx.lineWidth = w;
+      // (two long arcs with gaps that spin round - it reads as something rotating, not a static ring)
+      const r0 = time * 32;
+      for (const off of [0, Math.PI]) { ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, r0 + off, r0 + off + Math.PI * 0.82); ctx.stroke(); }
+    }
+    ctx.restore();
+  };
+  ring(-34, 0.35, 0.9 * big);                                   // the echo trailing behind
+  ring(0, 1, big);
+  if (!sketch) {                                                // a soft glow at the heart of it
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 70 * big);
+    g.addColorStop(0, 'rgba(220,240,255,0.35)'); g.addColorStop(1, 'rgba(120,190,255,0)');
+    ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, 70 * big, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
 // the steel cable (and the hook in flight)
 function drawOdmCables() {
   for (const f of fighters) {
     if (!f.look || !f.look.odm || f.respawnTimer > 0) continue;
+    drawLeviSpin(f);
     const H = f.odmHook, O = f.odm;
     const end = H ? { x: H.x, y: H.y } : O && O.t ? { x: O.t.x, y: O.t.y - 50 } : null;
     if (!end) continue;
@@ -7533,7 +7587,7 @@ const CHARACTERS = {
       // Hunched wrestler's stance: knees bent wide, upper arms up in a grappling guard, lower fists flexed at his sides
       idle: INF_IDLE,
     },
-    grab: { reachX: 64, reachR: 42, startup: 0.045, whiffLag: 0.27 },   // four arms = a faster, longer, bigger grab
+    grab: { reachX: 76, reachR: 48, startup: 0.04, whiffLag: 0.24 },    // four arms = a faster, longer, bigger grab (kept ahead of the new default grab)
     // forward = RKO, back = Giant Swing, up = Spinning Piledriver, down = Body Slam + Elbow Drop
     throwKinds: { forward: 'rko', back: 'rko', up: 'piledriver', down: 'giantSwing' },   // (forward AND back = the YARRKO, down = the Giant Swing)
     transformName: 'CAGE MATCH',
@@ -8971,7 +9025,7 @@ function critKO(t, h, dirSign, dmg, hx, hy) {
 //  ← / → / ↑ / ↓ = back/forward/up/down throw, J = pummel. The grabbed player mashes any button to
 //  break free (it takes longer the more damage they have). Hold too long and they slip out.
 // =====================================================================
-const GRAB = { startup: 0.07, active: 0.08, whiffLag: 0.3, reachX: 50, reachY: -50, reachR: 34 };   // (reach raised a bit: 40/28 -> 50/34. Captain Heel has his own, unchanged)
+const GRAB = { startup: 0.05, active: 0.1, whiffLag: 0.26, reachX: 62, reachY: -50, reachR: 42 };   // (buffed: faster, and longer + bigger reach - was 0.07 / 0.08 / 0.3, 50 / 34)   // (reach raised a bit: 40/28 -> 50/34. Captain Heel has his own, unchanged)
 const HOLD_TIME = 1.6;            // holder must throw within this long or the victim slips free
 const THROWS = {
   // growth = how much more they fly per % of damage (raised so throws become kill options at high %)
@@ -8999,7 +9053,9 @@ function stepGrab(f, a, dt) {
     const ta = t.action;
     if (isIntangible(t)) continue;                                        // dodges beat grabs
     if (ta && ['grabbed', 'holding', 'clash'].includes(ta.type)) continue;
-    if (ta && ta.type === 'hitstun' && !a.chainGrab) continue;            // (stunned = can't be grabbed - except out of Colby's string)
+    // stunned: GRABBABLE in a combo - on the ground any time, in the air once they're past the first 40% of the
+    // stun (so a grab can finish a string). Not while they're pinned in place by a move (locked / impaled / crits).
+    if (ta && ta.type === 'hitstun' && !a.chainGrab && (ta.locked || ta.impaled || ta.crit || (!t.ground && ta.t < ta.dur * 0.4))) continue;
     if (!circleHitsFighter(gx, gy, G.reachR, t)) continue;
     // Both grabbed at the same moment: hands lock = CLASH (a shoving match), then both spring apart
     if (ta && ta.type === 'grab' && Math.abs((ta.started ?? -9) - (a.started ?? 9)) <= CLASH_WINDOW) {
@@ -10188,6 +10244,7 @@ function powerOf(f) {
   if (f.minion) return ninjaLaw(f.owner).power * (f.owner && f.owner.transformed ? CLONE_RAGE.power : 1);   // clones: Inverse Ninja Law (+ rage)
   return (f.transformed ? tfStats(f).power : 1) * (f.kaioken ? kaiokenLv(f).dealt : 1) *   // both stack
          (f.tc ? TC.dealt : 1) *                                                      // Sevon's TOTAL CONCENTRATION
+         (f.look && f.look.glassJaw ? GLASS_JAW.dmgBonus : 1) *                         // Colbalias: hits harder to make up for his glass jaw + debuffs
          (f.revenge > 0 ? 1 + f.revenge : 1) *                                        // Aiden's stored REVENGE power
          hypePower(f);                                                                // Aiden's HYPE (weaker at low hype)
 }
@@ -10262,43 +10319,62 @@ function spawnShot(f, s, mult) {
 function kiColor(f) { return (f.look && f.look.ki) || f.energy; }
 
 // KAMEHAMEHA BEAM: anchored to the shooter's hand, stretches out fast, hits every 0.1s, last hit launches
-function spawnBeam(f, mult, c, over = 0) {
+// where the beam comes out of his hands: straight ahead, or (aimed) above / below him
+function beamOrigin(o, s) {
+  if (s.vdir < 0) return { x: o.x + o.face * 8, y: o.y - 104 };
+  if (s.vdir > 0) return { x: o.x + o.face * 8, y: o.y - 16 };
+  return { x: o.x + s.dir * 30, y: o.y - 62 };
+}
+function spawnBeam(f, mult, c, over = 0, aim = 0) {
   const big = 1 + over;                      // overcharged: up to twice as long and twice as thick
   if (over > 0) {
     impactFrame = Math.max(impactFrame, 0.06 + 0.08 * over);
     impactAt = { x: f.x + f.face * 40, y: f.y - 62, ang: 0, all: true, focus: true };
     shake = Math.max(shake, 14 + 10 * over); sfx.clash(true);
   }
-  projectiles.push({
-    owner: f, kind: 'beam', x: f.x + f.face * 30, y: f.y - 62, dir: f.face, len: 0, grow: 3400 * big,
+  const s = {
+    owner: f, kind: 'beam', x: f.x + f.face * 30, y: f.y - 62, dir: f.face, vdir: aim, len: 0, grow: 3400 * big,
     maxLen: (640 + 160 * c) * big * 1.05, w: (18 + 28 * c) * big * 1.05, life: 0.5, max: 0.5,   // (+5% size)
     tickT: 0, mult: mult * powerOf(f), color: over >= 1 ? '#ffffff' : kiColor(f), over, hit: new Set(), trail: [],
-    tick:  { dmg: 1.9, base: 85, growth: 0, angle: 20, noStop: true },
-    final: { dmg: 5, base: 350, growth: 5, angle: 33 },
-  });
+    // (aimed UP it launches them straight up; aimed DOWN it spikes them)
+    tick:  { dmg: 1.9, base: 85, growth: 0, angle: aim < 0 ? 88 : aim > 0 ? -80 : 20, noStop: true },
+    final: { dmg: 5, base: 350, growth: 5, angle: aim < 0 ? 88 : aim > 0 ? -75 : 33 },
+  };
+  Object.assign(s, beamOrigin(f, s));
+  projectiles.push(s);
   shake = Math.max(shake, 6 + 8 * c);
   sfx.beam(0.5 + 0.5 * c);
 }
 function updateBeam(s, dt) {
   const o = s.owner;
   if (!o || o.respawnTimer > 0 || !o.action || (o.action.type !== 'attack' && o.action.type !== 'ultBeam')) return true;   // stops if he gets hit
-  s.x = o.x + s.dir * 30; s.y = o.y - 62;
+  if (s.vdir) { s.dir = o.face; Object.assign(s, beamOrigin(o, s)); }
+  else { s.x = o.x + s.dir * 30; s.y = o.y - 62; }
   s.len = Math.min(s.maxLen, s.len + (s.grow || 3400) * dt);
   s.life -= dt; s.tickT -= dt;
-  if (Math.random() < dt * 30) burst(s.x + s.dir * s.len, s.y, [s.color, '#ffffff'], 2, s.dir > 0 ? 0 : Math.PI, 0.8, 300, { grav: 0 });
+  if (Math.random() < dt * 30) {
+    if (s.vdir) burst(s.x, s.y + s.vdir * s.len, [s.color, '#ffffff'], 2, s.vdir < 0 ? Math.PI / 2 : -Math.PI / 2, 0.8, 300, { grav: 0 });
+    else burst(s.x + s.dir * s.len, s.y, [s.color, '#ffffff'], 2, s.dir > 0 ? 0 : Math.PI, 0.8, 300, { grav: 0 });
+  }
   if (s.tickT <= 0) {
     s.tickT = 0.1;
     const last = s.life <= 0.1;
     const x0 = Math.min(s.x, s.x + s.dir * s.len), x1 = Math.max(s.x, s.x + s.dir * s.len);
+    const y0 = Math.min(s.y, s.y + (s.vdir || 0) * s.len), y1 = Math.max(s.y, s.y + (s.vdir || 0) * s.len);
     for (const t of fighters) {
       if (t === o || allies(o, t) || t.respawnTimer > 0 || projPhase(t) || cloneShielded(o, t)) continue;
-      if (t.x + t.w / 2 < x0 || t.x - t.w / 2 > x1) continue;
-      if (t.y < s.y - s.w / 2 || t.y - hurtH(t) > s.y + s.w / 2) continue;   // (crouching can duck a thin beam)
+      if (s.vdir) {                                                  // aimed up / down: a vertical column
+        if (t.x + t.w / 2 < s.x - s.w / 2 || t.x - t.w / 2 > s.x + s.w / 2) continue;
+        if (t.y < y0 || t.y - hurtH(t) > y1) continue;
+      } else {
+        if (t.x + t.w / 2 < x0 || t.x - t.w / 2 > x1) continue;
+        if (t.y < s.y - s.w / 2 || t.y - hurtH(t) > s.y + s.w / 2) continue;   // (crouching can duck a thin beam)
+      }
       // LANCE'S ULT: a guaranteed KO if they had any damage when it caught them (or always, in Kaioken)
       if (s.final.lanceKO && !(s.startDmg || (s.startDmg = new Map())).has(t)) s.startDmg.set(t, t.damage);
       let h = last ? s.final : s.tick;
       if (last && s.final.lanceKO && (s.startDmg.get(t) > 0 || o.kaioken)) h = { ...s.final, koAt: 0.001 };
-      if (applyHit(t, h, s.dir, s.mult, t.x - s.dir * 10, s.y)) markKi(o, t, s);   // Lance's ki marks them (once per beam)
+      if (applyHit(t, h, s.dir, s.mult, s.vdir ? t.x : t.x - s.dir * 10, s.vdir ? t.y - 50 : s.y)) markKi(o, t, s);   // Lance's ki marks them (once per beam)
     }
   }
   return s.life <= 0;
@@ -14494,6 +14570,11 @@ function drawBeam(s) {
   if (s.ult && !sketch) return drawKameBeam(s);
   const k = clamp(s.life / s.max, 0, 1), fade = k < 0.2 ? k / 0.2 : 1;
   const w = s.w * (0.8 + Math.sin(time * 60) * 0.1) * fade;
+  if (s.vdir) {                                                     // aimed up / down: draw it as a straight beam, turned
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.vdir * Math.PI / 2);
+    const turned = { ...s, x: 0, y: 0, dir: 1, vdir: 0 };
+    drawBeam(turned); ctx.restore(); return;
+  }
   const x0 = s.x, x1 = s.x + s.dir * s.len;
   ctx.save();
   if (sketch) {
@@ -15239,9 +15320,10 @@ function render() {
 //  MENUS: Smash-style CHARACTER SELECT, CONTROLS (remapping) and the PAUSE menu
 // =====================================================================
 let scene = 'home';                   // 'home' | 'options' | 'select' | 'controls' | 'fight' | 'results'
-// TURBO MODE: an optional side mode - the whole game runs 1.3x faster (TURBO_SPEED). The normal speed is the real game;
+// TURBO MODE: an optional side mode - the whole game runs 1.2x faster again (TURBO_SPEED, on top of GAME_SPEED). The normal speed is the real game;
 // turn this on from the character select (TURBO button / X / T) or the pause menu. Remembered in this browser.
-const TURBO_SPEED = 1.3;
+const TURBO_SPEED = 1.2;                                  // (on top of GAME_SPEED)
+const GAME_SPEED = 1.1;                                   // the whole game runs 10% faster than its original pace (online too - both players run the same version)
 let turbo = (() => { try { return localStorage.getItem('stickman-brawl-turbo') === '1'; } catch (e) { return false; } })();
 function setTurbo(on) {
   turbo = on;
@@ -16445,7 +16527,7 @@ const MOVESETS = {
       ['AIR UP J', 'Upward Palm', 'A palm thrust straight up.'],
       ['AIR DOWN J', 'Spinning Axe Kick', 'A spinning heel brought down on them.'] ] },
     { title: 'K (KI)', rows: [
-      ['K (HOLD)', 'Kamehameha', 'Hold to charge, let go to fire a beam that hits over and over. Z VANISH while charging = blink (up to 3 times, still charging). With someone MARKED = Instant Transmission behind them and fire at once.'],
+      ['K (HOLD)', 'Kamehameha', 'Hold to charge, let go to fire a beam that hits over and over. AIM IT while charging: the last direction you press decides where it fires - left / right / UP on the ground, and DOWN too in the air (up launches, down spikes). Z VANISH while charging = blink (up to 3 times, still charging). With someone MARKED = Instant Transmission behind them and fire at once.'],
       ['SIDE K', 'Destructo Disc', 'A spinning disc of ki that flies out and comes back like a boomerang - it cuts on the way out AND back (and can nick him).'],
       ['UP K', 'Rising Axe Kick', 'His recovery: flips upward driving his heel up - carries them up with him, then pops them higher to keep the combo going.'],
       ['DOWN K', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (1% / 2% / 4% damage every second).'] ] },
@@ -16549,7 +16631,7 @@ const MOVESETS = {
       'TWO METER BARS: each bar is a full transform + ultimate. Use one, and the second can do it all again.',
       'HIS CLONES have his whole moveset (slower and weaker) except ultimates, the gaze and summoning. Each takes 2 hits, and ANY damage a clone takes goes to Colbalias.',
       'MORE DODGES: 7 Z vanishes in the air and 6 ground dodges (everyone else: 5 / 4) - because summoning spends them.',
-      'GLASS JAW: he takes the most knockback in the game. Keep your distance and let the clones work.',
+      'GLASS JAW: he takes the most knockback in the game - but his own hits do 15% more damage to make up for it. Keep your distance and let the clones work.',
       'D-E-M-O-N METER: fills as he lands hits - full = Hellwave on down K.' ] } ] },
   COLTEN: { blurb: 'Colby\'s rival: the same kit as Colby, but every weapon move is done with a HUGE greatsword - more reach, more damage, slower.', sections: [
     { title: 'SAME INPUTS AS COLBY', notes: [
@@ -16578,7 +16660,7 @@ const MOVESETS = {
       ['AIR UP J', 'Sky Flame', 'A slash straight up over his head.'],
       ['AIR DOWN J', 'Flame Drop', 'The blade stabbed straight down - spikes.'] ] },
     { title: 'K (BREATH OF FLAME + ODM GEAR)', rows: [
-      ['K', 'ODM Hook', 'Fires the grapple hook at whoever is in front of him. If it sticks, they are TETHERED for 4 seconds.'],
+      ['K', 'ODM Hook', 'Fires the grapple hook at the nearest opponent ANYWHERE on the stage - it tracks them in flight and almost always lands (a Z vanish shakes it off, and once in a while it misses). If it sticks, they are TETHERED for 4 seconds.'],
       ['K (TETHERED)', 'Reel In', 'Fires the gas and yanks himself straight to them.'],
       ['K (AGAIN)', 'Levi Spin', 'Whirls at them like a saw blade. While the cable holds it ALWAYS reaches them - only a last-second shield or Z vanish stops it.'],
       ['Z VANISH (TETHERED)', 'Cut the Line', 'At ANY point while the cable is connected: cut it and vanish - the hook is ready to fire again straight away.'],
@@ -17266,7 +17348,7 @@ function frame(now) {
     matchOver.t += elapsed;
     if (matchOver.t > 2.4) { showResults(); menuTime = 0; requestAnimationFrame(frame); return; }
   }
-  const speed = () => timeScale * (turbo && !netActive() ? TURBO_SPEED : 1) * (slowmo > 0 ? SLOWMO_HIT_SCALE : 1);
+  const speed = () => GAME_SPEED * timeScale * (turbo && !netActive() ? TURBO_SPEED : 1) * (slowmo > 0 ? SLOWMO_HIT_SCALE : 1);
   acc += elapsed * speed() * (netActive() ? netPace() : 1);   // turbo = faster; big hits = slow-mo; online = stay in step with the others
   impactFrame = Math.max(0, impactFrame - elapsed * Math.max(timeScale, 0.25));   // lasts longer in slow-mo
   acc = Math.min(acc, STEP * 24);                    // (never try to catch up more than 0.2s at once)
