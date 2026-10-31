@@ -49,7 +49,7 @@
 
   // ---------- inputs: packed small to send, unpacked the same way everywhere ----------
   const BITS = ['up', 'down', 'jumpTap', 'jumpHeld', 'blockTap', 'blockHeld', 'dirTap', 'downTap',
-                'atkTap', 'atkHeld', 'spcTap', 'spcHeld', 'grabTap', 'ultTap', 'walk', 'full'];   // (walk / full = the analog stick)
+                'atkTap', 'atkHeld', 'spcTap', 'spcHeld', 'grabTap', 'ultTap', 'walk', 'full', 'ultHeld'];   // (walk / full = the analog stick; ultHeld = Colbalias's hold-to-transform)
   function enc(inp) {
     let b = 0;
     BITS.forEach((k, i) => { if (inp[k]) b |= 1 << i; });

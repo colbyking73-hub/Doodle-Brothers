@@ -418,7 +418,7 @@ function applyStage(i) {
 // under the stage and still recover. The camera stops following at CAM_FLOOR, so you only die once you've dropped
 // OUT OF VIEW below the stage - never while you're still on screen.
 // The TOP line is a bit higher too (was -380), so your own upward Z vanishes don't KO you so easily.
-const BLAST = { left: -520, right: W + 520, bottom: H + 700, top: -560 };
+const BLAST = { left: -720, right: W + 720, bottom: H + 900, top: -780 };   // (pushed out ~35%: lots more room off screen before a KO - air play is big in every direction)
 const CAM_FLOOR = STAGE.y + STAGE.h + 300;      // the lowest point the camera follows anyone down to
 const CAM_CEIL = -230;                          // ...and the highest (where it was before the top line moved up)
 const SPAWN = { x: 640, y: 170 };
@@ -1990,24 +1990,31 @@ function warpToScythe(f) {
   return true;
 }
 
-// ---------------- SPARTAN KICK (neutral J holding the scythe) ----------------
-// A long, straight push kick with huge reach. If it lands clean, they're CAUGHT - stuck on the sole of his foot. Pick a
-// way with the stick (forward or back; nothing = forward): still stuck to his leg, he swings them up OVER HIS HEAD and
-// slams them into the ground that side, then STOMPS them into the floor with a flurry of kicks, and backflips off them,
-// landing nearby. (A shield, a dodge or a whiff = just the kick.)
-const SPARTAN = { pick: 0.4, lift: 0.34, R: 74, hop: 0.12, stomps: 6, stompEvery: 0.075, flip: 0.3, flipBack: 95,
+// ---------------- CHIDORI IMPALE (neutral J holding the scythe) ----------------
+// (It was the Spartan Kick.) A crackling CHIDORI in his free hand, driven straight through them. If it lands clean,
+// they're IMPALED on his arm. Pick a way with the stick (forward or back; nothing = forward): still skewered, he swings
+// them up OVER HIS HEAD and slams them into the ground that side, then lays into them on the floor with a flurry of
+// lightning SUPER KICKS, and backflips off them, landing nearby. (A shield, a dodge or a whiff = just the thrust.)
+const SPARTAN = { pick: 0.4, lift: 0.34, R: 44, hop: 0.12, stomps: 6, stompEvery: 0.075, flip: 0.3, flipBack: 95,
                   stompDmg: 1.3, final: { dmg: 4, base: 380, growth: 5.2, angle: 80 } };
-COLBY_MOVES.jab = { name: 'Spartan Kick', startup: 0.1, active: 0.09, endlag: 0.26, lunge: 240, lungeFriction: 0.5,
-  hitboxes: [{ x: 92, y: -60, r: 30, dmg: 4, base: 320, growth: 2.4, angle: 28 },     // the sole of his foot: long reach
-             { x: 56, y: -60, r: 30, dmg: 4, base: 320, growth: 2.4, angle: 28 }],
-  wind: pose({ lean: -0.25, bob: -4, legA: [1.95, 2.4], legB: [-0.1, 0.2], armA: [0.8, -1.6], armB: [0.5, -1.6] }),    // knee chambered high
-  strike: pose({ lean: -0.4, bob: 0, legA: [1.62, 0], legB: [-0.18, 0.15], armA: [-1.2, -0.5], armB: [-0.8, -0.6] }),  // leg driven straight out
-  fire(f) { sfx.whoosh(true); dust(f.x - f.face * 10, f.y, 6, 1.2); },
+COLBY_MOVES.jab = { name: 'Chidori Impale', startup: 0.1, active: 0.09, endlag: 0.26, lunge: 300, lungeFriction: 0.5, chidori: true,
+  hitboxes: [{ x: 78, y: -66, r: 30, dmg: 4, base: 320, growth: 2.4, angle: 28 },     // the Chidori, at the end of his arm
+             { x: 46, y: -66, r: 30, dmg: 4, base: 320, growth: 2.4, angle: 28 }],
+  wind: pose({ lean: -0.25, bob: -10, legA: [0.9, 0.9], legB: [-0.7, 0.4], armA: [-0.9, -0.4], armB: [0.5, -1.6] }),    // hand drawn back, crackling
+  strike: pose({ lean: 0.5, bob: -6, legA: [-0.2, 0.6], legB: [-0.9, 0.3], armA: [1.6, 0], armB: [-0.9, -0.6] }),     // driven straight through
+  fire(f) {
+    sfx.whoosh(true); dust(f.x - f.face * 10, f.y, 6, 1.2);
+    const fist = chidoriFist(f);
+    burst(fist.x, fist.y, CHIDORI.colors, 14, f.face > 0 ? 0 : Math.PI, 0.6, 520, { grav: 0 });
+    for (let k = 0; k < 4; k++) bolt(fist.x, fist.y, Math.random() * Math.PI * 2, 30 + Math.random() * 30, 0.1, CHIDORI.colors[k % 4]);
+  },
   floatWhile(f, a) { return spartanOn(a); },
   onHit(f, t, a, h, clean) {
     if (!clean || a.caught || f.minion || !canBeGrabbed(f, t)) return;
     t.shielding = false; t.vx = t.vy = 0; t.face = -f.face;
-    t.action = { type: 'whipped', t: 0, holder: f, spin: 0 };       // stuck on his foot (he moves them from here on)
+    t.action = { type: 'whipped', t: 0, holder: f, spin: 0 };       // IMPALED on his arm (he moves them from here on)
+    burst(t.x, t.y - 60, gore ? BLOOD : SWEAT, 18, f.face > 0 ? 0 : Math.PI, 0.8, 480, { stain: gore });
+    for (let k = 0; k < 6; k++) bolt(t.x, t.y - 58, Math.random() * Math.PI * 2, 40 + Math.random() * 40, 0.14, CHIDORI.colors[k % 4]);
     a.caught = t; a.whipVictim = t; a.sp = { phase: 'pick', t0: a.t, D0: f.face, gy: f.y, surf: f.onPlatform || STAGE };
     hitstop = Math.max(hitstop, 0.1); shake = Math.max(shake, 8); sfx.grab();
     burst(t.x, t.y - 60, ['#ffffff', '#ffd23f'], 12, f.face > 0 ? 0 : Math.PI, 0.8, 360, { grav: 200 });
@@ -2026,13 +2033,14 @@ function stepSpartan(f, a, dt, inp) {
     if (!v || !v.action || v.action.type !== 'whipped' || v.action.holder !== f || v.respawnTimer > 0) { endSpartan(f, a); return true; }
     v.vx = v.vy = 0;
   }
-  const hipY = S.gy - 48;
-  // his kicking leg pointing at angle phi (0 = straight out in front, PI/2 = straight up, PI = straight out behind),
-  // with them stuck on the foot: [his pose, where they go]
+  const shY = S.gy - 84;
+  // his Chidori arm pointing at angle phi (0 = straight out in front, PI/2 = straight up, PI = straight out behind),
+  // with them IMPALED on it: [his pose, where they go]
   const onFoot = phi => {
-    const fx = f.x + D0 * Math.cos(phi) * SPARTAN.R, fy = hipY - Math.sin(phi) * SPARTAN.R;
-    v.x = fx + D0 * Math.cos(phi) * 10; v.y = fy + 46;
-    return pose({ lean: -0.4 - 0.25 * Math.sin(phi), bob: -2, legA: [Math.PI / 2 + phi, 0], legB: [-0.18, 0.15], armA: [-1.3, -0.5], armB: [-0.9, -0.6] });
+    const fx = f.x + D0 * Math.cos(phi) * SPARTAN.R, fy = shY - Math.sin(phi) * SPARTAN.R;
+    v.x = fx + D0 * Math.cos(phi) * 12; v.y = fy + 58;
+    if (Math.random() < 0.5) bolt(fx, fy, Math.random() * Math.PI * 2, 24 + Math.random() * 24, 0.06, CHIDORI.colors[(Math.random() * 4) | 0]);
+    return pose({ lean: -0.1 - 0.2 * Math.sin(phi), bob: -6, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [Math.PI / 2 + phi, 0], armB: [-0.9, -0.6] });
   };
   if (S.phase === 'pick') {                                      // 1. stuck on his foot: which way?
     f.vx = 0; f.vy = 0; f.face = D0;
@@ -2078,6 +2086,7 @@ function stepSpartan(f, a, dt, inp) {
       v.hitFlash = 0.06; v.squash = -0.3; shake = Math.max(shake, 6); hitstop = Math.max(hitstop, 0.03);
       dust(v.x + (Math.random() - 0.5) * 30, S.gy, 4, 1.2);
       burst(v.x, S.gy - 12, ['#ffffff', '#cdb79a'], 5, -Math.PI / 2, 1.2, 260, { grav: 600 });
+      for (let k = 0; k < 3; k++) bolt(v.x + (Math.random() - 0.5) * 30, S.gy - 20, Math.random() * Math.PI * 2, 30 + Math.random() * 30, 0.1, CHIDORI.colors[k]);   // (lightning super kicks)
       sfx.hit(0.6);
     }
     if (S.n >= SPARTAN.stomps && !up) { S.phase = 'flip'; S.t0 = a.t; S.fx0 = f.x;
@@ -4928,71 +4937,515 @@ for (const k in COLBALIAS_MOVES) {
 // (his perfect-block counter is borrowed from the Stickman - give him his own soft copy of it)
 COLBALIAS_MOVES.counter = { ...STICKMAN_MOVES.counter, hitboxes: STICKMAN_MOVES.counter.hitboxes.map(h => ({ ...h, dmg: Math.round(h.dmg * COLBALIAS_TUNE.dmg * 10) / 10 })) };
 
-// ---------------- SHADOW CLONE STRING (Colbalias, neutral J x4) - kid Naruto style ----------------
-// He never throws a hit himself: every press, he flashes a hand sign and a SHADOW CLONE pops out in front of him
-// and does the hit (so it reaches well past where he's standing), then vanishes in a puff of smoke:
-//   1. a clone PUNCH   2. a clone LEG SWEEP   3. a clone SPINNING FRONT-FLIP KICK
-//   4. TWO clones at once (one in front, one on their far side) KICK THEM UP INTO THE AIR
-// These strike clones are separate from his summoned clones (down K): they only live for their one attack. Like
-// every clone, any damage they take goes straight back to Colbalias.
-// at = where the clone appears (in front of him); dmg is already his (soft) damage.
+// ---------------- SHADOW CLONE FLOW (Colbalias, neutral J x4) - kid Naruto style, flowing like water ----------------
+// Every hit is a hand-off between him and his clones - they throw EACH OTHER around to get the range they need:
+//   1. CLONE CATAPULT  - he grabs a clone that pops up beside him and HURLS it at them: a flying kick
+//   2. SLINGSHOT SWEEP - a clone appears behind him and SHOVES HIM forward into a long sliding leg sweep
+//   3. CLONE VAULT     - he tosses a clone up and over; it comes down on them with a spinning axe kick
+//   4. TWIN LAUNCH     - a clone pops up in front of them and kicks them up, while another clone launches HIM
+//                        up off its hands into a rising knee - both send them flying up
+// String clones only live for their one part, then vanish in a puff of smoke. Like EVERY clone, any damage
+// they take goes straight back to Colbalias.
+// a THROWN clone keeps the speed it was thrown with (no air drag) until it lands
+const keepThrown = (f, a) => { if (a.keepV === undefined) a.keepV = f.vx; if (!f.ground) f.vx = a.keepV; return false; };
+// ...and the moment it connects it rebounds off them (so it doesn't carry them along) and is done
+const thrownLanded = (f, t, a) => { a.keepV = -f.face * 140; f.vx = a.keepV; f.vy = Math.min(f.vy, -150); a.t = Math.max(a.t, a.move.active - 0.03); };
 const CLONE_STRING = {
-  punch: { name: 'Clone Punch', startup: 0.03, active: 0.07, endlag: 0.08, lunge: 240, lungeFriction: 0.4, chainLock: true,
-    hitboxes: [{ x: 62, y: -70, r: 32, dmg: 1.2, base: 120, growth: 0.3, angle: 50, pullIn: 58, holdStun: 0.3 },
-               { x: 24, y: -68, r: 28, dmg: 1.2, base: 120, growth: 0.3, angle: 50, pullIn: 58, holdStun: 0.3 }],
-    wind: CP.punch2.wind, strike: CP.punch2.strike },
-  sweep: { name: 'Clone Leg Sweep', startup: 0.03, active: 0.08, endlag: 0.1, chainLock: true,
-    hitboxes: [{ x: 66, y: -16, r: 32, dmg: 1.2, base: 240, growth: 0.3, angle: 84, holdStun: 0.26 },
-               { x: 26, y: -14, r: 30, dmg: 1.2, base: 240, growth: 0.3, angle: 84, holdStun: 0.26 }],
-    wind: COLBALIAS_MOVES.downGround.wind, strike: COLBALIAS_MOVES.downGround.strike },
-  flipKick: { name: 'Clone Flip Kick', startup: 0.03, active: 0.2, endlag: 0.12, chainLock: true, flip: true, hop: 300, lunge: 200, lungeFriction: 0.4,
-    hitboxes: [{ x: 48, y: -70, r: 40, dmg: 1.6, base: 300, growth: 0.6, angle: 78, from: 0.03, to: 0.2, holdStun: 0.24 },
-               { x: 18, y: -44, r: 32, dmg: 1.6, base: 300, growth: 0.6, angle: 78, from: 0.03, to: 0.2, holdStun: 0.24 }],
-    wind: pose({ bob: -14, lean: 0.4, legA: [1.0, 1.4], legB: [-0.5, 0.9], armA: [1.2, -0.6], armB: [0.8, -0.8] }),
-    strike: pose({ lean: 0.2, legA: [1.5, 0.1], legB: [-1.3, 0.1], armA: [2.6, 0], armB: [-2.6, 0] }) },
+  // (1) the clone he throws: flies at them with its foot out
+  catapultKick: { name: 'Clone Catapult', startup: 0.01, active: 0.3, endlag: 0.05, chainLock: true, floatWhile: (f, a) => a.phase === 'active', step: keepThrown, onHit: thrownLanded,
+    hitboxes: [{ x: 40, y: -62, r: 36, dmg: 1.3, base: 120, growth: 0.3, angle: 50, holdStun: 0.3 },
+               { x: 10, y: -60, r: 30, dmg: 1.3, base: 120, growth: 0.3, angle: 50, holdStun: 0.3 }],
+    wind: pose({ lean: 0.3, legA: [1.4, 0.2], legB: [-0.4, 1.4], armA: [-1.6, -0.3], armB: [-1.3, -0.3] }),
+    strike: pose({ lean: 0.35, legA: [1.6, 0.05], legB: [-0.5, 1.5], armA: [-1.8, -0.2], armB: [-1.5, -0.2] }) },
+  // (3) the clone he tosses up and over: a spinning axe kick coming down on them
+  vaultAxe: { name: 'Clone Vault', startup: 0.01, active: 0.4, endlag: 0.05, chainLock: true, flip: true, flipTurns: 1, step: keepThrown, onHit: thrownLanded,
+    hitboxes: [{ x: 26, y: -30, r: 42, dmg: 1.6, base: 300, growth: 0.5, angle: 75, from: 0.1, to: 0.4, holdStun: 0.24 },
+               { x: 8, y: -60, r: 34, dmg: 1.6, base: 300, growth: 0.5, angle: 75, from: 0.1, to: 0.4, holdStun: 0.24 }],
+    wind: pose({ bob: -6, lean: 0.4, legA: [1.3, 2.2], legB: [1.0, 2.0], armA: [0.6, -0.2], armB: [0.4, -0.2] }),
+    strike: pose({ lean: 0.2, legA: [3.0, 0.05], legB: [-0.3, 0.6], armA: [-1.6, 0.2], armB: [-1.3, 0.2] }) },
+  // (4) the clone in front of them: kicks them straight up
   upKick: { name: 'Clone Rising Kick', startup: 0.03, active: 0.1, endlag: 0.12,
     hitboxes: [{ x: 38, y: -92, r: 36, dmg: 1.1, base: 640, growth: 4.5, angle: 86 },
                { x: 22, y: -48, r: 32, dmg: 1.1, base: 640, growth: 4.5, angle: 86 }],
     wind: pose({ bob: -12, lean: 0.3, legA: [0.9, 1.4], legB: [-0.5, 0.4], armA: [0.6, -1.4], armB: [0.9, -1.6] }),
     strike: pose({ lean: -0.25, legA: [2.9, 0.05], legB: [-0.3, 0.3], armA: [-1.0, -0.4], armB: [-1.4, -0.2] }),
     fire(f) { hellBurst(f.x + f.face * 30, f.y - 90, 6, 300); } },
+  // a clone that's only there to THROW someone (Colbalias or another clone): cupped hands low... heave
+  boost: { name: 'Clone Boost', startup: 0.04, active: 0.08, endlag: 0.1, floatWhile: () => true,
+    hitboxes: [],
+    wind: pose({ bob: -26, lean: 0.5, legA: [1.0, 1.6], legB: [-0.6, 1.2], armA: [0.5, -0.2], armB: [0.6, -0.1] }),
+    strike: pose({ bob: -4, lean: -0.2, armA: [2.8, 0], armB: [2.6, 0], legA: [0.5, 0.4], legB: [-0.5, 0.3] }) },
+  // the VOLLEYBALL SET (his side throw): arms up, bumping them into the air
+  bump: { name: 'Clone Set', startup: 0.02, active: 0.3, endlag: 0.06, floatWhile: () => true, hitboxes: [],
+    wind: pose({ bob: -18, lean: 0.1, legA: [0.8, 1.2], legB: [-0.6, 1.0], armA: [1.3, 0.1], armB: [1.2, 0.1] }),
+    strike: pose({ bob: 0, lean: -0.15, legA: [0.4, 0.3], legB: [-0.4, 0.3], armA: [2.7, 0.1], armB: [2.6, 0.1] }) },
+  // the STOMPERS (his down throw): kicking them while they're down (no hitbox - the throw does the damage)
+  stomp: { name: 'Clone Stomp', startup: 0.02, active: 0.85, endlag: 0.05, hitboxes: [],
+    wind: pose({ lean: 0.3, bob: -4, legA: [1.3, 1.9], legB: [-0.2, 0.2], armA: [1.2, -1.2], armB: [-0.9, -0.9] }),
+    strike: pose({ lean: 0.35, bob: -6, legA: [0.3, 0.05], legB: [-0.2, 0.2], armA: [1.3, -1.2], armB: [-0.9, -0.9] }),
+    step(f, a) {                                                   // knee up... STOMP, over and over
+      if (a.phase === 'active') {
+        const up = (a.t / 0.07) % 1 < 0.5, leg = Math.floor(a.t / 0.07) % 2 ? 'legB' : 'legA';
+        a.poseOverride = { ...pose({ lean: 0.35, bob: -6, legA: [0.1, 0.05], legB: [-0.1, 0.05], armA: [1.3, -1.2], armB: [-0.9, -0.9],
+                                     [leg]: up ? [1.3, 1.9] : [0.35, 0.05] }), raw: true };
+      }
+      return false;
+    } },
 };
-const CLONE_STRING_AT = 52;     // how far in front of him each clone appears
-// his own part of each hit: the hand sign (both hands together at his chest), stepping in after them
+// his own part of each hit
 const handSign = pose({ lean: 0.05, bob: -8, armA: [0.75, -1.75], armB: [0.7, -1.8], legA: [0.6, 0.45], legB: [-0.5, 0.15] });
-const handSign2 = pose({ lean: 0.12, bob: -10, armA: [0.8, -1.7], armB: [0.75, -1.75], legA: [0.7, 0.5], legB: [-0.55, 0.15] });
-const cloneStringMove = (name, next, which, lunge) => ({ name, startup: 0.035, active: 0.08, endlag: 0.1, combo: next, lunge, lungeFriction: 0.5,
-  cloneStrike: which, hitboxes: [], wind: handSign, strike: handSign2, fire(f) { cloneStrikeFire(f, which); } });
-COLBALIAS_MOVES.jab  = cloneStringMove('Clone Punch', 'jab2', 'punch', 120);
-COLBALIAS_MOVES.jab2 = cloneStringMove('Clone Leg Sweep', 'jab3', 'sweep', 160);
-COLBALIAS_MOVES.jab3 = cloneStringMove('Clone Flip Kick', 'jab4', 'flipKick', 180);
-COLBALIAS_MOVES.jab4 = { ...cloneStringMove('Double Clone Kick', null, 'upKick', 120), endlag: 0.16 };
-function cloneStrikeFire(f, which) {
-  if (f.minion) return;
+const tossWind = pose({ lean: -0.25, bob: -10, armA: [-1.2, -0.6], armB: [-0.9, -0.6], legA: [0.7, 0.6], legB: [-0.6, 0.2] });
+const tossStrike = pose({ lean: 0.4, bob: -8, armA: [1.9, 0], armB: [1.6, -0.2], legA: [0.9, 0.6], legB: [-0.8, 0.1] });
+// who the string is aimed at: the nearest foe in front of him (within reach)
+function cloneStringTarget(f) {
   const F = f.face;
-  // who it's aimed at: the nearest foe in front of him (within reach). The clone appears just in front of THEM
-  // (never past them) - or CLONE_STRING_AT in front of him if there's nobody there
-  const t = fighters.filter(o => !allies(f, o) && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0) && (o.x - f.x) * F > -10 && Math.abs(o.x - f.x) < 300 && Math.abs(o.y - f.y) < 150)
+  return fighters.filter(o => !allies(f, o) && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0) && (o.x - f.x) * F > -10 && Math.abs(o.x - f.x) < 340 && Math.abs(o.y - f.y) < 170)
     .sort((p, q) => Math.abs(p.x - f.x) - Math.abs(q.x - f.x))[0];
-  const at = t ? t.x - F * 44 : f.x + F * CLONE_STRING_AT;
-  spawnStrikeClone(f, which, at, F);
-  // the finisher: a SECOND clone at the same moment on the far side of them (facing back) - both kick them UP
-  if (which === 'upKick') spawnStrikeClone(f, which, t ? t.x + F * 44 : at + F * 88, t ? -F : F);
 }
-function spawnStrikeClone(f, key, x, face) {
+// (a bit slower than before: every part has a real wind-up and recovery)
+COLBALIAS_MOVES.jab = { name: 'Clone Catapult', startup: 0.07, active: 0.08, endlag: 0.15, combo: 'jab2', cloneStrike: 'catapult', hitboxes: [],
+  wind: tossWind, strike: tossStrike,
+  fire(f) {                                                      // he hurls a clone straight at them
+    if (f.minion) return;
+    const t = cloneStringTarget(f), F = f.face;
+    const dx = t ? Math.abs(t.x - f.x) : 200;
+    spawnStrikeClone(f, 'catapultKick', f.x + F * 18, F, { vx: F * clamp(dx / 0.17, 600, 1500), vy: t ? clamp((t.y - f.y) * 4, -500, 300) - 60 : -60, y: f.y - 10 });
+    sfx.whoosh(true);
+  } };
+COLBALIAS_MOVES.jab2 = { name: 'Slingshot Sweep', startup: 0.07, active: 0.16, endlag: 0.15, combo: 'jab3', lunge: 850, lungeFriction: 0.32, chainLock: true,
+  onHit(f) { f.vx *= 0.15; },                                    // (the slide stops dead on them - he doesn't sail past)
+  hitboxes: [{ x: 54, y: -16, r: 34, dmg: 1.3, base: 220, growth: 0.3, angle: 84, holdStun: 0.26 },
+             { x: 22, y: -14, r: 30, dmg: 1.3, base: 220, growth: 0.3, angle: 84, holdStun: 0.26 }],
+  wind: handSign, strike: COLBALIAS_MOVES.downGround.strike,
+  fire(f) {                                                      // a clone behind him SHOVES him in
+    if (!f.minion) spawnStrikeClone(f, 'boost', f.x - f.face * 30, f.face);
+    dust(f.x, f.y, 8, 1.4);
+  } };
+COLBALIAS_MOVES.jab3 = { name: 'Clone Vault', startup: 0.07, active: 0.08, endlag: 0.16, combo: 'jab4', cloneStrike: 'vault', hitboxes: [],
+  wind: pose({ lean: 0.2, bob: -16, armA: [0.5, -0.2], armB: [0.6, -0.1], legA: [0.9, 1.2], legB: [-0.6, 0.6] }),   // hands cupped low...
+  strike: pose({ lean: -0.2, bob: -2, armA: [2.8, 0], armB: [2.6, 0], legA: [0.5, 0.3], legB: [-0.5, 0.3] }),      // ...and UP and over it goes
+  fire(f) {
+    if (f.minion) return;
+    const t = cloneStringTarget(f), F = f.face, T = 0.24;
+    const dx = t ? t.x - (f.x + F * 10) : F * 160;
+    spawnStrikeClone(f, 'vaultAxe', f.x + F * 10, F, { vx: clamp(dx / T, -1300, 1300), vy: -420, y: f.y - 20 });
+    sfx.whoosh(true);
+  } };
+COLBALIAS_MOVES.jab4 = { name: 'Twin Launch', startup: 0.08, active: 0.14, endlag: 0.2, landLag: 0.14, hop: 820, lunge: 300, lungeFriction: 0.5,
+  hitboxes: [{ x: 30, y: -72, r: 38, dmg: 1.4, base: 640, growth: 4.5, angle: 84 }, { x: 14, y: -40, r: 30, dmg: 1.4, base: 640, growth: 4.5, angle: 84 }],
+  wind: handSign,
+  strike: pose({ lean: -0.1, legA: [1.6, 2.4], legB: [-0.3, 0.3], armA: [-1.2, -0.4], armB: [-0.9, -0.5] }),   // rising knee
+  fire(f) {
+    if (f.minion) return;
+    const t = cloneStringTarget(f), F = f.face;
+    spawnStrikeClone(f, 'boost', f.x - F * 6, F);                                      // the clone launching HIM
+    spawnStrikeClone(f, 'upKick', t ? t.x + F * 44 : f.x + F * 100, t ? -F : F);        // the clone on their far side
+  } };
+// spawn a one-shot clone that does ONE move. o = { vx, vy, y } to throw it (it's airborne from the start)
+function spawnStrikeClone(f, key, x, face, o = {}) {
   const c = makeFighter({ name: 'CLONE', color: '#5a0a0a', energy: '#ff1a1a', x, controller: 'minion', char: 'COLBALIAS' });
   c.minion = true; c.owner = f; c.strikeClone = true;
   c.moveset = CLONE_STRING; c.stats = cloneStats();
-  c.look = { ...f.look, bossAura: null, smoke: false, demonMeter: false };
-  c.x = x; c.y = f.y; c.vx = 0; c.vy = f.ground ? 0 : Math.min(f.vy, 0);
-  c.face = face; c.ground = f.ground; c.onPlatform = f.onPlatform; c.halo = 0; c.invuln = 0;
+  c.look = { ...f.look, bossAura: null, smoke: false, demonMeter: false, doubleUlt: false, glassJaw: false };
+  c.x = x; c.y = o.y ?? f.y; c.vx = o.vx || 0; c.vy = o.vy !== undefined ? o.vy : (f.ground ? 0 : Math.min(f.vy, 0));
+  c.face = face; c.ground = o.vx === undefined && o.vy === undefined ? f.ground : false; c.onPlatform = c.ground ? f.onPlatform : null;
+  c.halo = 0; c.invuln = 0;
   c.stocks = Infinity; c.ult = 0; c.life = CLONE.life; c.cpuLevel = null;
   const m = CLONE_STRING[key];
   c.action = { type: 'attack', key, move: m, btn: 'atk', phase: 'startup', t: 0, charge: 0, mult: 1, hit: new Set(),
                air: !c.ground, started: time, startupMul: 1 };
   fighters.push(c);
-  burst(x, f.y - 50, ['#6e6e78', '#b4b4bb', '#3a0000'], 12, 0, Math.PI, 260, { grav: -60 });   // POOF - it appears
+  burst(x, c.y - 50, ['#6e6e78', '#b4b4bb', '#3a0000'], 12, 0, Math.PI, 260, { grav: -60 });   // POOF - it appears
   if (!playClonePoof()) sfx.whoosh(false);
+  return c;
+}
+
+// ---------------- CLONE LAUNCH HEADBUTT (Colbalias, up K - his recovery) ----------------
+// A clone pops up under him and HURLS him into the air - and he comes up with a GIANT headbutt for anything in
+// front of him. (Once per jump, like every recovery; his clones do it without a helper.)
+const LAUNCH_HB = { vy: -1500, vx: 220 };
+COLBALIAS_MOVES.upRanged = { name: 'Clone Launch Headbutt', startup: 0.1, active: 0.24, endlag: 0.24, landLag: 0.18, impactOnHit: true,
+  hitboxes: [{ x: 38, y: -66, r: 46, dmg: 4.5, base: 470, growth: 5.6, angle: 55, from: 0, to: 0.08 },        // (catches them right as he takes off)
+             { x: 34, y: -104, r: 48, dmg: 4.5, base: 470, growth: 5.6, angle: 55, from: 0.06, to: 0.24 },
+             { x: 10, y: -84, r: 36, dmg: 4.5, base: 470, growth: 5.6, angle: 55, from: 0.06, to: 0.24 }],
+  wind: pose({ bob: -22, lean: 0.3, legA: [1.0, 1.6], legB: [-0.5, 1.2], armA: [0.3, -1.6], armB: [0.5, -1.6] }),
+  strike: pose({ lean: 0.95, bob: 0, legA: [-0.3, 0.6], legB: [-0.8, 0.5], armA: [-2.0, -0.2], armB: [-1.7, -0.2] }),   // head thrown forward, arms swept back
+  fire(f, mult, c, a) {
+    if (!f.minion) {                                             // the clone that throws him
+      const k = spawnStrikeClone(f, 'boost', f.x - f.face * 8, f.face);
+      k.action.t = CLONE_STRING.boost.startup;                   // (already heaving)
+    }
+    if (!f.upSpecialUsed) {
+      f.upSpecialUsed = true; f.vy = LAUNCH_HB.vy; f.vx = f.face * LAUNCH_HB.vx; f.ground = false; f.y -= 2; a.air = true;
+    }
+    hellBurst(f.x + f.face * 30, f.y - 100, 14, 420); sfx.whoosh(true);
+  },
+  onHit(f, t) { devilBolts(t.x, t.y - 70, 5); hellBurst(t.x, t.y - 70, 16, 500); shake = Math.max(shake, 12); } };
+
+// ---------------- RED CHIDORI (Colbalias, side K) ----------------
+// Hold K: a crackling sphere of RED lightning gathers round his hand (the longer, the stronger). Let go: a clone pops
+// up, grabs his OTHER arm, spins him round and HURLS him the way he was facing - a huge-reach, slightly rising
+// lunge. Whoever the Chidori hits is IMPALED on his arm for a moment, then he RIPS it out: a short stun you can combo
+// or grab out of. (Shields stop it. His clones do it without a helper.)
+// GLASS JAW: when COLBALIAS himself gets hit, his launch is multiplied by mult and then add is added on top
+const GLASS_JAW = { mult: 1.12, add: 240 };
+const RED_CHIDORI = { spin: 0.16, fly: 0.3, speed: 1250, perCharge: 900, lift: 360, impale: 0.28, r: 30,
+                      stab: { dmg: 2.5, base: 0, growth: 0, angle: 0, noStop: true },
+                      rip: { dmg: 3, base: 230, growth: 0.9, angle: 38 }, ripStun: 0.42,
+                      block: { dmg: 3, base: 300, growth: 1, angle: 30 },
+                      colors: ['#ff2a2a', '#ff8080', '#ffffff', '#b30000'] };
+COLBALIAS_MOVES.hellMissile = COLBALIAS_MOVES.sideRanged;          // (the old side K - his clones' ranged attack now)
+COLBALIAS_MOVES.sideRanged = { name: 'Red Chidori', startup: 0.08, active: 9, endlag: 0.1, landLag: 0.08, charge: true, chidori: true, chidoriRed: true, noClash: true,
+  wind: pose({ lean: -0.2, bob: -12, legA: [0.9, 0.9], legB: [-0.7, 0.4], armA: [-0.9, -0.4], armB: [0.6, -1.6] }),   // arm drawn back, crackling
+  strike: pose({ lean: 0.6, bob: -6, legA: [-0.3, 0.6], legB: [-0.9, 0.3], armA: [1.6, 0], armB: [-1.0, -0.6] }),     // arm driven straight out
+  fire(f, mult, c, a) {
+    a.rc = { phase: 'spin', t0: a.t, D: f.face, c: clamp(c || 0, 0, 1) };
+    if (!f.minion) a.rc.helper = spawnStrikeClone(f, 'boost', f.x - f.face * 36, f.face);
+    sfx.whoosh(true);
+  },
+  floatWhile(f, a) { return !!a.rc && a.rc.phase !== 'done'; },
+  step(f, a, dt) { return a.phase === 'active' && a.rc ? stepRedChidori(f, a, dt) : false; } };
+function endRedChidori(f, a) { a.rc.phase = 'done'; a.poseOverride = null; a.phase = 'end'; a.t = 0; }
+function stepRedChidori(f, a, dt) {
+  const R = a.rc, D = R.D, T = a.t - R.t0, M = COLBALIAS_MOVES.sideRanged;
+  const fist = { x: f.x + D * 46, y: f.y - 66 };
+  const crackle = n => { if (Math.random() < dt * n) bolt(fist.x, fist.y, Math.random() * Math.PI * 2, 30 + Math.random() * 40, 0.07, RED_CHIDORI.colors[(Math.random() * 4) | 0]); };
+  if (R.phase === 'spin') {                                       // 1. the clone grabs his other arm and SPINS him round
+    f.vx = 0; f.vy = 0;
+    const k = clamp(T / RED_CHIDORI.spin, 0, 1), th = Math.PI * 2 * k;
+    a.poseOverride = { ...M.wind, turnX: Math.cos(th), raw: true };
+    const h = R.helper;
+    if (h && fighters.includes(h)) { h.x = f.x - D * 34 * Math.cos(th); h.drawZ = -Math.sin(th) * 0.5; h.face = Math.sign(f.x - h.x) || D; h.vx = h.vy = 0; }
+    crackle(40);
+    if (k >= 1) {                                                 // 2. ...and HURLS him
+      R.phase = 'fly'; R.t0 = a.t; f.face = D; R.vx = D * (RED_CHIDORI.speed + RED_CHIDORI.perCharge * R.c);
+      f.vx = R.vx; f.vy = -RED_CHIDORI.lift * (0.6 + 0.4 * R.c);
+      f.ground = false; f.y -= 2;
+      burst(f.x, f.y - 60, RED_CHIDORI.colors, 18, D > 0 ? Math.PI : 0, 0.6, 600, { grav: 0 });
+      shake = Math.max(shake, 6); sfx.whoosh(true); sfx.clash(false);
+    }
+    return true;
+  }
+  if (R.phase === 'fly') {
+    a.poseOverride = M.strike;
+    f.vx = R.vx; f.vy += GRAVITY * 0.35 * dt;                     // (thrown: holds his speed, on a gentle arc)
+    a.ghostT = (a.ghostT || 0) - dt;
+    if (a.ghostT <= 0) { a.ghostT = 0.02; ghosts.push({ fig: figureOf(f), life: 0.18, max: 0.18, color: '#ff2a2a' }); }
+    crackle(70);
+    for (const t of fighters) {
+      if (t === f || allies(f, t) || t.respawnTimer > 0 || t.dead || t.poofT > 0 || isIntangible(t) || cloneShielded(f, t)) continue;
+      if (!circleHitsFighter(fist.x, fist.y, RED_CHIDORI.r + 8 * R.c, t)) continue;
+      if (t.shielding) {                                          // blocked: he bounces off
+        applyHit(t, RED_CHIDORI.block, D, powerOf(f), fist.x, fist.y, { fighter: f });
+        f.vx = -D * 220; f.vy = -260; endRedChidori(f, a); return true;
+      }
+      if (!applyHit(t, { ...RED_CHIDORI.stab, dmg: RED_CHIDORI.stab.dmg * (1 + 0.6 * R.c) }, D, powerOf(f), fist.x, fist.y, { fighter: f })) continue;
+      if (!t.action || t.action.type !== 'hitstun') { endRedChidori(f, a); return true; }   // (perfect-blocked / armored)
+      // IMPALED
+      R.phase = 'impale'; R.t0 = a.t; R.v = t;
+      t.action = { type: 'hitstun', t: 0, dur: 9, locked: true, impaled: true, by: f };
+      t.vx = t.vy = 0; f.vx = f.vy = 0;
+      impactFrame = Math.max(impactFrame, 0.1); impactAt = { x: fist.x, y: fist.y, ang: 0, all: false, focus: true, invert: true };
+      hitstop = Math.max(hitstop, 0.12); shake = Math.max(shake, 14);
+      burst(fist.x, fist.y, gore ? BLOOD : SWEAT, 22, D > 0 ? 0 : Math.PI, 0.8, 520, { stain: gore });
+      for (let k = 0; k < 8; k++) bolt(t.x, t.y - 55, Math.random() * Math.PI * 2, 40 + Math.random() * 50, 0.14, RED_CHIDORI.colors[k % 4]);
+      sfx.hit(1); sfx.clash(true);
+      return true;
+    }
+    if (T >= RED_CHIDORI.fly || (f.ground && T > 0.05)) endRedChidori(f, a);
+    return true;
+  }
+  if (R.phase === 'impale') {                                     // 3. skewered on his arm...
+    const v = R.v;
+    f.vx = 0; f.vy = 0;
+    a.poseOverride = M.strike;
+    if (!v || v.respawnTimer > 0 || !v.action || !v.action.impaled) { endRedChidori(f, a); return true; }
+    v.x = f.x + D * 38; v.y = f.y + 8; v.vx = v.vy = 0; v.face = -D;
+    if (gore && Math.random() < dt * 30) burst(v.x, v.y - 58, BLOOD, 1, Math.PI / 2, 0.6, 160, { stain: true });
+    crackle(50);
+    if (T >= RED_CHIDORI.impale) {                                // 4. ...then he RIPS his hand out
+      v.action = null;
+      knock(v, RED_CHIDORI.rip, D, powerOf(f), v.x, v.y - 58);
+      if (v.action && v.action.type === 'hitstun' && !v.action.crit) { v.action.dur = Math.max(v.action.dur, RED_CHIDORI.ripStun); v.action.locked = true; }   // (stunned even if they land - time to combo or GRAB)
+      burst(v.x, v.y - 58, gore ? BLOOD : SWEAT, 26, D > 0 ? Math.PI : 0, 0.9, 560, { stain: gore });
+      hellBurst(v.x, v.y - 58, 12, 420); shake = Math.max(shake, 10);
+      a.poseOverride = pose({ lean: -0.3, bob: -6, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [-0.8, -0.8], armB: [0.4, -1.4] });   // hand yanked back
+      R.phase = 'done'; a.phase = 'end'; a.t = 0;
+      if (f.look && f.look.demonMeter) gainDemon(f);
+    }
+    return true;
+  }
+  return false;
+}
+
+// ---------------- COLBALIAS'S THROWS ----------------
+//  down    = GERMAN SUPLEX: arms round their waist, he bridges back and drives them head-first into the floor behind
+//            him - then FOUR clones pop up round them and they all (him too) stomp them into the ground
+//  forward / back = VOLLEYBALL SPIKE: a one-handed shoulder throw that hurls them half the stage away, a clone pops up
+//            under them and SETS them up into the air like a volleyball, and he run-jumps up and SPIKES them down
+//  up      = chucks them into the sky - the highest throw in the game (but never out the top)
+const SUPLEX = { lift: 0.12, arc: 0.24, rise: 0.14, stomps: 10, every: 0.07, stompDmg: 0.6, slamDmg: 2, kick: 0.16 };
+function stepSuplexStomp(f, a, dt) {
+  const v = a.victim, F = a.face0, T = a.t;
+  if (a.released) { f.vx = approach(f.vx, 0, FRICTION * dt); return; }
+  v.vx = v.vy = 0; f.vx = 0;
+  if (a.gy === undefined) a.gy = f.y;
+  const gy = a.gy;
+  if (T < SUPLEX.lift) {                                         // 1. arms round their waist, lifting
+    const u = easeOut(T / SUPLEX.lift);
+    v.x = f.x + F * lerp(40, 22, u); v.y = gy - 30 * u; thrownSpin(a, 0);
+    a.pose = pose({ lean: lerp(0.2, -0.3, u), bob: -10, legA: [0.8, 0.9], legB: [-0.6, 0.5], grip: gripOn(f, v) });
+    return;
+  }
+  const t1 = T - SUPLEX.lift;
+  if (t1 < SUPLEX.arc) {                                         // 2. bridging back: OVER HIS HEAD
+    const u = t1 / SUPLEX.arc, th = Math.PI * easeInOut(u);
+    v.x = f.x + F * Math.cos(th) * 30; v.y = gy - 40 - Math.sin(th) * 70; v.drawZ = 0.5;
+    thrownSpin(a, -F * th * 1.15);                               // flipped head-first
+    a.pose = pose({ lean: lerp(-0.3, -1.25, u), bob: lerp(-10, -26, u), legA: [0.6, 1.0], legB: [-0.4, 0.9], armA: [2.6, 0.2], armB: [2.4, 0.2] });
+    return;
+  }
+  if (!a.slammed) {                                              // ...head-first into the floor behind him
+    a.slammed = true; a.vx0 = f.x - F * 52; v.drawZ = 0;
+    v.damage += SUPLEX.slamDmg; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + SUPLEX.slamDmg);
+    painfulSlam(v, a.vx0, gy, 1, false);
+  }
+  v.x = a.vx0; v.y = gy + 38; thrownSpin(a, F * Math.PI / 2);   // flat on their back
+  const t2 = t1 - SUPLEX.arc;
+  if (t2 < SUPLEX.rise) {                                        // 3. he springs up out of the bridge, turning to them
+    const u = t2 / SUPLEX.rise;
+    f.face = -F;
+    a.pose = pose({ lean: lerp(-1.0, 0.2, u), bob: lerp(-24, -6, u), legA: [0.7, 0.8], legB: [-0.5, 0.4], armA: [1.4, -1.0], armB: [1.2, -1.0] });
+    return;
+  }
+  if (!a.cloned) {                                               // 4. FOUR clones pop up round them...
+    a.cloned = true; a.n = 0; a.t3 = T;
+    for (const [dx, fc] of [[-48, 1], [48, -1], [-82, 1], [82, -1]]) {
+      const c = spawnStrikeClone(f, 'stomp', v.x + dx, fc);
+      c.action.move = { ...CLONE_STRING.stomp, active: SUPLEX.stomps * SUPLEX.every + 0.1 };
+    }
+    f.x = v.x + F * 20; f.face = -F;
+  }
+  const t3 = T - a.t3, n = Math.floor(t3 / SUPLEX.every), up = (t3 / SUPLEX.every) % 1 < 0.5;
+  const leg = n % 2 ? 'legB' : 'legA';
+  a.pose = { ...pose({ lean: 0.35, bob: -6, legA: [0.1, 0.05], legB: [-0.1, 0.05], armA: [1.3, -1.2], armB: [-0.9, -0.9],
+                       [leg]: up ? [1.3, 1.9] : [0.35, 0.05] }), raw: true };
+  if (n >= a.n && !up && a.n < SUPLEX.stomps) {                  // ...and they ALL stomp away
+    a.n++;
+    v.damage += SUPLEX.stompDmg; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + SUPLEX.stompDmg);
+    v.hitFlash = 0.06; v.squash = -0.3; shake = Math.max(shake, 6); hitstop = Math.max(hitstop, 0.025);
+    dust(v.x + (Math.random() - 0.5) * 60, gy, 4, 1.2);
+    burst(v.x + (Math.random() - 0.5) * 40, gy - 12, ['#ffffff', '#cdb79a', '#ff1a1a'], 5, -Math.PI / 2, 1.2, 260, { grav: 600 });
+    sfx.hit(0.55);
+  }
+  if (a.n >= SUPLEX.stomps && t3 >= SUPLEX.stomps * SUPLEX.every + SUPLEX.kick) {   // 5. his last kick boots them up and away
+    v.y = gy;
+    a.pose = pose({ lean: -0.3, bob: -4, legA: [1.8, 0.1], legB: [-0.3, 0.3], armA: [-1.0, -0.5], armB: [-0.8, -0.5] });
+    finishThrow(f, a, v, THROWS.suplexStomp, -F, v.x, gy - 30, 0.22);
+    hellBurst(v.x, gy - 30, 16, 480); shake = Math.max(shake, 12); sfx.hit(1);
+  }
+}
+const VOLLEY = { over: 0.12, fly: 0.36, dist: 480, peak: 170, set: 0.26, setH: 260, run: 0.16, jump: 0.14, spike: 0.1 };
+function stepVolleySpike(f, a, dt) {
+  const v = a.victim, D = a.face0, T = a.t;
+  if (a.released) return;
+  v.vx = v.vy = 0; f.vx = 0; f.vy = 0;
+  if (a.gy === undefined) { a.gy = f.y; a.x0 = f.x; a.L = { x: f.x + D * VOLLEY.dist, y: f.y - 40 }; }
+  const gy = a.gy, L = a.L;
+  if (T < VOLLEY.over) {                                         // 1. ONE-HANDED SHOULDER THROW: up over his shoulder...
+    const u = easeOut(T / VOLLEY.over);
+    v.x = f.x + D * lerp(40, -6, u); v.y = gy - 110 * u; thrownSpin(a, D * Math.PI * 0.9 * u);
+    a.pose = pose({ lean: lerp(0.1, -0.2, u), bob: -10, legA: [0.8, 0.8], legB: [-0.6, 0.3], armA: [lerp(1.6, 2.9, u), 0.3], armB: [0.6, -1.5] });
+    return;
+  }
+  const t1 = T - VOLLEY.over;
+  if (t1 < VOLLEY.fly) {                                         // ...and HURLED half the stage away
+    const u = t1 / VOLLEY.fly;
+    if (!a.flung) { a.flung = true; a.from = { x: v.x, y: v.y }; sfx.whoosh(true); shake = Math.max(shake, 8); }
+    v.x = lerp(a.from.x, L.x, u); v.y = lerp(a.from.y, L.y, u) - Math.sin(Math.PI * u) * VOLLEY.peak;
+    thrownSpin(a, D * (Math.PI * 0.9 + u * Math.PI * 2));
+    a.pose = pose({ lean: 0.6, bob: -10, legA: [0.95, 0.7], legB: [-0.8, 0.1], armA: [1.2, 0], armB: [0.4, -1.4] });
+    if (Math.random() < dt * 40) ghosts.push({ fig: figureOf(v), life: 0.12, max: 0.12, color: '#ffffff' });
+    return;
+  }
+  const t2 = t1 - VOLLEY.fly, apexY = L.y - VOLLEY.setH;
+  if (!a.setter) {                                               // 2. a clone pops up under them: the SET
+    const c = spawnStrikeClone(f, 'bump', L.x, -D);
+    c.y = L.y + 40; c.vx = c.vy = 0; c.ground = false; a.setter = c;
+    v.damage += 1; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + 1);
+    burst(L.x, L.y - 30, ['#ffffff', '#ffd23f'], 10, -Math.PI / 2, 0.6, 400, { grav: 0 }); sfx.hit(0.6);
+  }
+  if (a.setter && fighters.includes(a.setter)) { a.setter.x = L.x; a.setter.y = L.y + 40; a.setter.vx = a.setter.vy = 0; }
+  const runEnd = VOLLEY.run, jumpEnd = runEnd + VOLLEY.jump;
+  const sx = L.x - D * 34;                                       // where he meets them
+  if (t2 < VOLLEY.set) {                                         // they float up off the clone's hands...
+    const u = easeOut(t2 / VOLLEY.set);
+    v.x = L.x; v.y = lerp(L.y, apexY, u); thrownSpin(a, D * Math.PI * 0.4);
+  } else { v.x = L.x; v.y = apexY; }
+  // 3. ...while he RUNS and JUMPS up to meet them
+  if (t2 < runEnd) {
+    const u = t2 / runEnd;
+    f.x = lerp(a.x0, lerp(a.x0, sx, 0.6), u); f.y = gy; f.face = D;
+    const s = Math.sin(T * 28), c = Math.cos(T * 28);
+    a.pose = pose({ lean: 0.55, bob: -4, legA: [s * 1.1, 0.4 + Math.max(0, c) * 1.3], legB: [-s * 1.1, 0.4 + Math.max(0, -c) * 1.3], armA: [-1.4, -0.4], armB: [-1.7, -0.3] });
+    if (Math.random() < dt * 30) dust(f.x, gy, 2, 1);
+    return;
+  }
+  if (t2 < jumpEnd) {
+    const u = easeOut((t2 - runEnd) / VOLLEY.jump);
+    if (!a.jumped) { a.jumped = true; a.jx = f.x; dust(f.x, gy, 12, 2); sfx.whoosh(true); }
+    f.x = lerp(a.jx, sx, u); f.y = lerp(gy, apexY + 30, u); f.ground = false; f.onPlatform = null;
+    a.pose = pose({ lean: -0.3, bob: 0, legA: [0.6, 1.6], legB: [-0.2, 1.2], armA: [3.0, 0.2], armB: [-1.0, -0.4] });   // arm cocked back over his head
+    if (Math.random() < dt * 50) ghosts.push({ fig: figureOf(f), life: 0.12, max: 0.12, color: '#ff1a1a' });
+    return;
+  }
+  // 4. THE SPIKE
+  const t4 = t2 - jumpEnd, u = clamp(t4 / VOLLEY.spike, 0, 1);
+  f.x = sx; f.y = apexY + 30; f.face = D;
+  a.pose = pose({ lean: 0.5, bob: 0, legA: [0.9, 1.4], legB: [-0.4, 1.0], armA: [0.9, 0], armB: [-1.0, -0.4] });       // arm whipped down
+  const s = (v.onPlatform || null), overStage = L.x > STAGE.x && L.x < STAGE.x + STAGE.w;
+  if (!a.spiked) {
+    a.spiked = true;
+    impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: v.x, y: v.y - 40, ang: Math.PI / 2, all: false, focus: true, invert: true };
+    hitstop = Math.max(hitstop, 0.1); shake = Math.max(shake, 16); sfx.hit(1); sfx.clash(true);
+    hellBurst(v.x, v.y - 40, 18, 500);
+  }
+  if (overStage) {                                               // over the stage: driven straight into the floor...
+    v.x = L.x + D * 30 * u; v.y = lerp(apexY, STAGE.y, u); thrownSpin(a, D * Math.PI * 0.75);
+    if (u >= 1) {
+      v.y = STAGE.y; painfulSlam(v, v.x, STAGE.y, 0, true);
+      finishThrow(f, a, v, THROWS.volleySpike, D, v.x, STAGE.y - 30, 0.05);
+      afterVolley(f);
+    }
+  } else {                                                       // ...off the stage: SPIKED down toward the pit
+    finishThrow(f, a, v, THROWS.volleySpikeAir, D, v.x, v.y - 40, 0.05);
+    afterVolley(f);
+  }
+}
+function afterVolley(f) {                                        // he's free in the air - with everything back to get home
+  f.vx = 0; f.vy = -250; f.ground = false;
+  f.airJumps = AIR_JUMPS; f.upSpecialUsed = false;
+}
+
+// ---------------- HUNDRED CLONE RUSH (Colbalias, DOWN + ultimate) ----------------
+// He makes the hand sign and a HUNDRED shadow clones poof in on his side. One at a time they rush the opponent: each
+// lands a hit - and gets COUNTERED on the spot (the opponent hits back with their own moves) and bursts into smoke.
+// It looks completely even... faster and faster, until the last clone is gone. Then he INSTANT TRANSMISSIONS behind
+// them and dash-punches the back of their head with everything he has: a launch that's PURELY HORIZONTAL.
+const LEGION = { count: 100, summon: 0.7, first: 0.24, last: 0.012, curve: 0.2, perHit: 0.2, wind: 0.32, back: 330 };
+function updateLegionUlt(U, dt) {
+  const u = U.user, v = U.target, d = U.dir;
+  const once = k => !U.events.has(k) && U.events.add(k);
+  u.vx = u.vy = 0; v.vx = v.vy = 0;
+  u.anim += dt; v.anim += dt;
+  u.hitFlash = Math.max(0, u.hitFlash - dt); v.hitFlash = Math.max(0, v.hitFlash - dt);
+  U.jolt = Math.max(0, (U.jolt || 0) - dt);
+  if (once('setup')) {
+    U.crowd = LEGION.count; U.spent = 0; U.phase = 'summon'; U.t = 0;
+    const s = v.onPlatform || ((v.x > STAGE.x && v.x < STAGE.x + STAGE.w) ? STAGE : null);
+    if (s) { U.baseY = s.y; }
+    u.x = v.x - d * LEGION.back; u.y = U.baseY; u.face = d;
+    U.vPoses = ['jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair', 'jab4']
+      .map(k => v.moveset[k] && v.moveset[k].strike).filter(Boolean);
+    if (!U.vPoses.length) U.vPoses = [STICKMAN_MOVES.jab.strike];
+    U.cPoses = ['hellFlurry', 'hellCross', 'hookKick', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'uair', 'dair', 'jab2', 'jab4']
+      .map(k => COLBALIAS_MOVES[k] && COLBALIAS_MOVES[k].strike).filter(Boolean);
+  }
+  v.x = U.baseX + (U.jolt > 0 ? (Math.random() - 0.5) * 5 : 0); v.y = U.baseY; v.face = -d;
+  if (U.phase === 'summon') {                                    // the hand sign... and the whole army POOFS in
+    U.userPose = handSign; U.victimPose = null;
+    if (U.t >= 0.25 && once('poof')) {
+      for (let i = 0; i < 40; i++) burst(u.x - d * (40 + Math.random() * 520), U.baseY - 40 - Math.random() * 40, ['#6e6e78', '#b4b4bb', '#3a0000'], 2, 0, Math.PI, 260, { grav: -60 });
+      if (!playClonePoof()) sfx.whoosh(true);
+      shake = Math.max(shake, 10);
+      painTexts.push({ x: u.x, y: u.y - 170, t: 1.0, max: 1.0, text: 'x100', big: true, ult: true });
+    }
+    if (U.t >= LEGION.summon) { U.phase = 'rush'; U.t = 0; U.next = 0; }
+    return;
+  }
+  if (U.phase === 'rush') {
+    U.userPose = handSign;
+    // one exchange at a time, faster and faster
+    if (!U.cur && U.spent < LEGION.count) {
+      const p = U.spent / LEGION.count, dur = lerp(LEGION.first, LEGION.last, Math.pow(p, LEGION.curve));
+      const n = U.spent;
+      U.cur = { t: 0, dur, hit: false, ctr: false, n, air: n % 5 === 3, side: n % 7 === 4 ? 1 : -1,   // (now and then one leaps in, or comes round the far side)
+                atk: U.cPoses[(n * 7 + 3) % U.cPoses.length], counter: U.vPoses[(n * 5 + 1) % U.vPoses.length] };
+      U.crowd--;
+    }
+    const C = U.cur;
+    if (C) {
+      C.t += dt;
+      const k = C.t / C.dur;
+      const from = u.x - d * 30, to = v.x + C.side * d * 46;
+      C.x = k < 0.45 ? lerp(C.side < 0 ? from : v.x + d * 160, to, easeOut(k / 0.45)) : to;
+      C.y = U.baseY - (C.air ? Math.sin(Math.PI * clamp(k / 0.45, 0, 1)) * 60 + (k >= 0.45 ? 30 : 0) : 0);
+      C.face = Math.sign(v.x - C.x) || d;
+      if (k >= 0.45 && !C.hit) {                                  // the clone's hit lands...
+        C.hit = true;
+        v.damage += LEGION.perHit * U.power; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + LEGION.perHit);
+        v.hitFlash = 0.05; U.jolt = 0.06;
+        burst(v.x - C.side * d * 10, v.y - 60, ['#ffffff', '#ff1a1a'], 5, 0, Math.PI, 380, { grav: 0 });
+        if (C.dur > 0.05 || C.n % 3 === 0) sfx.hit(0.35);
+        shake = Math.max(shake, 4);
+      }
+      if (k >= 0.62 && !C.ctr) {                                  // ...and they COUNTER on the spot
+        C.ctr = true;
+        burst(C.x, C.y - 55, ['#6e6e78', '#b4b4bb', '#3a0000'], 8, 0, Math.PI, 300, { grav: -60 });   // the clone bursts
+        if (C.dur > 0.05 || C.n % 3 === 0) sfx.hit(0.45);
+      }
+      v.face = Math.sign(C.x - v.x) || -d;
+      U.victimPose = k >= 0.55 ? C.counter : null;
+      if (k >= 1) { U.spent++; U.cur = null; }
+    }
+    if (U.spent >= LEGION.count && !U.cur) { U.phase = 'final'; U.t = 0; v.face = -d; U.victimPose = null; }
+    return;
+  }
+  if (U.phase === 'final') {                                     // INSTANT TRANSMISSION behind them...
+    if (once('tp')) {
+      ghosts.push({ fig: figureOf(u), life: 0.35, max: 0.35, color: '#ff1a1a' });
+      u.x = v.x + d * 70; u.y = U.baseY; u.face = -d;
+      burst(u.x, u.y - 50, ['#ff1a1a', '#ffffff'], 18, 0, Math.PI, 420, { grav: 0 }); ring(u.x, u.y - 45);
+      sfx.vanish(1.3);
+    }
+    U.userPose = pose({ lean: -0.2, bob: -10, legA: [0.9, 0.8], legB: [-0.7, 0.3], armA: [-1.4, -0.6], armB: [0.5, -1.5] });   // fist drawn back
+    if (U.t >= LEGION.wind) {                                    // ...and the DASH PUNCH to the back of the head
+      u.x = v.x + d * 34;
+      U.userPose = pose({ lean: 0.7, bob: -8, legA: [-0.5, 0.3], legB: [-1.0, 0.4], armA: [1.6, 0], armB: [-1.3, -0.3] });
+      hellBurst(v.x, v.y - 70, 30, 700);
+      for (let k = 0; k < 8; k++) bolt(v.x, v.y - 70, Math.random() * Math.PI * 2, 60 + Math.random() * 60, 0.16, DEVIL_LIGHTNING[k % 3]);
+      endLegionUlt(U);
+    }
+  }
+}
+function endLegionUlt(U) {
+  const u = U.user, v = U.target, d = U.dir;
+  ult = null;
+  v.action = null; v.x = U.baseX; v.y = U.baseY;
+  u.action = { type: 'land', t: 0, dur: 0.35 };
+  knock(v, { ...U.def.final, ultFinal: true }, -d, U.power, v.x, v.y - 70);
+  // PURELY HORIZONTAL: no lift, and no gravity for a moment - they fly dead flat
+  v.vy = 0; v.ground = false; v.y -= 3;
+  if (v.action && v.action.type === 'hitstun') v.action.flat = 0.55;
+}
+function drawLegionCrowd(U) {
+  const u = U.user, d = U.dir, n = Math.min(U.crowd || 0, 60);
+  for (let i = n - 1; i >= 0; i--) {                             // rows of clones behind him, waiting their turn
+    const col = i % 20, row = Math.floor(i / 20);
+    const fig = figureOf(u);
+    fig.x = u.x - d * (44 + col * 24 + row * 12); fig.y = U.baseY - row * 5;
+    fig.face = d; fig.pose = { ...(i % 3 ? handSign : pose({ lean: 0.2, bob: -8, legA: [0.7, 0.6], legB: [-0.6, 0.2], armA: [0.6, -1.8], armB: [0.4, -1.9] })), raw: true };
+    drawFigure(fig, { alpha: 0.85 - row * 0.15, tint: sketch ? '#333333' : '#140404', eye: '#ff2020' });
+  }
+  const C = U.cur;
+  if (C && !C.ctr) {                                             // the one rushing in
+    const fig = figureOf(u);
+    fig.x = C.x; fig.y = C.y; fig.face = C.face;
+    const run = Math.sin(time * 30);
+    fig.pose = C.hit ? { ...C.atk, raw: true } : { ...pose({ lean: 0.55, bob: -4, legA: [run * 1.1, 0.6], legB: [-run * 1.1, 0.6], armA: [-1.4, -0.4], armB: [-1.7, -0.3] }), raw: true };
+    drawFigure(fig, { alpha: 0.95, tint: sketch ? '#333333' : '#140404', eye: '#ff2020' });
+  }
+  if (U.phase !== 'final' && U.crowd !== undefined) text('x' + (U.crowd + (C ? 1 : 0)), u.x - d * 160, U.baseY - 150, 12, '#ff2a2a', 'center');
 }
 
 const HELL_MISSILE = { stun: 0.55 };   // seconds they're frozen when the Hell Missile hits
@@ -5149,7 +5602,7 @@ function fireChargeShot(f, a) {
   }
   f.cshot = 0;
   a.charging = false; a.phase = 'end'; a.t = 0; a.hit.add('shot');
-  a.poseOverride = { ...COLBALIAS_MOVES.sideRanged.strike };
+  a.poseOverride = { ...COLBALIAS_MOVES.hellMissile.strike };
 }
 function stepChargeShot(f, a, dt, inp) {
   if (a.phase !== 'active') return false;
@@ -5164,7 +5617,7 @@ function stepChargeShot(f, a, dt, inp) {
   const was = f.cshot || 0;
   f.cshot = Math.min(1, was + dt / CHARGE_SHOT.full);
   const w = Math.sin(f.anim * 60) * 0.04 * f.cshot;
-  a.poseOverride = { ...COLBALIAS_MOVES.sideRanged.wind, lean: COLBALIAS_MOVES.sideRanged.wind.lean + w };
+  a.poseOverride = { ...COLBALIAS_MOVES.hellMissile.wind, lean: COLBALIAS_MOVES.hellMissile.wind.lean + w };
   if (Math.random() < dt * 40) {                             // hellfire being sucked into his hands
     const ang = Math.random() * Math.PI * 2, d = 60;
     particles.push({ x: f.x + f.face * 22 + Math.cos(ang) * d, y: f.y - 62 + Math.sin(ang) * d, vx: -Math.cos(ang) * d * 5, vy: -Math.sin(ang) * d * 5,
@@ -5226,7 +5679,11 @@ function stepHellwave(f, a) {
 // ...but several at once slowly overwhelm you.
 // ONE clone at a time: HALF as strong as Colbalias (its power, below), JUST AS FAST (his stats, no extra
 // startup), a QUARTER as durable (bursts after 25% damage), and takes 1.5x knockback (lighter).
-const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5, hits: 2 };   // up to TWO clones at once; each one bursts on its 2nd hit
+const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5, hits: 2, slow: 1.3 };   // up to TWO clones at once; each one bursts on its 2nd hit
+// TRANSFORMED Colbalias: one MORE clone out at once, and each one takes one more hit before it bursts
+const cloneMax = owner => CLONE.max + (owner && owner.transformed ? 1 : 0);
+const cloneHitsMax = c => CLONE.hits + (c.owner && c.owner.transformed ? 1 : 0);
+// Summoning a clone costs one of his blue Z-vanish dots (they only refill on the ground) - no endless spam
 const cloneStats = () => { const s = { ...DEFAULT_STATS, ...CHARACTERS.COLBALIAS.stats }; s.weight = (s.weight || 1) / CLONE.kbTaken; return s; };
 // While COLBALIAS IS TRANSFORMED his clones turn vicious: faster on their feet, faster attacks, and their
 // hits do more damage and knockback
@@ -5277,33 +5734,32 @@ function nearestFoe(f) {
   }
   return best;
 }
-// The clones' moveset: his physical moves, but slower to come out (the delay), weaker and lighter-hitting
+// The clones' moveset: the SAME moves as Colbalias - just slower (CLONE.slow) and hitting much softer (their power
+// comes from the Inverse Ninja Law, see powerOf). They can't make clones of their own, so: J = his old Hell Flurry
+// string, up K = the launch headbutt with no helper, side K = the Red Chidori with no helper (no charging), and
+// neutral / down K = HELL MISSILES (their ranged attack).
 let cloneMoves = null;
 function getCloneMoves() {
   if (cloneMoves) return cloneMoves;
   cloneMoves = {};
-  const src = COLBALIAS_MOVES;
-  // (his J string is the clone string now - his clones still fight with the Hell Flurry / Hell Cross / Hook Kick)
-  const from = { jab: 'hellFlurry', jab2: 'hellCross', jab3: 'hookKick' };
-  for (const k of ['counter', 'jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair', 'upRanged']) {
+  const src = COLBALIAS_MOVES, S = CLONE.slow;
+  const from = { jab: 'hellFlurry', jab2: 'hellCross', jab3: 'hookKick', neutralRanged: 'hellMissile', downRanged: 'hellMissile' };
+  for (const k of ['counter', 'jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair',
+                   'upRanged', 'sideRanged', 'neutralRanged', 'downRanged']) {
     const m = src[from[k] || k];
-    cloneMoves[k] = { ...m, charge: false, chargedHit: undefined, slowmoHit: undefined, startup: m.startup + CLONE.delay, endlag: m.endlag + 0.05,
+    cloneMoves[k] = { ...m, charge: false, chargedHit: undefined, slowmoHit: undefined, startup: m.startup * S + CLONE.delay, endlag: m.endlag * S + 0.05,
       hitboxes: (m.hitboxes || []).map(h => ({ ...h, dmg: Math.round(h.dmg * CLONE.dmg * 10) / 10, base: h.base * CLONE.kb, growth: h.growth * CLONE.kb * 0.8, xray: undefined })) };
   }
-  // RANGED: the clone spams Hell Missiles when it's too far to hit (its power halves them). It never uses
-  // the swap (up K is the old Hell Uppercut for it, just to get back to the stage) and can't make clones.
-  cloneMoves.sideRanged = { ...COLBALIAS_MOVES.sideRanged };
-  cloneMoves.neutralRanged = cloneMoves.sideRanged;
-  cloneMoves.downRanged = cloneMoves.jab;
   return cloneMoves;
 }
 const AI_FERAL = { think: 0.26, defend: 0, aggro: 1, combo: 0.5, mash: 5 };  // average-or-slower reactions, pure aggression
 function summonShadowClone(f) {
-  if ((f.cloneCD || 0) > 0 || cloneCount(f) >= CLONE.max) {      // too soon / too many: just a puff of smoke
+  if ((f.cloneCD || 0) > 0 || cloneCount(f) >= cloneMax(f) || !canAirDodge(f)) {   // too soon / too many / no dodge dots left: just a puff of smoke
     burst(f.x, f.y - 50, ['#3a0000', '#6e6e78'], 8, 0, Math.PI, 200, { grav: 0 });
     return;
   }
   f.cloneCD = CLONE.cd;
+  f.dodgeCount = Math.min(AIR_DODGE_MAX + FATIGUE_MAX, f.dodgeCount + 1); f.dodgeRecover = DODGE_RECOVER;   // (uses up a Z-vanish dot)
   const c = makeFighter({ name: 'CLONE', color: '#5a0a0a', energy: '#ff1a1a', x: f.x, controller: 'minion', char: 'COLBALIAS' });
   c.minion = true; c.owner = f;
   c.moveset = getCloneMoves();
@@ -5353,7 +5809,7 @@ function updateMinions(dt) {
     // STRIKE CLONES (his J string): gone the moment their one attack is over - or the moment they're hit
     if (c.strikeClone && (!c.action || c.action.type !== 'attack' || c.action.phase === 'end' || (c.owner && (c.owner.out || c.owner.respawnTimer > 0)))) { killMinion(c); continue; }
     const busy = c.action && ['grabbed', 'thrown', 'whipped', 'ultVictim', 'timeStop'].includes(c.action.type);
-    if (!busy && ((c.hitsTaken || 0) >= CLONE.hits || c.life <= 0 || (c.owner && c.owner.out))) killMinion(c);   // 2 hits and it's gone
+    if (!busy && ((c.hitsTaken || 0) >= cloneHitsMax(c) || c.life <= 0 || (c.owner && c.owner.out))) killMinion(c);   // 2 hits and it's gone
   }
   for (let i = fighters.length - 1; i >= REAL_FIGHTERS; i--) {
     const c = fighters[i];
@@ -5828,6 +6284,396 @@ const COLTEN_MOVES = buildEcho(COLBY_MOVES);
 // and he takes a bit less knockback from the ones that do
 const AURA_ARMOR = { threshold: 900, kb: 0.85, color: '#7dffb0' };
 
+// =====================================================================
+//  SEVON - the FLAME HASHIRA. A blue stickman samurai in a white, flame-hemmed haori (Rengoku, Demon Slayer),
+//  flaming hair, a katana that burns on every swing - and ODM GEAR (Attack on Titan) on his hips to keep up.
+//  J = FLAME BREATHING sword work: quick slashes that chain, burning hits.
+//  K: neutral = ODM HOOK (see ODM below): fire the grapple -> K again = REEL IN at them -> K again = LEVI SPIN
+//     side    = FIRST FORM: UNKNOWING FIRE - a blazing dash cut
+//     up      = SECOND FORM: RISING SCORCHING SUN - a rising slash, his recovery
+//     down    = THIRD FORM: BLAZING UNIVERSE - he leaps and brings a huge flaming crescent down in front of him
+//  Ultimate: NINTH FORM: RENGOKU - a flurry of flaming slashes, then a giant tiger of fire tears through them
+//  "sw" in a pose = the katana's angle (0 = pointing down, PI/2 = straight out in front, PI = straight up)
+// =====================================================================
+const SEVON_FIRE = ['#ff5a1a', '#ffb02e', '#ffe066', '#e0301e'];
+const flameSlash = (f, x, y, n = 10) => burst(f.x + f.face * x, f.y + y, SEVON_FIRE, n, Math.PI / 2, 1.3, 380, { grav: -300 });
+const SEVON_MOVES = {
+  counter: STICKMAN_MOVES.counter,
+  // ---------- J on the ground: FLAME CUTS (J J J) ----------
+  jab: { name: 'Flame Cut', startup: 0.05, active: 0.06, endlag: 0.12, combo: 'jab2', lunge: 300, lungeFriction: 0.4,
+    hitboxes: [{ x: 72, y: -66, r: 32, dmg: 3, base: 130, growth: 0.5, angle: 50 }, { x: 34, y: -64, r: 28, dmg: 3, base: 130, growth: 0.5, angle: 50 }],
+    wind: pose({ lean: -0.1, bob: -8, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [2.3, 0.5], armB: [2.0, 0.6], sw: 2.7 }),
+    strike: pose({ lean: 0.35, bob: -8, legA: [0.9, 0.6], legB: [-0.7, 0.1], armA: [1.45, 0.1], armB: [1.3, 0.2], sw: 1.35 }),
+    fire(f) { flameSlash(f, 60, -66, 6); sfx.slash && sfx.slash(); } },
+  jab2: { name: 'Rising Flame', startup: 0.04, active: 0.07, endlag: 0.12, combo: 'jab3', lunge: 320, lungeFriction: 0.4,
+    hitboxes: [{ x: 66, y: -84, r: 34, dmg: 3, base: 160, growth: 0.5, angle: 72 }, { x: 30, y: -70, r: 28, dmg: 3, base: 160, growth: 0.5, angle: 72 }],
+    wind: pose({ lean: 0.2, bob: -12, legA: [0.9, 0.8], legB: [-0.6, 0.3], armA: [0.8, 0.2], armB: [0.7, 0.3], sw: 0.6 }),
+    strike: pose({ lean: -0.15, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.5, 0.2], armB: [2.3, 0.3], sw: 2.9 }),
+    fire(f) { flameSlash(f, 50, -90, 7); sfx.slash && sfx.slash(); } },
+  jab3: { name: 'Flame Crash', startup: 0.07, active: 0.08, endlag: 0.24, lunge: 380, lungeFriction: 0.4,
+    hitboxes: [{ x: 78, y: -52, r: 40, dmg: 6, base: 380, growth: 4.8, angle: 40 }, { x: 36, y: -60, r: 32, dmg: 6, base: 380, growth: 4.8, angle: 40 }],
+    wind: pose({ lean: -0.3, bob: -6, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [2.9, 0.2], armB: [2.7, 0.3], sw: 3.0 }),
+    strike: pose({ lean: 0.5, bob: -14, legA: [1.0, 0.8], legB: [-0.8, 0.1], armA: [1.3, 0.1], armB: [1.15, 0.2], sw: 1.1 }),
+    fire(f) { flameSlash(f, 70, -50, 14); shake = Math.max(shake, 6); sfx.slash && sfx.slash(); } },
+  // ---------- J + direction ----------
+  sideGround: { name: 'Flame Thrust', startup: 0.12, active: 0.08, endlag: 0.3, charge: true, lunge: 620, lungeFriction: 0.4,
+    hitboxes: [{ x: 92, y: -66, r: 32, dmg: 12, base: 430, growth: 6.6, angle: 35 }, { x: 52, y: -66, r: 28, dmg: 11, base: 410, growth: 6.4, angle: 35 }],
+    wind: pose({ lean: -0.3, bob: -10, legA: [0.9, 0.8], legB: [-0.7, 0.3], armA: [0.6, -0.4], armB: [0.5, -0.3], sw: 1.5 }),
+    strike: pose({ lean: 0.6, bob: -12, legA: [1.1, 0.6], legB: [-0.9, 0.1], armA: [1.6, 0], armB: [1.5, 0.05], sw: 1.6 }),
+    fire(f) { flameSlash(f, 90, -66, 16); sfx.whoosh(true); } },
+  upGround: { name: 'Sun Arc', startup: 0.09, active: 0.14, endlag: 0.26, charge: true,
+    hitboxes: [{ x: 56, y: -40, r: 34, dmg: 10, base: 400, growth: 6, angle: 85, from: 0, to: 0.06, group: 0 },
+               { x: 30, y: -110, r: 42, dmg: 11, base: 420, growth: 6.2, angle: 88, from: 0.05, to: 0.14, group: 0 },
+               { x: -30, y: -90, r: 34, dmg: 10, base: 400, growth: 6, angle: 95, from: 0.09, to: 0.14, group: 0 }],
+    wind: pose({ lean: 0.3, bob: -14, legA: [0.9, 1.0], legB: [-0.6, 0.4], armA: [0.9, 0.3], armB: [0.8, 0.4], sw: 1.0 }),
+    strike: pose({ lean: -0.2, bob: -2, legA: [0.5, 0.3], legB: [-0.5, 0.2], armA: [3.0, 0.1], armB: [2.8, 0.2], sw: 3.1 }),
+    fire(f) { flameSlash(f, 30, -110, 14); } },
+  downGround: { name: 'Flame Sweep', startup: 0.08, active: 0.18, endlag: 0.28, charge: true,
+    hitboxes: [{ x: 70, y: -14, r: 32, dmg: 9, base: 360, growth: 5.6, angle: 28, from: 0, to: 0.09, group: 0 },
+               { x: -70, y: -14, r: 32, dmg: 10, base: 380, growth: 5.8, angle: 152, from: 0.09, to: 0.18, group: 0 }],
+    wind: pose({ bob: -20, lean: 0.3, legA: [1.1, 1.4], legB: [-0.6, 1.1], armA: [1.6, 0.3], armB: [1.5, 0.4], sw: 1.6 }),
+    strike: pose({ bob: -34, lean: 0.4, legA: [1.4, 1.9], legB: [-0.7, 1.6], armA: [1.2, -0.2], armB: [1.1, -0.1], sw: 0.7 }),
+    fire(f) { flameSlash(f, 70, -10, 12); flameSlash(f, -70, -10, 12); } },
+  dashAttack: { name: 'Burning Draw', startup: 0.08, active: 0.12, endlag: 0.26, lunge: 760, lungeFriction: 0.4,
+    hitboxes: [{ x: 74, y: -58, r: 38, dmg: 9, base: 420, growth: 5.4, angle: 38 }, { x: 34, y: -58, r: 30, dmg: 9, base: 420, growth: 5.4, angle: 38 }],
+    wind: pose({ lean: 0.2, bob: -16, legA: [1.2, 1.4], legB: [-0.5, 0.6], armA: [-0.8, -0.2], armB: [-0.7, -0.1], sw: 0.3 }),   // hand on the hilt at his hip
+    strike: pose({ lean: 0.55, bob: -14, legA: [1.2, 0.7], legB: [-0.9, 0.1], armA: [1.7, 0.1], armB: [-1.2, -0.4], sw: 1.75 }),   // drawn and cut in one motion
+    fire(f) { flameSlash(f, 60, -58, 14); sfx.whoosh(true); } },
+  // ---------- J in the air ----------
+  nair: { name: 'Bloom of Flame', startup: 0.05, active: 0.2, endlag: 0.16, landLag: 0.1, flip: true, flipTurns: 1,
+    hitboxes: [{ x: 50, y: -56, r: 34, dmg: 4, base: 200, growth: 1.5, angle: 60, from: 0, to: 0.1, group: 0 },
+               { x: -50, y: -56, r: 34, dmg: 6, base: 360, growth: 5.2, angle: 130, from: 0.1, to: 0.2, group: 1 }],
+    wind: pose({ lean: 0.1, legA: [1.0, 1.7], legB: [0.6, 1.5], armA: [1.6, 0.1], armB: [1.5, 0.2], sw: 1.6 }),
+    strike: pose({ lean: 0.1, legA: [0.9, 1.5], legB: [0.5, 1.3], armA: [1.6, 0], armB: [1.5, 0.1], sw: 1.6 }),
+    fire(f) { flameSlash(f, 0, -56, 12); } },
+  fair: { name: 'Falling Flame', startup: 0.07, active: 0.08, endlag: 0.18, landLag: 0.12,
+    hitboxes: [{ x: 66, y: -56, r: 36, dmg: 9, base: 400, growth: 6, angle: 40 }, { x: 30, y: -62, r: 28, dmg: 9, base: 400, growth: 6, angle: 40 }],
+    wind: pose({ lean: -0.3, legA: [0.9, 1.6], legB: [0.4, 1.2], armA: [2.8, 0.2], armB: [2.6, 0.3], sw: 2.9 }),
+    strike: pose({ lean: 0.4, legA: [0.6, 1.2], legB: [0.2, 0.9], armA: [1.2, 0.05], armB: [1.1, 0.1], sw: 1.0 }),
+    fire(f) { flameSlash(f, 60, -56, 10); } },
+  bair: { name: 'Reverse Flame', startup: 0.08, active: 0.08, endlag: 0.2, landLag: 0.12,
+    hitboxes: [{ x: -66, y: -60, r: 34, dmg: 10, base: 430, growth: 6.8, angle: 145 }, { x: -30, y: -60, r: 28, dmg: 10, base: 430, growth: 6.8, angle: 145 }],
+    wind: pose({ lean: 0.2, legA: [0.8, 1.7], legB: [0.4, 1.3], armA: [1.3, -0.3], armB: [1.2, -0.2], sw: 1.4 }),
+    strike: pose({ lean: 0.5, legA: [0.6, 1.4], legB: [0.2, 1.1], armA: [-1.5, -0.2], armB: [-1.4, -0.1], sw: -1.5 }),
+    fire(f) { flameSlash(f, -60, -60, 10); } },
+  uair: { name: 'Sky Flame', startup: 0.06, active: 0.1, endlag: 0.16, landLag: 0.1,
+    hitboxes: [{ x: 10, y: -118, r: 38, dmg: 8, base: 360, growth: 5.4, angle: 88 }, { x: 30, y: -86, r: 30, dmg: 8, base: 360, growth: 5.4, angle: 82 }],
+    wind: pose({ lean: 0.1, legA: [0.9, 1.6], legB: [0.3, 1.0], armA: [1.2, 0.2], armB: [1.1, 0.3], sw: 1.2 }),
+    strike: pose({ lean: -0.2, legA: [0.5, 1.2], legB: [0.1, 0.8], armA: [3.0, 0.05], armB: [2.9, 0.1], sw: 3.1 }),
+    fire(f) { flameSlash(f, 10, -118, 10); } },
+  dair: { name: 'Flame Drop', startup: 0.1, active: 0.12, endlag: 0.22, landLag: 0.16, spike: true,
+    hitboxes: [{ x: 14, y: -6, r: 32, dmg: 10, base: 380, growth: 6, angle: -80 }],
+    wind: pose({ lean: -0.2, legA: [0.8, 1.6], legB: [0.4, 1.2], armA: [2.9, 0.2], armB: [2.8, 0.3], sw: 3.1 }),
+    strike: pose({ lean: 0.3, legA: [0.5, 1.2], legB: [0.1, 0.9], armA: [0.4, 0.05], armB: [0.35, 0.1], sw: 0.05 }),   // stabbed straight down
+    fire(f) { flameSlash(f, 14, -6, 10); } },
+  // ---------- K ----------
+  // NEUTRAL K: ODM HOOK - see ODM / stepOdm
+  neutralRanged: { name: 'ODM Hook', startup: 0.07, active: 0.06, endlag: 0.18, landLag: 0.08, noClash: true,
+    wind: pose({ lean: -0.1, bob: -8, legA: [0.75, 0.6], legB: [-0.6, 0.2], armA: [0.4, -0.3], armB: [1.1, -0.9], sw: 2.2 }),   // hand on the trigger at his hip
+    strike: pose({ lean: 0.1, bob: -8, legA: [0.75, 0.6], legB: [-0.6, 0.2], armA: [1.5, 0.05], armB: [1.1, -0.9], sw: 2.2 }),
+    fire(f) { fireOdmHook(f); } },
+  // SIDE K: FIRST FORM - UNKNOWING FIRE: a blazing dash cut straight through them
+  sideRanged: { name: 'First Form: Unknowing Fire', startup: 0.12, active: 0.18, endlag: 0.26, landLag: 0.14, lunge: 1500, lungeFriction: 0.22, travel: true,
+    hitboxes: [{ x: 60, y: -60, r: 42, dmg: 11, base: 430, growth: 6.4, angle: 36 }, { x: 10, y: -60, r: 36, dmg: 11, base: 430, growth: 6.4, angle: 36 }],
+    wind: pose({ lean: 0.3, bob: -22, legA: [1.3, 1.6], legB: [-0.6, 0.9], armA: [-0.7, -0.2], armB: [-0.6, -0.1], sw: 0.2 }),   // low, hand on the hilt
+    strike: pose({ lean: 0.7, bob: -14, legA: [1.3, 0.6], legB: [-1.0, 0.2], armA: [1.7, 0], armB: [-1.3, -0.3], sw: 1.7 }),
+    fire(f) { if (!f.ground) f.vx = f.face * 1300; f.vy = Math.min(f.vy, 0) * 0.2; sfx.whoosh(true); shake = Math.max(shake, 5); },
+    step(f, a, dt) {
+      if (a.phase === 'active') {
+        if (!f.ground) f.vy = Math.min(f.vy, 40);
+        if (Math.random() < dt * 90) burst(f.x - f.face * 20, f.y - 40 - Math.random() * 40, SEVON_FIRE, 2, f.face > 0 ? Math.PI : 0, 0.5, 300, { grav: -200 });   // a trail of fire
+        a.ghostT = (a.ghostT || 0) - dt;
+        if (a.ghostT <= 0) { a.ghostT = 0.03; ghosts.push({ fig: figureOf(f), life: 0.16, max: 0.16, color: '#ff7a1a' }); }
+      }
+      return false;
+    } },
+  // UP K: SECOND FORM - RISING SCORCHING SUN: a rising slash that carries him up (recovery)
+  upRanged: { name: 'Second Form: Rising Scorching Sun', startup: 0.08, active: 0.28, endlag: 0.28, landLag: 0.18, flip: true, flipTurns: 1,
+    hitboxes: [{ x: 40, y: -60, r: 44, dmg: 3, base: 1100, growth: 0, angle: 86, from: 0, to: 0.12, group: 0 },
+               { x: 26, y: -100, r: 46, dmg: 7, base: 440, growth: 5.8, angle: 84, from: 0.14, to: 0.28, group: 1 }],
+    wind: pose({ bob: -20, lean: 0.3, legA: [1.0, 1.6], legB: [-0.5, 1.1], armA: [0.6, 0.3], armB: [0.5, 0.4], sw: 0.7 }),
+    strike: pose({ lean: -0.1, legA: [0.6, 1.4], legB: [0.2, 1.0], armA: [3.0, 0.05], armB: [2.9, 0.1], sw: 3.1 }),
+    fire(f, mult, c, a) {
+      if (!f.upSpecialUsed) { f.upSpecialUsed = true; f.vy = -1450; f.vx = f.face * 220; f.ground = false; f.y -= 2; a.air = true; }
+      flameSlash(f, 20, -80, 20); sfx.whoosh(true);
+    },
+    step(f, a, dt) { if (a.phase === 'active' && Math.random() < dt * 60) burst(f.x, f.y - 40, SEVON_FIRE, 2, Math.PI / 2, 1, 260, { grav: -200 }); return false; } },
+  // DOWN K: THIRD FORM - BLAZING UNIVERSE: a hop, then a huge flaming crescent brought down in front of him
+  downRanged: { name: 'Third Form: Blazing Universe', startup: 0.14, active: 0.2, endlag: 0.3, landLag: 0.16, hop: 420, charge: true,
+    hitboxes: [{ x: 50, y: -90, r: 46, dmg: 8, base: 300, growth: 3, angle: 70, from: 0, to: 0.08, group: 0 },
+               { x: 70, y: -30, r: 50, dmg: 13, base: 460, growth: 7, angle: 65, from: 0.06, to: 0.2, group: 0 }],
+    wind: pose({ lean: -0.35, bob: -16, legA: [1.0, 1.2], legB: [-0.6, 0.7], armA: [2.9, 0.3], armB: [2.7, 0.4], sw: 3.1 }),
+    strike: pose({ lean: 0.55, bob: -10, legA: [1.0, 1.0], legB: [-0.7, 0.4], armA: [1.0, 0.05], armB: [0.9, 0.1], sw: 0.6 }),
+    fire(f) { flameSlash(f, 70, -60, 26); shake = Math.max(shake, 8); },
+    step(f, a) {
+      if (a.phase === 'active' && f.ground && !a.blazed) {            // the crescent hits the floor: a wall of fire
+        a.blazed = true;
+        for (let k = 0; k < 5; k++) burst(f.x + f.face * (40 + k * 22), f.y - 4, SEVON_FIRE, 10, -Math.PI / 2, 0.6, 520, { grav: -400 });
+        dust(f.x + f.face * 60, f.y, 12, 2); shake = Math.max(shake, 10);
+      }
+      return false;
+    } },
+};
+
+// ---------------- ODM GEAR (Sevon, neutral K) ----------------
+// 1. K: the grapple HOOK fires (aimed at whoever's in front of him). If it sticks in someone, they're TETHERED by a
+//    steel cable for ODM.dur seconds - he's free to fight as normal while it holds.
+// 2. K again (any time while it holds): he fires the gas and REELS HIMSELF IN at them at full speed.
+// 3. K again (while reeling, or after): the LEVI SPIN - he whirls at them, blade out, spinning like a saw. While the
+//    cable holds it ALWAYS gets to them - the only answers are a last-second SHIELD or a last-second Z VANISH.
+// (The cable snaps if he's hit, if it times out, or if they get too far apart.)
+const ODM = { hookSpeed: 2000, hookLife: 0.5, hookR: 16, dur: 4, maxDist: 1500,
+              reel: 2300, reelTime: 0.8, arrive: 70,
+              spin: 2700, spinTime: 0.9, contact: 62, hits: 4, every: 0.06,
+              hookHit: { dmg: 1.5, base: 60, growth: 0, angle: 30, noStop: true },
+              spinHit: { dmg: 2.2, base: 40, growth: 0, angle: 40, noStop: true },
+              spinFinal: { dmg: 6, base: 480, growth: 6.2, angle: 45 },
+              steel: '#c9ced8' };
+function fireOdmHook(f) {
+  if (f.minion || f.odmHook || f.odm) return;
+  // aim: at the nearest foe roughly in front of him (within ~40 degrees), otherwise straight ahead, a touch up
+  const sx = f.x + f.face * 16, sy = f.y - 52;
+  let ang = f.face > 0 ? -0.12 : Math.PI + 0.12;
+  const t = fighters.filter(o => !allies(f, o) && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0))
+    .map(o => ({ o, a: Math.atan2((o.y - 45) - sy, o.x - sx), d: Math.hypot(o.x - sx, o.y - 45 - sy) }))
+    .filter(q => q.d < ODM.hookSpeed * ODM.hookLife && Math.cos(q.a) * f.face > Math.cos(0.7))
+    .sort((p, q) => p.d - q.d)[0];
+  if (t) ang = t.a;
+  f.odmHook = { x: sx, y: sy, vx: Math.cos(ang) * ODM.hookSpeed, vy: Math.sin(ang) * ODM.hookSpeed, life: ODM.hookLife };
+  burst(f.x - f.face * 10, f.y - 46, ['#ffffff', '#d8dde6'], 8, f.face > 0 ? Math.PI : 0, 0.5, 300, { grav: 0 });   // a puff of gas
+  sfx.whoosh(false);
+}
+function odmBreak(f) {
+  if (f.odm && f.odm.t) burst(f.odm.t.x, f.odm.t.y - 45, ['#ffffff', ODM.steel], 6, 0, Math.PI, 260, { grav: 300 });
+  f.odm = null;
+}
+// every frame (Sevon): the hook in flight, and the tether
+function updateOdm(f, dt) {
+  if (f.respawnTimer > 0 || f.out) { f.odmHook = null; f.odm = null; return; }
+  const H = f.odmHook;
+  if (H) {
+    H.x += H.vx * dt; H.y += H.vy * dt; H.life -= dt;
+    let done = H.life <= 0;
+    for (const t of fighters) {
+      if (done || t === f || allies(f, t) || t.respawnTimer > 0 || t.dead || t.poofT > 0 || isIntangible(t)) continue;
+      if (!circleHitsFighter(H.x, H.y, ODM.hookR, t)) continue;
+      done = true;
+      if (t.shielding) { sfx.block(); burst(H.x, H.y, ['#a8ecff', '#ffffff'], 8, 0, Math.PI, 300, { grav: 200 }); break; }   // bounced off the shield
+      applyHit(t, ODM.hookHit, Math.sign(H.vx) || f.face, powerOf(f), H.x, H.y, { fighter: f });
+      f.odm = { t, time: ODM.dur };                                 // TETHERED
+      burst(H.x, H.y, ['#ffffff', ODM.steel, '#ffd23f'], 10, 0, Math.PI, 360, { grav: 0 });
+      sfx.hit(0.5);
+    }
+    if (H.x < BLAST.left || H.x > BLAST.right || H.y < BLAST.top || H.y > BLAST.bottom) done = true;
+    if (done) f.odmHook = null;
+  }
+  const O = f.odm;
+  if (O) {
+    const t = O.t, busy = f.action && (f.action.type === 'odmReel' || f.action.type === 'odmSpin');
+    if (!busy) O.time -= dt;
+    if (O.time <= 0 || !t || t.respawnTimer > 0 || t.dead || !fighters.includes(t) || Math.hypot(t.x - f.x, t.y - f.y) > ODM.maxDist ||
+        (f.action && f.action.type === 'hitstun')) odmBreak(f);
+  }
+}
+// neutral K while tethered: reel in -> Levi spin. Returns true if it used the press.
+function odmAdvance(f) {
+  if (!f.odm) return false;
+  if (f.odm.reeled) startOdmSpin(f); else startOdmReel(f);
+  return true;
+}
+function startOdmReel(f) {
+  f.odm.reeled = true;
+  f.action = { type: 'odmReel', t: 0 };
+  f.ground = false; f.y -= 2;
+  burst(f.x - f.face * 12, f.y - 46, ['#ffffff', '#d8dde6'], 14, f.face > 0 ? Math.PI : 0, 0.7, 420, { grav: 0 });
+  sfx.whoosh(true);
+}
+function startOdmSpin(f) {
+  f.action = { type: 'odmSpin', t: 0, phase: 'fly', n: 0 };
+  f.ground = false; f.y -= 2;
+  burst(f.x - f.face * 12, f.y - 46, ['#ffffff', '#d8dde6'], 18, f.face > 0 ? Math.PI : 0, 0.8, 520, { grav: 0 });
+  sfx.whoosh(true); sfx.whoosh(false);
+}
+function stepOdm(f, a, dt, inp) {
+  const O = f.odm, t = O && O.t;
+  if (!t) { f.action = { type: 'land', t: 0, dur: 0.2 }; return; }
+  const dx = t.x - f.x, dy = (t.y - 45) - (f.y - 45), d = Math.hypot(dx, dy) || 1;
+  const gas = () => { if (Math.random() < dt * 50) burst(f.x - Math.sign(dx || f.face) * 14, f.y - 46, ['#ffffff', '#d8dde6'], 1, dx > 0 ? Math.PI : 0, 0.5, 260, { grav: 0 }); };
+  if (a.type === 'odmReel') {                                  // REELING IN at them
+    if (inp.spcTap || f.spcBuf > 0) { f.spcBuf = 0; startOdmSpin(f); return; }   // ...straight into the Levi spin
+    f.face = Math.sign(dx) || f.face;
+    f.vx = dx / d * ODM.reel; f.vy = dy / d * ODM.reel;
+    a.odmPose = pose({ lean: 0.6, bob: 0, legA: [-0.4, 0.5], legB: [-0.8, 0.4], armA: [-1.6, -0.3], armB: [-1.3, -0.3], sw: -1.4 });   // flying in, blade swept back
+    gas();
+    if (Math.random() < dt * 40) ghosts.push({ fig: figureOf(f), life: 0.14, max: 0.14, color: '#ffffff' });
+    if (d < ODM.arrive || a.t >= ODM.reelTime) { f.vx = Math.sign(dx) * 200; f.vy = -180; f.action = null; }   // there: free to attack
+    return;
+  }
+  // THE LEVI SPIN
+  if (a.phase === 'fly') {
+    f.face = Math.sign(dx) || f.face;
+    f.vx = dx / d * ODM.spin; f.vy = dy / d * ODM.spin;
+    a.odmPose = { ...pose({ lean: 0.2, bob: 0, legA: [0.9, 1.4], legB: [0.4, 1.2], armA: [1.6, 0], armB: [1.5, 0.05], sw: 1.6, spin: f.face * a.t * 34 }), raw: true };
+    gas();
+    if (Math.random() < dt * 80) ghosts.push({ fig: figureOf(f), life: 0.12, max: 0.12, color: '#ff7a1a' });
+    if (Math.random() < dt * 60) burst(f.x, f.y - 45, SEVON_FIRE, 2, 0, Math.PI, 300, { grav: -200 });
+    if (d < ODM.contact) {
+      if (isIntangible(t)) {                                   // last-second Z VANISH: straight through them - whiffed
+        odmBreak(f); a.phase = 'miss'; a.t0 = a.t; return;
+      }
+      if (t.shielding) {                                       // last-second SHIELD: he bounces off it
+        applyHit(t, ODM.spinFinal, f.face, powerOf(f), t.x, t.y - 50, { fighter: f });
+        odmBreak(f); f.vx = -f.face * 320; f.vy = -320;
+        f.action = { type: 'land', t: 0, dur: 0.3 }; return;
+      }
+      a.phase = 'hits'; a.t0 = a.t; f.vx = f.vy = 0;           // CAUGHT IN THE SPIN
+      hitstop = Math.max(hitstop, 0.06); shake = Math.max(shake, 8);
+    }
+    if (a.t >= ODM.spinTime) { odmBreak(f); f.action = { type: 'land', t: 0, dur: 0.3 }; }
+    return;
+  }
+  if (a.phase === 'hits') {                                    // the saw-blade slashes...
+    f.vx = f.vy = 0;
+    a.odmPose = { ...pose({ lean: 0.2, bob: 0, legA: [0.9, 1.4], legB: [0.4, 1.2], armA: [1.6, 0], armB: [1.5, 0.05], sw: 1.6, spin: f.face * a.t * 40 }), raw: true };
+    t.x = f.x + f.face * 40; t.y = f.y + 4; t.vx = t.vy = 0;
+    if (t.action && t.action.type === 'hitstun') { t.action.locked = true; t.action.dur = Math.max(t.action.dur, t.action.t + 0.2); }
+    const T = a.t - a.t0;
+    while (a.n < ODM.hits && T >= a.n * ODM.every) {
+      a.n++;
+      applyHit(t, ODM.spinHit, f.face, powerOf(f), t.x, t.y - 50, { fighter: f });
+      slashLine(t.x, t.y - 50, Math.random() * Math.PI, 140, 0.12);
+      burst(t.x, t.y - 50, SEVON_FIRE, 8, Math.PI / 2, 1.2, 380, { grav: -250 });
+      if (gore) burst(t.x, t.y - 50, BLOOD, 6, Math.random() * Math.PI * 2, 1, 360, { stain: true });
+    }
+    if (T >= ODM.hits * ODM.every) {                           // ...and the last one sends them flying
+      if (t.action) t.action.locked = false;
+      applyHit(t, ODM.spinFinal, f.face, powerOf(f), t.x, t.y - 50, { fighter: f });
+      slashLine(t.x, t.y - 50, -0.4, 300, 0.25);
+      burst(t.x, t.y - 50, SEVON_FIRE, 24, 0, Math.PI, 600, { grav: -200 });
+      impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: t.x, y: t.y - 50, ang: 0, all: false, focus: true, fire: true };
+      odmBreak(f); f.vx = -f.face * 160; f.vy = -380;
+      f.action = { type: 'land', t: 0, dur: 0.22 };
+    }
+    return;
+  }
+  if (a.phase === 'miss') {                                    // sails past, tumbling
+    a.odmPose = { ...pose({ lean: 0.2, legA: [0.9, 1.4], legB: [0.4, 1.2], armA: [1.6, 0], armB: [1.5, 0.05], sw: 1.6, spin: f.face * a.t * 20 }), raw: true };
+    if (a.t - a.t0 >= 0.15) { f.vx *= 0.3; f.action = { type: 'flyRecover', t: 0, dur: 0.45 }; }
+  }
+}
+// the steel cable (and the hook in flight)
+function drawOdmCables() {
+  for (const f of fighters) {
+    if (!f.look || !f.look.odm || f.respawnTimer > 0) continue;
+    const H = f.odmHook, O = f.odm;
+    const end = H ? { x: H.x, y: H.y } : O && O.t ? { x: O.t.x, y: O.t.y - 50 } : null;
+    if (!end) continue;
+    const sx = f.x + f.face * 6, sy = f.y - 46;
+    const sag = O && !H ? Math.min(40, Math.hypot(end.x - sx, end.y - sy) * 0.06) : 0;
+    ctx.save();
+    ctx.strokeStyle = sketch ? '#333' : ODM.steel; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo((sx + end.x) / 2, (sy + end.y) / 2 + sag, end.x, end.y); ctx.stroke();
+    // the hook: a little steel barb
+    const ang = H ? Math.atan2(H.vy, H.vx) : Math.atan2(end.y - sy, end.x - sx);
+    ctx.fillStyle = sketch ? '#333' : '#e4e8ef';
+    ctx.beginPath();
+    ctx.moveTo(end.x + Math.cos(ang) * 9, end.y + Math.sin(ang) * 9);
+    ctx.lineTo(end.x + Math.cos(ang + 2.5) * 7, end.y + Math.sin(ang + 2.5) * 7);
+    ctx.lineTo(end.x + Math.cos(ang - 2.5) * 7, end.y + Math.sin(ang - 2.5) * 7);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+// ---- Sevon's look: the flame-hemmed haori, flame hair, the katana, the ODM gear ----
+function drawHaori(hip, shoulder, f, fig, opts, main) {
+  const sway = clamp(-(fig.vx || 0) * 0.016, -16, 16), lift = clamp(-(fig.vy || 0) * 0.01, -10, 12);
+  const top1 = { x: shoulder.x + f * 6, y: shoulder.y + 1 }, top2 = { x: shoulder.x - f * 8, y: shoulder.y - 1 };
+  const bot2 = { x: hip.x - f * (20 + sway * 0.8), y: hip.y + 36 - lift }, bot1 = { x: hip.x + f * 3, y: hip.y + 28 };
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(top1.x, top1.y); ctx.lineTo(top2.x, top2.y); ctx.lineTo(bot2.x, bot2.y); ctx.lineTo(bot1.x, bot1.y); ctx.closePath();
+  if (opts.tint) { ctx.fillStyle = opts.tint; ctx.fill(); ctx.restore(); return; }
+  ctx.fillStyle = sketch ? PAPER : '#f4f1ea'; ctx.fill();
+  if (sketch) { ctx.strokeStyle = main; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); return; }
+  // the FLAME HEM: tongues of fire licking up from the bottom edge
+  const N = 6, up = { x: (top2.x + top1.x) / 2 - (bot1.x + bot2.x) / 2, y: (top2.y + top1.y) / 2 - (bot1.y + bot2.y) / 2 };
+  const L = Math.hypot(up.x, up.y) || 1; up.x /= L; up.y /= L;
+  for (const [col, h] of [['#ff7a1a', 1], ['#e0301e', 0.55]]) {
+    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(bot1.x, bot1.y);
+    for (let i = 0; i <= N; i++) {
+      const u = i / N, bx = lerp(bot1.x, bot2.x, u), by = lerp(bot1.y, bot2.y, u);
+      const tall = (i % 2 ? 15 : 8) * h + Math.sin(time * 9 + i * 1.7) * 2;
+      ctx.lineTo(bx + up.x * tall + (bot2.x - bot1.x) * 0.04, by + up.y * tall);
+      ctx.lineTo(lerp(bot1.x, bot2.x, Math.min(1, u + 0.5 / N)), lerp(bot1.y, bot2.y, Math.min(1, u + 0.5 / N)) + up.y * 2);
+    }
+    ctx.lineTo(bot2.x, bot2.y); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawFlameHair(head, f, opts, main) {
+  const spikes = [[-0.95, 13], [-0.65, 16], [-0.35, 17], [-0.05, 16], [0.25, 15], [0.55, 13], [0.8, 10]];   // [angle from the top (+ = front), length]
+  ctx.save();
+  ctx.fillStyle = opts.tint || (sketch ? main : '#ffcf33');
+  ctx.beginPath(); ctx.arc(head.x - f * 1, head.y - 2, 12.5, Math.PI * 1.02, Math.PI * 1.98); ctx.closePath(); ctx.fill();
+  for (const pass of opts.tint || sketch ? [0] : [0, 1]) {
+    ctx.fillStyle = opts.tint || (sketch ? main : pass ? '#e0301e' : '#ffcf33');
+    for (const [o, len0] of spikes) {
+      const len = pass ? len0 * 0.45 : len0, ang = -Math.PI / 2 + f * o;
+      const base = pass ? 10 + len0 * 0.55 : 10;
+      const bx = head.x + Math.cos(ang) * base, by = head.y + Math.sin(ang) * base;
+      const w = pass ? 2.2 : 4.5, dir = ang - f * 0.25;
+      ctx.beginPath();
+      ctx.moveTo(bx + Math.cos(ang + Math.PI / 2) * w, by + Math.sin(ang + Math.PI / 2) * w);
+      ctx.lineTo(bx + Math.cos(dir) * len, by + Math.sin(dir) * len);
+      ctx.lineTo(bx - Math.cos(ang + Math.PI / 2) * w, by - Math.sin(ang + Math.PI / 2) * w);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+function drawOdmGear(hip, f, opts) {
+  ctx.save();
+  ctx.fillStyle = opts.tint || (sketch ? '#555' : '#8a8f99');
+  for (const s of [-1, 1]) {                                     // a gas canister / blade box on each side of his hips
+    const x = hip.x + s * f * 7 - 5, y = hip.y - 3;
+    ctx.fillRect(x, y, 10, 7);
+    if (!opts.tint && !sketch) { ctx.fillStyle = '#5c616b'; ctx.fillRect(x, y + 5, 10, 2); ctx.fillStyle = '#8a8f99'; }
+  }
+  ctx.restore();
+}
+function drawKatana(shoulder, pz, f, opts) {
+  const { hand, ux, uy } = swordHold(shoulder, pz, f);
+  const nx = -uy, ny = ux;
+  const P = (along, across) => { const c = -0.0009 * along * along; return { x: hand.x + ux * along + nx * (across + c), y: hand.y + uy * along + ny * (across + c) }; };   // (a slight curve)
+  const outline = opts.outline || 0;
+  ctx.save();
+  ctx.lineCap = 'round';
+  if (opts.tint) {
+    ctx.strokeStyle = opts.tint; ctx.lineWidth = 5 + outline;
+    ctx.beginPath(); ctx.moveTo(P(-16, 0).x, P(-16, 0).y);
+    for (let s = 0; s <= 100; s += 10) ctx.lineTo(P(s, 0).x, P(s, 0).y);
+    ctx.stroke(); ctx.restore(); return;
+  }
+  // grip: dark wrap with light diamonds
+  ctx.strokeStyle = '#2a1a12'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(P(-16, 0).x, P(-16, 0).y); ctx.lineTo(P(4, 0).x, P(4, 0).y); ctx.stroke();
+  if (!sketch) { ctx.fillStyle = '#e8e2cf'; for (const s of [-12, -6, 0]) { ctx.beginPath(); ctx.arc(P(s, 0).x, P(s, 0).y, 1.3, 0, Math.PI * 2); ctx.fill(); } }
+  // the tsuba: a round guard shaped like a flame
+  ctx.fillStyle = sketch ? '#333' : '#ff7a1a';
+  ctx.beginPath(); ctx.arc(P(5, 0).x, P(5, 0).y, 6, 0, Math.PI * 2); ctx.fill();
+  if (!sketch) { ctx.fillStyle = '#e0301e'; ctx.beginPath(); ctx.arc(P(5, 0).x, P(5, 0).y, 3, 0, Math.PI * 2); ctx.fill(); }
+  // the blade: steel, with the burning red-orange edge of a Flame Hashira's nichirin sword
+  const back = [], edge = [];
+  for (let s = 8; s <= 100; s += 8) { back.push(P(s, -2.6 * (1 - s / 130))); edge.push(P(s, 2.6 * (1 - s / 130))); }
+  const tip = P(106, 0);
+  ctx.fillStyle = sketch ? '#ddd' : '#c9d2de';
+  ctx.beginPath(); [...back, tip, ...edge.reverse()].forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
+  if (!sketch) {
+    ctx.strokeStyle = '#ff5a1a'; ctx.lineWidth = 2;
+    ctx.beginPath(); edge.reverse(); edge.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 const CHARACTERS = {
   COLBY: {
     moves: COLBY_MOVES,
@@ -5896,6 +6742,24 @@ const CHARACTERS = {
       idle: pose({ lean: -0.08, bob: -5, legA: [0.55, 0.35], legB: [-0.5, 0.1], armA: [0.95, -1.15], armB: [-0.55, -1.6], sw: 2.95 }),
     },
   },
+  SEVON: {
+    moves: SEVON_MOVES,
+    // The flame samurai: quick on his feet, average weight - and the ODM gear gets him wherever he needs to be
+    stats: { runSpeed: 720, airSpeed: 590, jumpVel: 1230, doubleJumpVel: 1110, weight: 1.0 },
+    look: {
+      body: '#2f6fe0',          // blue
+      haori: true,              // Rengoku's white haori with the flame hem (see drawHaori)
+      flameHair: true,          // yellow hair with flame-red tips (see drawFlameHair)
+      greatsword: true,         // (the sword system: drawn in his hands, two-handed grip)...
+      katana: true,             // ...but it's a KATANA (see drawKatana)
+      odm: true,                // ODM gear on his hips + the grapple (see ODM)
+      fireHits: true,           // his hits burst into flames
+      transformAura: '#ff7a1a',
+      // samurai stance: wide and low, the katana held up in both hands, pointing at them
+      idle: pose({ lean: 0.08, bob: -9, legA: [0.78, 0.5], legB: [-0.62, 0.1], armA: [1.15, -0.9], armB: [1.0, -0.8], sw: 2.15 }),
+    },
+    transformName: 'FLAME HASHIRA',
+  },
   COLBALIAS: {
     moves: COLBALIAS_MOVES,
     // The final boss: as fast as Lance on the ground, faster in the air, and sturdier than Colby
@@ -5907,15 +6771,17 @@ const CHARACTERS = {
       smoke: true,              // cigarette (like the Boss and Mr. Red)
       bossAura: '#ff1a1a',      // a dark red aura that never goes out
       demonMeter: true,         // D-E-M-O-N meter
+      doubleUlt: true,          // TWO ultimate bars: tap I at half a bar = an ultimate (each costs half); HOLD I at full = transform
+      glassJaw: true,           // takes the MOST base knockback in the game (see GLASS_JAW)
       transformAura: '#ff1a1a',
       // Colby's bowed-leg stance, but no scythe: one hand at his mouth with the cigarette, the other hanging loose
       idle: pose({ lean: 0.06, bob: -7, legA: [0.72, 0.45], legB: [-0.58, 0.05], armA: [1.15, -1.9], armB: [-0.15, -0.35] }),
     },
+    // his own throws (see COLBALIAS'S THROWS): VOLLEYBALL SPIKE both ways, GERMAN SUPLEX + clone stomps, and the
+    // up throw chucks them into the sky - the highest in the game, but it never launches them out the top
+    throwKinds: { forward: 'volleySpike', back: 'volleySpike', up: 'up', down: 'suplexStomp' },
     throwStats: {
-      forward: { dmg: 10, base: 470, growth: 7.2, angle: 35 },
-      back:    { dmg: 12, base: 500, growth: 7.9, angle: 145 },
-      up:      { dmg: 9,  base: 470, growth: 6.6, angle: 88 },
-      down:    { dmg: 7,  base: 190, growth: 3.4, angle: 82 },
+      up: { dmg: 6, base: 1700, growth: 0, angle: 90, sky: true },
     },
     transformName: 'TRUE DEMON',
   },
@@ -6312,6 +7178,14 @@ CHARACTERS.COLBALIAS.ult = {
   // ...but at 220% or more (counting the ult's own damage) it's a GUARANTEED KO.
   final: { dmg: 16, base: 340, growth: 3.6, angle: 30, koAt: 220 },
 };
+// Colbalias's SECOND ultimate (hold DOWN as you press ULT): HUNDRED CLONE RUSH - see updateLegionUlt
+// final = the dash punch to the back of the head: huge launch, and PURELY HORIZONTAL (angle 0, and no gravity for a moment)
+CHARACTERS.COLBALIAS.altUlt = {
+  name: 'HUNDRED CLONE RUSH',
+  legion: true,
+  finalWind: handSign, finalStrike: handSign,      // (his pose on the first frame, before the sequence takes over)
+  final: { dmg: 6, base: 760, growth: 7.5, angle: 0 },
+};
 CHARACTERS.COLTEN.ult = {
   name: "WARLORD'S JUDGMENT",
   greatsword: true,                         // 3 giant swings, all CRITICAL - see updateSwordUlt
@@ -6320,6 +7194,16 @@ CHARACTERS.COLTEN.ult = {
   final: { dmg: 8, base: 640, growth: 8, angle: 38 },
 };
 CHARACTERS.COLTEN.transformName = 'WARLORD';
+// Sevon: NINTH FORM: RENGOKU - a lunge; whoever it catches takes a storm of flaming slashes from every side, then he
+// charges straight through them as a giant TIGER OF FIRE (see the flameFinal finisher in updateUlt)
+CHARACTERS.SEVON.ult = {
+  name: 'NINTH FORM: RENGOKU',
+  slashes: [SEVON_MOVES.jab.strike, SEVON_MOVES.jab2.strike, SEVON_MOVES.jab3.strike, SEVON_MOVES.fair.strike, SEVON_MOVES.uair.strike, SEVON_MOVES.sideGround.strike],
+  kicks: [SEVON_MOVES.dashAttack.strike, SEVON_MOVES.upGround.strike, SEVON_MOVES.downGround.strike],
+  finalWind: SEVON_MOVES.sideRanged.wind, finalStrike: SEVON_MOVES.sideRanged.strike,
+  perHit: 1.0, flameFinal: true, cutscene: false,
+  final: { dmg: 12, base: 520, growth: 6.4, angle: 38 },
+};
 // SNAPPIER RUNNING ATTACKS (everyone): they come out ~35% faster and recover a bit faster
 {
   const done = new Set();
@@ -7104,6 +7988,8 @@ function knock(t, h, dirSign, mult, hx, hy) {
   // The launch also barely shrinks with leftover meter: a late ult still sends them flying (its damage still scales).
   const kbMult = h.ultFinal ? ULT_KB.power * (ULT_KB.minMeter + (1 - ULT_KB.minMeter) * mult) : mult;
   let speed = (h.base + h.growth * t.damage) * kbMult * ramp / (t.stats.weight * hypeWeight(t));   // heavier = flies less (Aiden: lighter at low HYPE)
+  // GLASS JAW (Colbalias - he's broken, so this is his price): the MOST base knockback in the game when he's hit
+  if (t.look && t.look.glassJaw && !t.minion && speed > 0) speed = speed * GLASS_JAW.mult + GLASS_JAW.add;
   // COLTEN'S AURA ARMOR (transformed): a bit less knockback, and ULTRA ARMOR - anything that wouldn't launch
   // him hard doesn't even make him flinch (the damage still counts)
   if (t.transformed && t.look && t.look.auraArmor && !h.ultFinal) {
@@ -7492,7 +8378,11 @@ THROWS.thunderKnee = { dmg: 10, base: 330, growth: 5.4, angle: 80, xray: 'RIBS' 
 // STORM CYCLONE (up throw): the bounce off the stage. Launch barely grows with % - it always pops them up to about
 // the same height (back toward him in the air), so the combo off it works at any %
 THROWS.skySpin     = { dmg: 7,  base: 880, growth: 2.2, angle: 84 };
-for (const k of ['neckRun', 'neckRunBack', 'harvest', 'thunderKnee', 'skySpin']) THROW_ANIM[k] = { dur: 3, rel: 3 };   // (each one sets its own end)
+// Colbalias's throws (see COLBALIAS'S THROWS)
+THROWS.suplexStomp    = { dmg: 3, base: 420, growth: 5.4, angle: 72 };   // his last kick boots them up and away
+THROWS.volleySpike    = { dmg: 4, base: 380, growth: 4.4, angle: 70 };   // spiked into the floor: they bounce up
+THROWS.volleySpikeAir = { dmg: 4, base: 520, growth: 6.4, angle: -72, spike: true };   // off the stage: spiked down toward the pit
+for (const k of ['neckRun', 'neckRunBack', 'harvest', 'thunderKnee', 'skySpin', 'suplexStomp', 'volleySpike']) THROW_ANIM[k] = { dur: 3, rel: 3 };   // (each one sets its own end)
 // Swing angle at time t (in his facing direction)
 function brolyTheta(t) {
   if (t < BROLY.lift) return lerp(0.2, BROLY.up, easeOut(t / BROLY.lift));   // yank them up by the ankles
@@ -7614,7 +8504,7 @@ function doThrow(f, v, kind) {
   const own = CHARACTERS[f.char].throwKinds;                                          // Aiden's own throws
   const asked = kind;
   if (own && own[kind]) kind = own[kind];
-  if (asked === 'back' && kind === 'rko') { f.face = -f.face; v.face = -v.face; }   // (BACK throw = the YARRKO: he spins round to do it the other way)
+  if (asked === 'back' && (kind === 'rko' || kind === 'volleySpike')) { f.face = -f.face; v.face = -v.face; }   // (BACK throw = the YARRKO: he spins round to do it the other way)
   if (kind === 'harvest' && (f.noScythe || (f.weapon && f.weapon !== 'scythe'))) kind = 'up';   // (Colby's up throw needs his scythe)
   const A = THROW_ANIM[kind];
   f.action = { type: 'throw', t: 0, dur: A.dur, rel: A.rel, kind, victim: v, face0: f.face, released: false };
@@ -7659,6 +8549,8 @@ function stepThrow(f, a, dt) {
   if (a.kind === 'harvest') return stepHarvest(f, a, dt);
   if (a.kind === 'thunderKnee') return stepThunderKnee(f, a, dt);
   if (a.kind === 'skySpin') return stepSkySpin(f, a, dt);
+  if (a.kind === 'suplexStomp') return stepSuplexStomp(f, a, dt);   // Colbalias's throws
+  if (a.kind === 'volleySpike') return stepVolleySpike(f, a, dt);
   f.vx = approach(f.vx, 0, FRICTION * dt);
   if (a.released) return;
   const v = a.victim;
@@ -8023,12 +8915,18 @@ const ULT_GAIN = 1;                         // meter gained per 1% of damage tak
 const FLURRY_TIME = 2.3, FINAL_TIME = 0.8, CUT_TIME = 3.4;
 let ult = null;          // the running ultimate sequence (the rest of the game pauses while it plays)
 let ultBanner = null;    // big "ULTIMATE" banner when one is activated
+const DOUBLE_ULT = { hold: 0.35 };   // Colbalias: hold I this long (with a full bar) to transform instead of firing an ultimate
+// played by a person (keyboard / controller / online) - not the CPU and not a clone
+const humanControlled = f => !f.minion && !!f.controller && (f.controller === 'keyboard' || f.controller === 'net' || f.controller.startsWith('pad'));
 
 function startUltimate(f, alt = false) {          // alt = DOWN was held: the character's second ultimate (if they have one)
   if (f.noScythe) returnScythe(f);                 // the scythe flies back to his hand for the ultimate
   // Power depends on how much meter is left: right after transforming = 100%, nearly drained = 50%
   f.ultPower = 0.5 + 0.5 * clamp((f.ult || 0) / ULT_MAX, 0, 1);
-  f.ult = 0; f.ultBuf = 0; f.atkBuf = f.spcBuf = f.grabBuf = 0;
+  if (f.look && f.look.doubleUlt) {                 // COLBALIAS: two ult bars - each ultimate spends ONE (half the meter), at full power
+    f.ultPower = 1; f.ult = Math.max(0, (f.ult || 0) - ULT_MAX / 2);
+  } else f.ult = 0;
+  f.ultBuf = 0; f.atkBuf = f.spcBuf = f.grabBuf = 0;
   f.shielding = false;
   const C = CHARACTERS[f.char], def = (alt && C.altUlt) || C.ult || {};
   if (cage && cage.owner === f && !def.ship) breakCage();   // (Aiden's cage comes down when he goes for an ultimate - except the
@@ -8063,13 +8961,13 @@ function stepUltStart(f, a, dt) {
     return;
   }
   // COLBALIAS: no lunge - he clasps his hands and the statue rises; it locks onto the nearest enemy on screen
-  // (Z-vanishing at exactly the right moment dodges it)
-  if (def.statue) {
+  // (Z-vanishing at exactly the right moment dodges it). The Hundred Clone Rush locks on the same way.
+  if (def.statue || def.legion) {
     f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = Math.min(f.vy, 0);
     if (a.t >= 0.25 && !a.summoned) {
       a.summoned = true;
       const v = nearestFoe(f);
-      if (v && !isIntangible(v) && v.halo <= 0 && Math.abs(v.x - f.x) < 1100) { f.face = Math.sign(v.x - f.x) || f.face; startUltSequence(f, v); }
+      if (v && !isIntangible(v) && v.halo <= 0 && Math.abs(v.x - f.x) < 1100) { f.face = Math.sign(v.x - f.x) || f.face; startUltSequence(f, v, def); }
     }
     return;
   }
@@ -8148,6 +9046,7 @@ function updateUlt(dt) {
   if (U.def.wrestle) return updateWrestleUlt(U, dt);         // Aiden: Max Malicious Moonsault
   if (U.def.deck) return updateDeckUlt(U, dt);               // Aiden (from a grab): Dead Man's Deck Match
   if (U.def.statue) return updateStatueUlt(U, dt);           // Colbalias: 100-Type Guanyin Bodhisattva
+  if (U.def.legion) return updateLegionUlt(U, dt);           // Colbalias (DOWN + ult): Hundred Clone Rush
   if (U.def.greatsword) return updateSwordUlt(U, dt);        // Colten: Warlord's Judgment
   if (U.def.rush) return updateRushUlt(U, dt);               // Lance: It's My Turn
   U.jolt = Math.max(0, U.jolt - dt);
@@ -8202,6 +9101,17 @@ function updateUlt(dt) {
         slashLine(v.x, v.y - 60, Math.PI / 2, 420, 0.45);
         ring(v.x, v.y); ring(v.x, v.y - 60);
         painTexts.push({ x: v.x, y: v.y - 170, t: 0.9, max: 0.9, text: 'LEGION OF HELL!', big: true });
+      }
+      else if (U.def.flameFinal) {                                       // Sevon: a TIGER OF FIRE tears straight through them
+        const x0 = v.x - U.dir * 260, x1 = v.x + U.dir * 260;
+        for (let k = 0; k <= 12; k++) {
+          const x = lerp(x0, x1, k / 12), h = Math.sin(Math.PI * k / 12);
+          burst(x, v.y - 50 - h * 40, SEVON_FIRE, 14, Math.PI / 2, 1.6, 520 + h * 400, { grav: -320 });
+        }
+        for (let k = 0; k < 6; k++) burst(v.x, v.y - 50, SEVON_FIRE, 16, Math.random() * Math.PI * 2, 0.6, 900, { grav: -200 });
+        slashLine(v.x, v.y - 58, 0, 560, 0.45); slashLine(v.x, v.y - 58, -0.25, 420, 0.35);
+        ring(v.x, v.y - 50); ring(v.x, v.y - 80);
+        painTexts.push({ x: v.x, y: v.y - 170, t: 0.9, max: 0.9, text: 'RENGOKU!', big: true });
       }
       else slashLine(v.x, v.y - 60, Math.PI / 2, 260, 0.35);
       impactFrame = 0.2; impactAt = { x: v.x, y: v.y - 58, ang: 0, all: true, focus: true, invert: true };
@@ -8870,6 +9780,8 @@ function startAttack(f, inp, btn) {
     const s = scythes.find(q => q.state !== 'fly' && q.state !== 'recall' && (q.owner === f || q.state === 'stuck' || q.state === 'fall'));
     if (s && Math.hypot(s.x - f.x, s.y - (f.y - 20)) < SCYTHE_THROW.pickup) { pickupScythe(f, s); return; }
   }
+  // SEVON: neutral K while his ODM hook is stuck in someone = REEL IN (then again = the LEVI SPIN)
+  if (btn === 'spc' && f.look && f.look.odm && f.odm && !inp.dir && !inp.up && !inp.down && odmAdvance(f)) { f.spcBuf = 0; return; }
   const key = chooseMove(f, inp, btn);
   // COLBALIAS: summoning a shadow clone is INSTANT - no attack animation, he keeps running/jumping at full
   // speed. (With a full D-E-M-O-N meter, down K is Hellwave instead, which is a normal move.)
@@ -8878,11 +9790,7 @@ function startAttack(f, inp, btn) {
     summonShadowClone(f);                             // Colbalias: down K = SHADOW CLONE (full meter: Hellwave)
     return;
   }
-  if (key === 'upRanged' && f.look && f.look.demonMeter && !f.minion) {
-    f.spcBuf = 0;
-    demonGaze(f);                                     // Colbalias: up K = LOOK (mark) / SWAP places (instant)
-    return;
-  }
+  // (Colbalias's up K used to be the Demon's Gaze swap - it's the Clone Launch Headbutt now, a normal move)
   let move = f.moveset[key];
   if (f.noScythe) {                                   // no scythe: punches replace the scythe moves
     const bare = CHARACTERS[f.char].bareMoves;
@@ -9241,6 +10149,11 @@ function stepAction(f, inp, dt) {
               : (f.transformed ? tfStats(f).speed : 1) *                                     // transformed: attacks play 10% faster
                 (f.weaponSpeed && f.weaponSpeed !== 1 && moveUsesScythe(a.move) ? f.weaponSpeed : 1));   // the rival's weapon (see RIVAL_WIELD)
 
+  // skewered on Colbalias's Red Chidori - but he's not holding them any more (he got hit, KO'd...): they slip off
+  if (a.type === 'hitstun' && a.impaled) {
+    const ba = a.by && a.by.action, R = ba && ba.rc;
+    if (!R || R.v !== f || R.phase !== 'impale' || a.by.respawnTimer > 0) { a.impaled = false; a.locked = false; a.dur = Math.min(a.dur, a.t + 0.2); }
+  }
   if (a.type === 'clash') return stepClash(f, a, dt, inp);
   // Captain Heel: ULT while holding someone (any grab / throw) = DEAD MAN'S DECK MATCH. Works transformed (any meter
   // left) OR straight from a FULL meter without transforming first. (ULT with nobody held = his normal ultimate.)
@@ -9257,6 +10170,7 @@ function stepAction(f, inp, dt) {
   if (a.type === 'swapped') { if (!a.by.action || a.by.action.type !== 'gazeSwap') f.action = null; return; }
   if (a.type === 'ultStart') stepUltStart(f, a, dt);
   if (a.type === 'flydash') return stepFlyDash(f, a, dt);
+  if (a.type === 'odmReel' || a.type === 'odmSpin') return stepOdm(f, a, dt, inp);   // Sevon's ODM gear: reeling in / the Levi spin
   if (a.type === 'flyRecover') { f.vx *= Math.exp(-dt * 3); }
   if (a.type === 'ultSeq' || a.type === 'ultVictim') return;    // driven by updateUlt
   if (a.type === 'holding') return stepHolding(f, a, inp, dt);
@@ -9531,7 +10445,16 @@ function freeControl(f, inp, dt) {
   f.runOff = 0;
 
   // I: full meter = TRANSFORM. Already transformed = ULTIMATE (spends what's left of the meter).
-  if (f.ultBuf > 0) {
+  if (f.look && f.look.doubleUlt) {
+    // COLBALIAS - DOUBLE ULT BAR: TAP I with at least half a bar = an ultimate (spends half; DOWN = Hundred Clone
+    // Rush), so a full bar is two ultimates back to back - or save them. HOLD I with a full bar = transform.
+    if (f.tfBuf > 0 && !f.transformed && f.ult >= ULT_MAX) { f.tfBuf = 0; f.ultBuf = 0; startTransform(f); }
+    else if (f.ultBuf > 0 && f.ult >= ULT_MAX / 2 && !ult) {
+      // (the CPU has no "hold": with a full bar it sometimes transforms instead)
+      if (!humanControlled(f) && !f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { f.ultBuf = 0; startTransform(f); }
+      else { startUltimate(f, !!inp.down); return; }
+    }
+  } else if (f.ultBuf > 0) {
     if (f.transformed && f.ult > 0) { startUltimate(f, !!inp.down); return; }   // (holding DOWN = the second ultimate, if they have one)
     if (!f.transformed && f.ult >= ULT_MAX) startTransform(f);
   }
@@ -9690,6 +10613,18 @@ function updateFighter(f, inp, dt) {
   if (inp.spcTap) f.spcTapT = time;                                // (for catching the rival's thrown weapon)
   if (f.look && f.look.spd) noteStickCircle(f, inp);
   f.ultBuf   = inp.ultTap   ? BUFFER : Math.max(0, (f.ultBuf || 0) - dt);
+  f.tfBuf = Math.max(0, (f.tfBuf || 0) - dt);
+  if (f.look && f.look.odm) updateOdm(f, dt);                     // Sevon: the ODM hook in flight + the cable
+  if (f.look && f.look.doubleUlt && humanControlled(f)) {
+    // COLBALIAS: I is decided when it's let go (a quick TAP = ultimate) or once it's been held (HOLD = transform)
+    if (inp.ultHeld) {
+      f.ultHoldT = (f.ultHoldT || 0) + dt; f.ultBuf = 0;
+      if (f.ultHoldT >= DOUBLE_ULT.hold && !f.ultHoldDone) { f.ultHoldDone = true; f.tfBuf = BUFFER; }
+    } else {
+      f.ultBuf = (f.ultHoldT > 0 && !f.ultHoldDone) ? BUFFER : (inp.ultTap ? BUFFER : f.ultBuf);   // (released quickly = a tap)
+      f.ultHoldT = 0; f.ultHoldDone = false;
+    }
+  }
   f.flyCD = Math.max(0, (f.flyCD || 0) - dt);
   if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
   if (f.kaioken) f.damage += kaiokenLv(f).drain * dt;             // Kaioken strain: 1% / 2% / 4% per second (x1 / x2 / x3)
@@ -9774,6 +10709,8 @@ function updateFighter(f, inp, dt) {
   const floating = a && ((a.type === 'air' && a.t < a.floatTime) || a.type === 'clash' || a.type === 'grabbed' || a.type === 'thrown' || a.type === 'whipped' ||
     (a.type === 'attack' && a.move.floatWhile && a.move.floatWhile(f, a)) ||
     a.type === 'flydash' || a.type === 'ultBeam' || a.type === 'shipUlt' || a.type === 'kiBarrage' || a.type === 'impaled' || a.type === 'ledge' || a.type === 'gazeSwap' || a.type === 'swapped' || (a.type === 'hitstun' && a.crit) || a.type === 'timeStop' ||
+    (a.type === 'hitstun' && (a.impaled || (a.flat && a.t < a.flat))) ||   // skewered on the Red Chidori / launched dead flat (Hundred Clone Rush)
+    a.type === 'odmReel' || a.type === 'odmSpin' ||                  // Sevon flying on his ODM gear
     (a.type === 'attack' && a.phase === 'active' && a.move.hover && !f.ground) ||      // Shuriken Kick holds its height
     (a.type === 'attack' && a.phase === 'active' && (a.move.rapid || a.move.beam) && !f.ground));   // hovers while firing ki
   if (!floating) {
@@ -9974,7 +10911,7 @@ function overlapsStage(f) {
 // ---------------- Inputs ----------------
 function emptyInput() {
   return { dir: 0, up: false, down: false, jumpTap: false, jumpHeld: false, blockTap: false, blockHeld: false,
-           dirTap: false, downTap: false, atkTap: false, atkHeld: false, spcTap: false, spcHeld: false, grabTap: false, ultTap: false, flyTap: 0,
+           dirTap: false, downTap: false, atkTap: false, atkHeld: false, spcTap: false, spcHeld: false, grabTap: false, ultTap: false, ultHeld: false, flyTap: 0,
            taunt: 0 };                                           // 1 = up taunt, 2 = side taunt, 3 = down taunt
 }
 // Double-tap detection (for Fly Dash)
@@ -9998,7 +10935,7 @@ function keyboardInput(binds = bindings) {                // (binds = that playe
     atkTap: tp('attack'), atkHeld: h('attack'),
     spcTap: tp('special'), spcHeld: h('special'),
     grabTap: tp('grab'),
-    ultTap: tp('ult'),
+    ultTap: tp('ult'), ultHeld: h('ult'),
     taunt: tp('tauntUp') ? 1 : tp('tauntSide') ? 2 : tp('tauntDown') ? 3 : 0,
   };
 }
@@ -10043,7 +10980,7 @@ function padInput(i, binds = bindings) {                  // (binds = that playe
     atkTap: tp('attack'), atkHeld: s.attack,
     spcTap: tp('special'), spcHeld: s.special,
     grabTap: tp('grab'),
-    ultTap: tp('ult'),
+    ultTap: tp('ult'), ultHeld: !!s.ult,
   };
   // C-STICK: flick the right stick = instantly do that direction's move (like Smash)
   //   ground: side / up / down attack     air: forward / back / up / down air
@@ -10258,8 +11195,13 @@ function aiDecide(f, o, ai, L) {
   if (f.look && f.look.hype && f.ground && (f.hype || 0) < 60 && adx > 420 && !(oa && oa.type === 'attack') && Math.random() < 0.04) {
     ai.tapTaunt = 1 + Math.floor(Math.random() * 3); return;
   }
+  // COLBALIAS (double ult bar): fires an ultimate whenever he has half a bar and they're in front of him
+  // (his statue / clone army lock on by themselves, so any range on screen will do)
+  if (f.look && f.look.doubleUlt) {
+    if (f.ult >= ULT_MAX / 2 && adx < 700 && Math.random() < 0.06) { ai.tapUlt = true; return; }
+  }
   // TRANSFORM as soon as the meter is full
-  if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { ai.tapUlt = true; return; }
+  else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { ai.tapUlt = true; return; }
   // ULTIMATE while transformed: beam ults fire from any range when lined up; others need them right in front
   const beamUlt = (CHARACTERS[f.char].ult || {}).beamUlt;
   const ultRange = beamUlt ? adx < 900 && Math.abs(dy) < 50 : adx < 140 && Math.abs(dy) < 40;
@@ -11154,6 +12096,7 @@ function getPose(p) { return withCarry(p, basePose(p)); }
 
 function basePose(p) {
   const a = p.action;
+  if (a && a.odmPose) return { ...a.odmPose };                // Sevon on his ODM gear (reeling in / Levi spin)
   if (a && a.type === 'attack') {
     const m = a.move;
     if (a.poseOverride) return { ...a.poseOverride };       // moves that animate themselves (Alolan Whip, Cross Chop)
@@ -11287,7 +12230,7 @@ function basePose(p) {
     }
     return pose({ lean: 0.4, bob: -14, legA: [0.95, 1.1], legB: [-0.8, 0.3], armA: [0.6, 0] });   // follow-through
   }
-  if (a && a.type === 'throw' && ['elbowDrop', 'piledriver', 'rko', 'neckRun', 'neckRunBack', 'harvest', 'thunderKnee', 'skySpin'].includes(a.kind)) return { ...(a.pose || pose({})) };
+  if (a && a.type === 'throw' && ['elbowDrop', 'piledriver', 'rko', 'neckRun', 'neckRunBack', 'harvest', 'thunderKnee', 'skySpin', 'suplexStomp', 'volleySpike'].includes(a.kind)) return { ...(a.pose || pose({})) };
   if (a && a.type === 'throw' && a.kind === 'giantSwing') {
     if (a.released) return pose({ lean: -0.2, bob: -6, legA: [0.6, 0.5], legB: [-0.6, 0.3], armA: [-1.7, 0], armB: [-1.5, -0.2], armC: [-1.4, 0.1], armD: [-1.2, 0] });
     return { ...pose({ lean: -0.35, bob: -10, legA: [0.7, 0.6], legB: [-0.6, 0.4], grip: gripOn(p, a.victim, 0) }), raw: true };   // leaning back, spinning
@@ -11628,6 +12571,8 @@ function drawFigure(fig, opts = {}) {
       if (ink) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }   // inked outline
     });
   }
+  if (look.haori) drawHaori(hip, shoulder, f, fig, opts, main);   // SEVON: the flame-hemmed haori, behind his body
+  if (look.odm) drawOdmGear(hip, f, opts);                       // ...and the ODM gear on his hips
 
   ctx.lineWidth = LW;
   ctx.strokeStyle = main;
@@ -12011,6 +12956,7 @@ function drawFigure(fig, opts = {}) {
       ctx.closePath(); ctx.fill();
     }
   }
+  if (look.flameHair) drawFlameHair(head, f, opts, main);        // SEVON: yellow hair, flame-red tips
   // COLTEN: rectangle reading glasses
   if (look.glasses && !opts.tint) {
     ctx.strokeStyle = sketch ? main : '#141414'; ctx.lineWidth = 1.8;
@@ -12045,7 +12991,7 @@ function drawFigure(fig, opts = {}) {
   else if (S && S.hands === 2) ikArm(shoulder, S.g);
   else if (MUS) muscleLimb(shoulder, pz.armA, AL, AL2, f, ARM_W, main, EDGE);
   else limb(shoulder, pz.armA, 16, 15, f);
-  if (look.greatsword && !grip && !fig.noScythe) drawGreatsword(shoulder, pz, f, opts);      // the greatsword, in his front hand
+  if (look.greatsword && !grip && !fig.noScythe) (look.katana ? drawKatana : drawGreatsword)(shoulder, pz, f, opts);   // the greatsword (Sevon: katana), in his front hand
   if (look.auraArmor && fig.transformed && !opts.tint && !sketch) drawAuraArmor(hip, shoulder, head, f);
   ctx.restore();
 }
@@ -12365,14 +13311,15 @@ function drawFighter(p) {
     const c = a.phase === 'charge' ? clamp(a.charge / MAX_CHARGE, 0, 1) : 0.15;
     const r = 9 + 13 * c + Math.sin(time * 30) * 1.5;
     ctx.save();
+    const red = !!a.move.chidoriRed;                       // Colbalias's RED Chidori
     const gl = ctx.createRadialGradient(fist.x, fist.y, 0, fist.x, fist.y, r * 2.8);
-    gl.addColorStop(0, 'rgba(220, 250, 255, 0.55)');
-    gl.addColorStop(0.45, 'rgba(90, 195, 255, 0.28)');
-    gl.addColorStop(1, 'rgba(40, 110, 255, 0)');
+    gl.addColorStop(0, red ? 'rgba(255, 220, 220, 0.6)' : 'rgba(220, 250, 255, 0.55)');
+    gl.addColorStop(0.45, red ? 'rgba(255, 40, 40, 0.32)' : 'rgba(90, 195, 255, 0.28)');
+    gl.addColorStop(1, red ? 'rgba(160, 0, 0, 0)' : 'rgba(40, 110, 255, 0)');
     ctx.fillStyle = gl;
     ctx.beginPath(); ctx.arc(fist.x, fist.y, r * 2.8, 0, Math.PI * 2); ctx.fill();
     // arcs of lightning whipping around the orb
-    ctx.strokeStyle = '#bfeaff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = red ? '#ff8080' : '#bfeaff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.9;
     for (let k = 0; k < 3; k++) {
       const a0 = time * (9 + k * 3) + k * 2.1;
       ctx.beginPath();
@@ -13050,11 +13997,18 @@ function drawHUD() {
       const blink = Math.floor(performance.now() / 200) % 2 === 0;
       sctx.fillStyle = blink ? '#ffd23f' : '#fff3a8';
       sctx.fillRect(x + 2, y + 82, 206 * um, 6);
-      text('TRANSFORMED  [I] ULTIMATE ' + Math.round(50 + 50 * um) + '%', x + 105, y - 8, 9, '#ffd23f', 'center');
+      if (!(f.look && f.look.doubleUlt)) text('TRANSFORMED  [I] ULTIMATE ' + Math.round(50 + 50 * um) + '%', x + 105, y - 8, 9, '#ffd23f', 'center');
     } else {
       sctx.fillStyle = full ? (flash ? '#ffffff' : '#ffd23f') : (sketch ? inkOf(f) : f.energy);
       sctx.fillRect(x + 2, y + 82, 206 * um, 6);
-      if (full && !f.out) text('TRANSFORM READY  [I]', x + 105, y - 8, 9, flash ? '#ffffff' : '#ffd23f', 'center');
+      if (full && !f.out && !(f.look && f.look.doubleUlt)) text('TRANSFORM READY  [I]', x + 105, y - 8, 9, flash ? '#ffffff' : '#ffd23f', 'center');
+    }
+    if (f.look && f.look.doubleUlt) {                      // COLBALIAS: TWO ult bars - a notch at the half, and each filled half glows
+      for (let b = 0; b < 2; b++) if (um >= (b + 1) / 2) {
+        sctx.fillStyle = flash ? '#ffffff' : '#ff2a2a'; sctx.fillRect(x + 2 + b * 103, y + 80, 103, 2);
+      }
+      sctx.fillStyle = '#0e0c0c'; sctx.fillRect(x + 104, y + 79, 3, 12);
+      if (um >= 0.5 && !f.out) text((um >= 1 ? 'x2' : 'x1') + ' ULT [I]' + (um >= 1 && !f.transformed ? '   HOLD [I] TRANSFORM' : ''), x + 105, y - 8, 9, flash ? '#ffffff' : '#ff6a6a', 'center');
     }
   });
 
@@ -13364,6 +14318,7 @@ function render() {
     drawRopes();
     drawShipUlts();                                     // Aiden's pirate ship (behind everyone)
     if (ult && ult.statue) drawGuanyin(ult);            // Colbalias's hundred-armed statue (behind everyone)
+    if (ult && ult.def && ult.def.legion) drawLegionCrowd(ult);   // Colbalias's army of a hundred clones (behind everyone)
     if (fighters.some(f => f.action && f.action.type === 'timeStop')) {   // the world takes on a stopped-time tint
       const vb = viewBounds(); ctx.fillStyle = 'rgba(70,40,140,0.16)'; ctx.fillRect(vb.l - 60, vb.t - 60, vb.r - vb.l + 120, vb.b - vb.t + 120);
     }
@@ -13381,6 +14336,7 @@ function render() {
       if (ult && ult.statue) drawGuanyinFront(ult);    // the statue's palms flying in + the Zero Hand beam
     }
     drawProjectiles();
+    drawOdmCables();                                  // Sevon's ODM gear: the steel cable + hook
     drawKiMarks();                                    // Lance's purple ki mark over whoever he's marked
     drawBleed();                                      // bleed stacks from Colby's scythe
     drawGazeMarks();                                  // Colbalias's red eye over whoever he's looked at
@@ -13483,12 +14439,13 @@ addEventListener('pointerdown', unlockAudio);
 // ---------------- CHARACTER SELECT ----------------
 // Roster grid (Smash-style face tiles): fill the nulls in as new characters are made (null = "coming soon").
 // The last tile after these is RANDOM.
-const ROSTER = ['COLBY', 'LANCE', 'STICKMAN', 'AIDEN', 'COLBALIAS', 'COLTEN', null, null, null];
+const ROSTER = ['COLBY', 'LANCE', 'STICKMAN', 'AIDEN', 'COLBALIAS', 'COLTEN', 'SEVON', null, null];
 const RANDOM_TILE = ROSTER.length;                 // tile index of the RANDOM tile
 const GRID_TILES = ROSTER.length + 1;
 const CHAR_INFO = {
   COLBALIAS: { title: 'THE FINAL BOSS', a: '#5a0000', b: '#0a0000' },
   COLTEN:   { title: 'THE WARLORD',  a: '#2f7d36', b: '#0c1a0d' },
+  SEVON:    { title: 'THE FLAME HASHIRA', a: '#1f4fa8', b: '#2a0c05' },
   AIDEN:  { title: 'STONE COLD SWASHBUCKLER', a: '#b8410f', b: '#1c0b05', name: 'CAPTAIN HEEL' },
   COLBY:    { title: 'THE REAPER',   a: '#7e1c1c', b: '#1a0b0b' },
   LANCE:    { title: 'LAST STAND',   a: '#1f5fa8', b: '#0b1626' },
