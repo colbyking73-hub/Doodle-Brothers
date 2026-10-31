@@ -639,6 +639,15 @@ const STICKMAN_MOVES = {
     } },
 };
 
+// CHIDORI (bare-handed Colby's Annihilator): a storm of blue lightning wraps around his front fist while he
+// charges the punch, then bursts off his knuckles and trails him when he lets it fly. Purely visual.
+const CHIDORI = { colors: ['#7fd8ff', '#bfeaff', '#ffffff', '#3aa0ff'] };
+// Where his front fist is right now (same maths as the smear / projectile anchors)
+function chidoriFist(f) {
+  const tips = f.disp ? figureTips(f) : null;
+  return tips ? tips.hA : { x: f.x + f.face * 30, y: f.y - 66 };
+}
+
 // =====================================================================
 //  COLBY - scythe-wielding taekwondo fighter (Hwoarang-inspired), shoulder-carry stance
 //  J (physical) = FAST KICK COMBOS: low damage, quick, chain together.
@@ -682,7 +691,7 @@ const COLBY_MOVES = {
   // Hold J to charge (faster dash, stronger kick).
   // Side J (ground): ANNIHILATOR - a Little Mac style charged rush punch (see below the moves). The Dash
   // Kick lives on as his forward air.
-  sideGround: { name: 'Annihilator', startup: 0.12, active: 0.26, endlag: 0.3, charge: true,
+  sideGround: { name: 'Annihilator', startup: 0.12, active: 0.26, endlag: 0.3, charge: true, chidori: true,
     travel: 950, travelCharge: 1150,          // flies forward this fast while the punch is out (+ more the longer it's charged)
     rushTrail: true, ledgeStop: true,         // anime after-images + speed lines; skids to a stop at the ledge on the ground
     sweetSpot: [0.72, 0.9],                   // release with the charge in this window = SWEET SPOT (extra power, no penalty)
@@ -691,7 +700,49 @@ const COLBY_MOVES = {
                { x: 16, y: -62, r: 22, dmg: 12, base: 500, growth: 7, angle: 36 }],
     wind: pose({ bob: -10, lean: -0.4, legA: [0.85, 1.0], legB: [-0.75, 0.4], armA: [-1.7, -0.5], armB: [0.6, -1.9] }),  // fist cocked way back
     strike: pose({ bob: -8, lean: 0.65, legA: [1.25, 0.6], legB: [-1.2, 0.1], armA: [1.6, 0], armB: [-1.0, -0.6] }),     // full-body lunge, fist out
-    fire(f) { dust(f.x - f.face * 20, f.y, 14, 2); sfx.whoosh(true); } },
+    fire(f) { dust(f.x - f.face * 20, f.y, 14, 2); sfx.whoosh(true); },
+    // CHIDORI: blue lightning crackles around his front fist the whole time he charges, then erupts off the
+    // knuckles as the punch flies and streaks along the rush. Visual only - none of the move's numbers change.
+    step(f, a, dt) {
+      const fist = chidoriFist(f);
+      if (a.phase === 'charge' || a.phase === 'startup') {
+        const c = a.phase === 'charge' ? clamp(a.charge / MAX_CHARGE, 0, 1) : 0.12;
+        if (Math.random() < dt * (30 + 70 * c)) {          // sparks sucked into the fist
+          const ang = Math.random() * Math.PI * 2, d = 42 + Math.random() * 30;
+          particles.push({ x: fist.x + Math.cos(ang) * d, y: fist.y + Math.sin(ang) * d,
+            vx: -Math.cos(ang) * d * 5.5, vy: -Math.sin(ang) * d * 5.5, life: 0.18, max: 0.18, size: 1,
+            color: Math.random() < 0.5 ? '#bfeaff' : '#ffffff', type: 'bit', grav: 0 });
+        }
+        if (Math.random() < dt * (24 + 46 * c)) {          // jagged arcs off the knuckles
+          bolt(fist.x, fist.y, Math.random() * Math.PI * 2, 24 + 52 * c, 0.08,
+               Math.random() < 0.5 ? '#ffffff' : CHIDORI.colors[(Math.random() * 2) | 0]);
+        }
+        if (a.phase === 'charge' && c >= 1 && !a.chidoriFull) {
+          a.chidoriFull = true;                                 // FULL CHARGE: the storm flares
+          ring(fist.x, fist.y);
+          burst(fist.x, fist.y, CHIDORI.colors, 18, 0, Math.PI, 460, { grav: 0 });
+          sfx.parry();
+        }
+      } else if (a.phase === 'active') {
+        const c = a.cfrac ?? 0;
+        if (!a.chidoriBurst) {                             // RELEASE: it all fires off the fist in a blue blast
+          a.chidoriBurst = true;
+          for (let k = 0; k < 8 + Math.round(10 * c); k++)
+            bolt(fist.x, fist.y, (f.face > 0 ? 0 : Math.PI) + (Math.random() - 0.5) * 1.9,
+                 50 + Math.random() * (70 + 90 * c), 0.16, k % 3 ? '#7fd8ff' : '#ffffff');
+          burst(fist.x, fist.y, CHIDORI.colors, 20 + Math.round(24 * c), f.face > 0 ? 0 : Math.PI, 0.85, 480 + 560 * c, { grav: 0 });
+          ring(fist.x, fist.y);
+          shake = Math.max(shake, 4 + 8 * c);
+          sfx.parry();
+        }
+        if (Math.random() < dt * 55) {                     // crackling trail while he rushes
+          bolt(fist.x, fist.y, Math.random() * Math.PI * 2, 22 + Math.random() * 44, 0.06,
+               Math.random() < 0.5 ? '#ffffff' : '#7fd8ff');
+        }
+        if (Math.random() < dt * 26) burst(fist.x, fist.y, CHIDORI.colors, 1, Math.PI, 0.7, 260, { grav: 0 });
+      }
+      return false;
+    } },
   dashKickMove: { name: 'Dash Kick', startup: 0.07, active: 0.17, endlag: 0.22, charge: true, dash: true,
     lunge: 1150, lungeFriction: 0.5,
     hitboxes: [{ x: 44, y: -82, r: 22, dmg: 9, base: 380, growth: 6, angle: 38 },
@@ -872,10 +923,10 @@ const COLBY_MOVES = {
     strike: pose({ lean: 0.5, bob: -11, legA: [1.0, 0.8], legB: [-0.85, 0.15],
                    sc: { gx: 22, gy: 16, pitch: -0.6, yaw: -0.6, n: [0, 0.51, 0.86], hands: 2 } }) },
 
-  // Side K: REAPER'S TOSS - he rears way back (long, obvious wind-up: the blade glints and rings) and hurls
-  // the scythe. It spins across the stage, hits hard, then drops and sticks where it lands. He's
-  // bare-handed until he walks over and picks it back up with K. (See THROWN SCYTHE below.)
-  sideRanged: { name: "Reaper's Toss", startup: 0.3, active: 0.06, endlag: 0.34, landLag: 0.16, throwScythe: true,
+  // Side K: REAPER'S TOSS - he rears back and hurls the scythe. The wind-up is fast now (snappy startup),
+  // so the throw comes out quickly. It spins across the stage, hits hard, then drops and sticks where it lands.
+  // He's bare-handed until he walks over and picks it back up with K. (See THROWN SCYTHE below.)
+  sideRanged: { name: "Reaper's Toss", startup: 0.12, active: 0.06, endlag: 0.34, landLag: 0.16, throwScythe: true,
     wind: pose({ lean: -0.45, bob: -8, legA: [0.85, 0.8], legB: [-0.7, 0.2],
                  sc: { gx: -8, gy: -20, pitch: 2.6, yaw: 0.2, n: [0, 0, 1], hands: 2 } }),                 // reared back over his head
     strike: pose({ lean: 0.6, bob: -12, legA: [1.1, 0.6], legB: [-1.0, 0.1], armA: [1.6, 0], armB: [1.3, -0.2],
@@ -1783,7 +1834,7 @@ COLBY_MOVES.fair = { ...COLBY_MOVES.dashKickMove, name: 'Air Dash Kick', charge:
 // ---------------- COLBY TUNING ----------------
 // KICKS (his moves that don't use the scythe): come out faster and reach further.
 // SCYTHE STRIKES: come out faster, but do WAY less damage (they're for pressure and reach now, not damage).
-// The scythe throw stays slow on purpose (it's meant to be telegraphed), and the counter is left alone.
+// The scythe throw now comes out fast (quick startup) so it's a real surprise option; the counter is left alone.
 // Kicks: about Lance's speed (a touch slower - he's the fast one) but with more reach than his.
 const COLBY_KICK = { speed: 0.92, reach: 12, grow: 4 };         // startup/recovery x0.92, hitboxes +12px out, +4 radius
 const COLBY_SCYTHE = { speed: 0.75, damage: 0.55 };             // startup/recovery x0.75, damage x0.55
@@ -9092,7 +9143,7 @@ function stepAction(f, inp, dt) {
       else beginActive(f, a);
     } else if (a.phase === 'charge') {
       a.charge += dt * (m.chargeRate || 1);            // (some moves charge faster)
-      if (Math.random() < dt * 14) {   // crackling lightning while charging
+      if (!m.chidori && Math.random() < dt * 14) {   // crackling lightning while charging (Chidori draws its own)
         bolt(f.x + (Math.random() - 0.5) * 40, f.y - 10 - Math.random() * 70, Math.random() * Math.PI * 2,
              20 + 40 * (a.charge / MAX_CHARGE), 0.08, Math.random() < 0.5 ? '#ffffff' : f.energy);
       }
@@ -9102,7 +9153,7 @@ function stepAction(f, inp, dt) {
         if (Math.random() < dt * (10 + 40 * c)) burst(f.x + f.face * 34, f.y - 60, FIRE, 2, Math.PI / 2, 1.2, 160, { grav: -200 });
         if (c >= 1 && !a.fireFull) { a.fireFull = true; ring(f.x, f.y - 50); burst(f.x, f.y - 50, FIRE, 24, 0, Math.PI, 420, { grav: -200 }); sfx.parry(); }
       }
-      if (Math.random() < dt * 40) {   // charge sparkles pulled toward the fighter
+      if (!m.chidori && Math.random() < dt * 40) {   // charge sparkles pulled toward the fighter
         const ang = Math.random() * Math.PI * 2, d = 50;
         particles.push({ x: f.x + Math.cos(ang) * d, y: f.y - 42 + Math.sin(ang) * d,
           vx: -Math.cos(ang) * d * 5, vy: -Math.sin(ang) * d * 5, life: 0.2, max: 0.2, size: 1,
@@ -12079,6 +12130,36 @@ function drawFighter(p) {
       ctx.fillStyle = '#ffffff';
       ctx.beginPath(); ctx.arc(p.x + p.face * 30, p.y - 66, r / 4, 0, Math.PI * 2); ctx.fill();
     }
+  }
+
+  // CHIDORI: a sphere of blue lightning wrapped around his front fist while the Annihilator charges up
+  if (a && a.type === 'attack' && a.move.chidori && (a.phase === 'charge' || a.phase === 'startup') && !p.minion) {
+    const fist = chidoriFist(p);
+    const c = a.phase === 'charge' ? clamp(a.charge / MAX_CHARGE, 0, 1) : 0.15;
+    const r = 9 + 13 * c + Math.sin(time * 30) * 1.5;
+    ctx.save();
+    const gl = ctx.createRadialGradient(fist.x, fist.y, 0, fist.x, fist.y, r * 2.8);
+    gl.addColorStop(0, 'rgba(220, 250, 255, 0.55)');
+    gl.addColorStop(0.45, 'rgba(90, 195, 255, 0.28)');
+    gl.addColorStop(1, 'rgba(40, 110, 255, 0)');
+    ctx.fillStyle = gl;
+    ctx.beginPath(); ctx.arc(fist.x, fist.y, r * 2.8, 0, Math.PI * 2); ctx.fill();
+    // arcs of lightning whipping around the orb
+    ctx.strokeStyle = '#bfeaff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.9;
+    for (let k = 0; k < 3; k++) {
+      const a0 = time * (9 + k * 3) + k * 2.1;
+      ctx.beginPath();
+      for (let i = 0; i <= 4; i++) {
+        const aa = a0 + i * 0.42, rr = r * (1.2 + Math.random() * 0.55);
+        const px = fist.x + Math.cos(aa) * rr, py = fist.y + Math.sin(aa) * rr;
+        if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#eaf9ff';
+    ctx.beginPath(); ctx.arc(fist.x, fist.y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
   if (p.shielding && p.look && p.look.auraShield) {
