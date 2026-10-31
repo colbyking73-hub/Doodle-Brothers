@@ -344,7 +344,10 @@ const DODGE_COOLDOWN = 0.05;
 const AIR_DODGES = 2;      // (old limit, no longer used - air dodges now spend the blue dodge dots)
 // Air dodge ("Z vanish") allowed while you have a blue dodge dot left: up to AIR_DODGE_MAX (5) in a row
 const AIR_DODGE_MAX = 5;
-function canAirDodge(f) { return f.dodgeCount < AIR_DODGE_MAX; }
+// (per character: look.airDodges / look.groundDodges override them - Colbalias spends dots on his clones, so he gets more)
+const airDodgeMax = f => (f && f.look && f.look.airDodges) || AIR_DODGE_MAX;
+const dodgeFree = f => (f && f.look && f.look.groundDodges) || DODGE_FREE;
+function canAirDodge(f) { return f.dodgeCount < airDodgeMax(f); }
 const WAVEDASH_FRICTION = 0.3;
 
 // Dodge fatigue
@@ -5007,7 +5010,7 @@ function cloneStringTarget(f) {
 COLBALIAS_MOVES.jab = { name: 'Clone Catapult', startup: 0.07, active: 0.08, endlag: 0.15, combo: 'jab2', cloneStrike: 'catapult', hitboxes: [],
   wind: tossWind, strike: tossStrike,
   fire(f) {                                                      // he hurls a clone straight at them
-    if (f.minion) return;
+    // (his clones do the whole string too)
     const t = cloneStringTarget(f), F = f.face;
     const dx = t ? Math.abs(t.x - f.x) : 200;
     spawnStrikeClone(f, 'catapultKick', f.x + F * 18, F, { vx: F * clamp(dx / 0.17, 600, 1500), vy: t ? clamp((t.y - f.y) * 4, -500, 300) - 60 : -60, y: f.y - 10 });
@@ -5019,14 +5022,14 @@ COLBALIAS_MOVES.jab2 = { name: 'Slingshot Sweep', startup: 0.07, active: 0.16, e
              { x: 22, y: -14, r: 30, dmg: 1.3, base: 220, growth: 0.3, angle: 84, holdStun: 0.26 }],
   wind: handSign, strike: COLBALIAS_MOVES.downGround.strike,
   fire(f) {                                                      // a clone behind him SHOVES him in
-    if (!f.minion) spawnStrikeClone(f, 'boost', f.x - f.face * 30, f.face);
+    spawnStrikeClone(f, 'boost', f.x - f.face * 30, f.face);
     dust(f.x, f.y, 8, 1.4);
   } };
 COLBALIAS_MOVES.jab3 = { name: 'Clone Vault', startup: 0.07, active: 0.08, endlag: 0.16, combo: 'jab4', cloneStrike: 'vault', hitboxes: [],
   wind: pose({ lean: 0.2, bob: -16, armA: [0.5, -0.2], armB: [0.6, -0.1], legA: [0.9, 1.2], legB: [-0.6, 0.6] }),   // hands cupped low...
   strike: pose({ lean: -0.2, bob: -2, armA: [2.8, 0], armB: [2.6, 0], legA: [0.5, 0.3], legB: [-0.5, 0.3] }),      // ...and UP and over it goes
   fire(f) {
-    if (f.minion) return;
+    // (his clones do the whole string too)
     const t = cloneStringTarget(f), F = f.face, T = 0.24;
     const dx = t ? t.x - (f.x + F * 10) : F * 160;
     spawnStrikeClone(f, 'vaultAxe', f.x + F * 10, F, { vx: clamp(dx / T, -1300, 1300), vy: -420, y: f.y - 20 });
@@ -5037,7 +5040,7 @@ COLBALIAS_MOVES.jab4 = { name: 'Twin Launch', startup: 0.08, active: 0.14, endla
   wind: handSign,
   strike: pose({ lean: -0.1, legA: [1.6, 2.4], legB: [-0.3, 0.3], armA: [-1.2, -0.4], armB: [-0.9, -0.5] }),   // rising knee
   fire(f) {
-    if (f.minion) return;
+    // (his clones do the whole string too)
     const t = cloneStringTarget(f), F = f.face;
     spawnStrikeClone(f, 'boost', f.x - F * 6, F);                                      // the clone launching HIM
     spawnStrikeClone(f, 'upKick', t ? t.x + F * 44 : f.x + F * 100, t ? -F : F);        // the clone on their far side
@@ -5159,7 +5162,7 @@ COLBALIAS_MOVES.sideRanged = { name: 'Red Chidori', startup: 0.08, active: 9, en
   step(f, a, dt) { return a.phase === 'active' && a.rc ? stepRedChidori(f, a, dt) : false; } };
 function endRedChidori(f, a) { a.rc.phase = 'done'; a.poseOverride = null; a.phase = 'end'; a.t = 0; }
 function stepRedChidori(f, a, dt) {
-  const R = a.rc, D = R.D, T = a.t - R.t0, M = COLBALIAS_MOVES.sideRanged;
+  const R = a.rc, D = R.D, T = a.t - R.t0, M = COLBALIAS_MOVES.sideGround;   // (Red Chidori is his side J now)
   const fist = { x: f.x + D * 46, y: f.y - 66 };
   const crackle = n => { if (Math.random() < dt * n) bolt(fist.x, fist.y, Math.random() * Math.PI * 2, 30 + Math.random() * 40, 0.07, RED_CHIDORI.colors[(Math.random() * 4) | 0]); };
   if (R.phase === 'spin') {                                       // 1. the clone grabs his other arm and SPINS him round
@@ -5238,6 +5241,178 @@ function stepRedChidori(f, a, dt) {
   }
   return false;
 }
+
+// ---------------- COLBALIAS: CLONE-WEAPON MOVES ----------------
+//  neutral J #4  = TWIN CRUSH: two clones poof in on BOTH sides of them and slam their fists into their head at the
+//                  same instant - trying to cave it in
+//  neutral air J = CLONE FLAIL: he summons a clone, grabs it by the ankle and whirls it a full 360 round himself
+//                  like a weapon
+//  up air J      = CLONE SWIPE: the same, but one big swipe of the clone's body over his head, front to back
+//  down air J    = CLONE FALCON DIVE: a clone appears above him and comes in with a diving kick - whoever it
+//                  catches is carried down WITH it and spiked (a great edge-guard)
+//  down J        = CLONE DETONATION: every one of his summoned clones on the stage EXPLODES (good damage and
+//                  knockback round each one). His clones doing it blow up just themselves.
+//  side J        = RED CHIDORI (moved off side K) - side K is the HELL MISSILE again, slower than it used to be
+const HEAD_CRUSH = { reach: 74, run: 0.11 };
+CLONE_STRING.headCrush = { name: 'Head Crush', startup: HEAD_CRUSH.run, active: 0.08, endlag: 0.14, hitboxes: [], floatWhile: () => true,
+  step(f, a) {                                                    // rushes in from its side, then plants its feet
+    if (a.phase === 'startup' && a.t0x !== undefined) { const k = clamp(a.t / HEAD_CRUSH.run, 0, 1); f.x = lerp(a.t0x, a.t1x, easeOut(k)); f.vx = 0; }
+    else if (a.phase !== 'startup') f.vx = 0;
+    return false;
+  },
+  wind: pose({ lean: 0.45, bob: -6, legA: [1.0, 0.6], legB: [-0.9, 0.3], armA: [-1.3, -0.7], armB: [0.6, -1.6] }),   // fist cocked back, running in
+  strike: pose({ lean: 0.5, bob: -4, legA: [1.0, 0.6], legB: [-1.0, 0.2], armA: [1.85, 0], armB: [0.8, -1.6] }) };   // fist driven into the side of the head
+// the one that carries the hit (the other is its mirror): a crushing blow - they crumple, then pop up
+CLONE_STRING.headCrushHit = { ...CLONE_STRING.headCrush, name: 'Head Crush',
+  hitboxes: [{ x: 30, y: -84, r: 40, dmg: 2.6, base: 420, growth: 3.4, angle: 90 }, { x: 8, y: -80, r: 34, dmg: 2.6, base: 420, growth: 3.4, angle: 90 }],
+  onHit(f, t, a, h, clean) {
+    impactFrame = Math.max(impactFrame, 0.1); impactAt = { x: t.x, y: t.y - 84, ang: 0, all: false, focus: true, invert: true };
+    hitstop = Math.max(hitstop, 0.14); shake = Math.max(shake, 16);
+    hellBurst(t.x, t.y - 84, 18, 520);
+    for (let k = 0; k < 6; k++) bolt(t.x, t.y - 84, Math.random() * Math.PI * 2, 40 + Math.random() * 40, 0.12, DEVIL_LIGHTNING[k % 3]);
+    if (gore) burst(t.x, t.y - 84, BLOOD, 14, -Math.PI / 2, 1.2, 420, { stain: true });
+    painTexts.push({ x: t.x, y: t.y - 150, t: 0.6, max: 0.6, text: 'CRUSH!', big: true });
+    sfx.hit(1);
+  } };
+COLBALIAS_MOVES.jab4 = { name: 'Twin Crush', startup: 0.08, active: 0.16, endlag: 0.22, landLag: 0.14, hitboxes: [],
+  wind: handSign, strike: handSign,
+  fire(f) {
+    const t = cloneStringTarget(f), F = f.face;
+    const cx = t ? t.x : f.x + F * 90, cy = t ? t.y : f.y;
+    for (const side of [-1, 1]) {                                 // one from each side of them
+      const key = side === 1 ? 'headCrushHit' : 'headCrush';      // (the far-side one carries the hit)
+      const c = spawnStrikeClone(f, key, cx + side * F * HEAD_CRUSH.reach, -side * F, { y: cy, vx: 0, vy: 0 });
+      c.ground = !!(t ? t.ground : f.ground); c.vy = 0;
+      c.action.t0x = cx + side * F * HEAD_CRUSH.reach; c.action.t1x = cx + side * F * 32;
+    }
+    sfx.whoosh(true);
+  } };
+
+// ---- the clone used as a WEAPON (neutral air / up air) ----
+// he holds a clone by the ankle and swings it on a circle round his shoulder; th = where it is (0 = straight in front,
+// PI/2 = straight up, PI = behind him)
+const LP_HELD = pose({ lean: 0, legA: [0.1, 0.05], legB: [-0.1, 0.1], armA: [-2.8, 0.1], armB: [2.8, -0.1] });   // stretched out stiff
+CLONE_STRING.flailed = { name: 'Flailed Clone', startup: 0.01, active: 2, endlag: 0.05, floatWhile: () => true, hitboxes: [],
+  step(f) { const o = f.owner; if (!o || !o.action || o.action.helper !== f) killMinion(f, true); return false; },   // (gone the moment he lets go / gets hit)
+  wind: LP_HELD, strike: LP_HELD };
+const FLAIL = { R: 58, cy: -58 };
+function flailPos(f, th) { return { x: f.x + f.face * Math.cos(th) * FLAIL.R, y: f.y + FLAIL.cy - Math.sin(th) * FLAIL.R }; }
+// hitboxes riding along the swing: n of them, th0 -> th1 over the active time (all one hit)
+function flailHitboxes(th0, th1, n, dur, hit) {
+  return Array.from({ length: n }, (_, k) => {
+    const th = th0 + (th1 - th0) * (k + 0.5) / n, u = k / n;   // (plain math: lerp is not defined yet at load time)
+    const ang = th < Math.PI / 2 - 0.4 ? hit.front : th > Math.PI / 2 + 0.4 ? hit.back : hit.top;
+    return { x: Math.cos(th) * (FLAIL.R + 22), y: FLAIL.cy - Math.sin(th) * (FLAIL.R + 22), r: 38, dmg: hit.dmg, base: hit.base, growth: hit.growth, angle: ang,
+             from: u * dur, to: (u + 1.6 / n) * dur, group: 0 };
+  });
+}
+const flailMove = (name, th0, th1, dur, hit, extra) => ({ name, startup: 0.08, active: dur, endlag: 0.2, landLag: 0.14,
+  hitboxes: flailHitboxes(th0, th1, 8, dur, hit),
+  wind: pose({ lean: -0.1, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [0.6, -1.6], armB: [0.5, -1.7] }),   // the hand sign
+  strike: pose({ lean: 0, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [1.6, 0], armB: [1.5, 0] }),
+  step(f, a, dt) {
+    const th = a.phase === 'startup' ? th0 : a.phase === 'active' ? lerp(th0, th1, clamp(a.t / dur, 0, 1)) : th1;
+    if (a.phase !== 'startup' && !a.helper) {                     // POOF - a clone appears in his hand
+      const p = flailPos(f, th);
+      a.helper = spawnStrikeClone(f, 'flailed', p.x, f.face, { y: p.y + 45, vx: 0, vy: 0 });
+    }
+    const h = a.helper;
+    if (h && fighters.includes(h)) {
+      const p = flailPos(f, th);
+      h.x = p.x; h.y = p.y + 45; h.vx = h.vy = 0; h.face = f.face;
+      h.action.poseOverride = { ...LP_HELD, raw: true, spin: f.face * (Math.PI / 2 - th) };   // (stretched out along the swing)
+      if (a.phase === 'active' && Math.random() < dt * 60) ghosts.push({ fig: figureOf(h), life: 0.12, max: 0.12, color: '#ff2a2a' });
+      if (a.phase === 'end' && a.t > 0.06) { killMinion(h); a.helper = null; }
+    }
+    // his arm follows the clone round
+    const arm = Math.PI / 2 + th;
+    a.poseOverride = pose({ lean: -0.1 + 0.2 * Math.cos(th), legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [arm, 0], armB: [arm - 0.15, 0.1] });
+    return false;
+  }, ...extra });
+COLBALIAS_MOVES.cloneFlail = flailMove('Clone Flail', -0.6, -0.6 + Math.PI * 2, 0.36, { dmg: 9, base: 380, growth: 5, front: 40, top: 80, back: 140 }, {});
+COLBALIAS_MOVES.cloneSwipe = flailMove('Clone Swipe', 0.15, Math.PI - 0.15, 0.22, { dmg: 9, base: 400, growth: 5.4, front: 75, top: 88, back: 100 }, {});
+
+// ---- CLONE FALCON DIVE (down air) ----
+const FALCON_DIVE = { vx: 520, vy: 1500, carry: 0.26, spike: { dmg: 7, base: 470, growth: 5.6, angle: -78 } };
+CLONE_STRING.falconDive = { name: 'Clone Falcon Dive', startup: 0.14, active: 0.5, endlag: 0.05, floatWhile: () => true,
+  hitboxes: [{ x: 22, y: -8, r: 36, dmg: 3, base: 0, growth: 0, angle: -60, noStop: true }],
+  wind: pose({ lean: -0.2, legA: [1.3, 2.0], legB: [0.9, 1.8], armA: [2.4, -0.4], armB: [2.2, -0.4] }),   // tucked, rearing back
+  strike: pose({ lean: 0.55, legA: [0.75, 0.02], legB: [-0.2, 1.6], armA: [-2.2, -0.2], armB: [-1.9, -0.2] }),   // foot driven down-forward
+  step(f, a, dt) {
+    if (a.phase === 'startup') { f.vx = 0; f.vy = 0; return false; }
+    if (a.phase !== 'active') return false;
+    f.vx = f.face * FALCON_DIVE.vx; f.vy = FALCON_DIVE.vy;
+    if (Math.random() < dt * 80) burst(f.x - f.face * 8, f.y - 40, ['#ff2a2a', '#ff8a3c', '#ffffff'], 2, -Math.PI / 2, 0.6, 200, { grav: -200 });   // a streak of hellfire
+    a.ghostT = (a.ghostT || 0) - dt;
+    if (a.ghostT <= 0) { a.ghostT = 0.025; ghosts.push({ fig: figureOf(f), life: 0.14, max: 0.14, color: '#ff2a2a' }); }
+    const v = a.carry;
+    if (v) {                                                      // CARRIED DOWN with it
+      if (!fighters.includes(v) || v.respawnTimer > 0 || !v.action || v.action.type !== 'hitstun') { a.carry = null; a.t = a.move.active; return false; }
+      v.x = f.x + f.face * 18; v.y = f.y + 26; v.vx = f.vx; v.vy = f.vy;
+      v.action.locked = true; v.action.dur = Math.max(v.action.dur, v.action.t + 0.2);
+      a.carryT = (a.carryT || 0) + dt;
+      if (a.carryT >= FALCON_DIVE.carry || f.ground || v.ground) {   // ...and SPIKED
+        v.action.locked = false;
+        applyHit(v, FALCON_DIVE.spike, f.face, powerOf(f), v.x, v.y - 40, { fighter: f });
+        impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: v.x, y: v.y - 40, ang: Math.PI / 2, all: false, focus: true };
+        hellBurst(v.x, v.y - 40, 20, 560); shake = Math.max(shake, 14); dust(v.x, v.y, 12, 2);
+        sfx.hit(1);
+        a.carry = null; a.t = a.move.active;                      // (done - poof)
+      }
+    } else if (f.ground) a.t = a.move.active;                     // hit the floor empty: poof
+    return false;
+  },
+  onHit(f, t) { if (!t.shielding && t.action && t.action.type === 'hitstun') { f.action.carry = t; t.vx = t.vy = 0; } } };
+COLBALIAS_MOVES.cloneDive = { name: 'Clone Falcon Dive', startup: 0.1, active: 0.12, endlag: 0.22, landLag: 0.14, hitboxes: [],
+  wind: handSign,
+  strike: pose({ lean: 0.1, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [0.6, -0.3], armB: [-0.3, -0.4] }),   // pointing it down at them
+  fire(f) { spawnStrikeClone(f, 'falconDive', f.x - f.face * 20, f.face, { y: f.y - 130, vx: 0, vy: 0 }); } };
+
+// ---- CLONE DETONATION (down J) ----
+const DETONATE = { r: 110, hit: { dmg: 11, base: 430, growth: 5.6, angle: 55 }, selfHit: { dmg: 5, base: 300, growth: 3, angle: 60 }, selfR: 72 };
+function detonateAt(f, x, y, r, h) {                              // one explosion: hits every foe in range, away from its centre
+  hellBurst(x, y, 30, 760); ring(x, y);
+  for (let k = 0; k < 8; k++) bolt(x, y, Math.random() * Math.PI * 2, 60 + Math.random() * 60, 0.16, DEVIL_LIGHTNING[k % 3]);
+  burst(x, y, ['#ff2a2a', '#ff8a3c', '#ffd23f', '#3a0000'], 30, 0, Math.PI, 700, { grav: -150 });
+  for (const t of fighters) {
+    if (t === f || allies(f, t) || t.respawnTimer > 0 || t.dead || t.poofT > 0 || isIntangible(t)) continue;
+    if (!circleHitsFighter(x, y, r, t)) continue;
+    applyHit(t, h, Math.sign(t.x - x) || f.face, powerOf(f), t.x, t.y - 50, { fighter: f });
+  }
+}
+COLBALIAS_MOVES.detonate = { name: 'Clone Detonation', startup: 0.12, active: 0.06, endlag: 0.26, hitboxes: [],
+  wind: handSign,
+  strike: pose({ lean: -0.1, bob: -10, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [1.1, -2.4], armB: [0.9, -2.4] }),   // KATSU!
+  fire(f) {
+    if (f.minion) {                                               // a clone doing it: blows ITSELF up
+      detonateAt(f.owner || f, f.x, f.y - 50, DETONATE.r, DETONATE.hit); killMinion(f, true);
+      shake = Math.max(shake, 12); sfx.blast(); return;
+    }
+    const mine = fighters.filter(c => c.minion && c.owner === f && !c.strikeClone && !c.dead && !(c.poofT > 0));
+    if (!mine.length) {                                           // no clones out: a small burst of hellfire round himself
+      detonateAt(f, f.x, f.y - 45, DETONATE.selfR, DETONATE.selfHit); shake = Math.max(shake, 6); sfx.blast(); return;
+    }
+    for (const c of mine) { detonateAt(f, c.x, c.y - 50, DETONATE.r, DETONATE.hit); killMinion(c, true); }
+    painTexts.push({ x: f.x, y: f.y - 150, t: 0.7, max: 0.7, text: 'KATSU!', big: true });
+    impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: f.x, y: f.y - 60, ang: 0, all: true, focus: false, fire: true };
+    shake = Math.max(shake, 18); hitstop = Math.max(hitstop, 0.06);
+    sfx.blast(); sfx.beam(0.4);
+  } };
+
+// ---- the new layout ----
+COLBALIAS_MOVES.sideGround = COLBALIAS_MOVES.sideRanged;          // side J = RED CHIDORI
+COLBALIAS_MOVES.sideRanged = { ...COLBALIAS_MOVES.hellMissile,     // side K = HELL MISSILE again - slower (easier to dodge)
+  fire(f, mult) {
+    spawnShot(f, { x: 40, y: -70, vx: 950, vy: 0, r: 14, dmg: 9, base: 90, growth: 0.6, angle: 20, life: 2.2, kind: 'missile' }, mult);
+    projectiles[projectiles.length - 1].stun = HELL_MISSILE.stun;
+    projectiles[projectiles.length - 1].color = '#ff2a2a';
+    hellBurst(f.x + f.face * 40, f.y - 70, 12, 380); shake = Math.max(shake, 5); sfx.blast();
+  } };
+COLBALIAS_MOVES.hellMissile = COLBALIAS_MOVES.sideRanged;
+COLBALIAS_MOVES.nair = COLBALIAS_MOVES.cloneFlail;
+COLBALIAS_MOVES.uair = COLBALIAS_MOVES.cloneSwipe;
+COLBALIAS_MOVES.dair = COLBALIAS_MOVES.cloneDive;
+COLBALIAS_MOVES.downGround = COLBALIAS_MOVES.detonate;
 
 // ---------------- COLBALIAS'S THROWS ----------------
 //  down    = GERMAN SUPLEX: arms round their waist, he bridges back and drives them head-first into the floor behind
@@ -5969,8 +6144,10 @@ function getCloneMoves() {
   if (cloneMoves) return cloneMoves;
   cloneMoves = {};
   const src = COLBALIAS_MOVES, S = CLONE.slow;
-  const from = { jab: 'hellFlurry', jab2: 'hellCross', jab3: 'hookKick', neutralRanged: 'hellMissile', downRanged: 'hellMissile' };
-  for (const k of ['counter', 'jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair',
+  // his clones have EVERYTHING he has (slower and weaker) - the clone string, the clone weapons, the Red Chidori, the
+  // Hell Missile... - except his ultimates, the Demon's Gaze and summoning more clones (their down K = a Hell Missile)
+  const from = { upGround: 'hbUpJ', downRanged: 'hellMissile' };
+  for (const k of ['counter', 'jab', 'jab2', 'jab3', 'jab4', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair',
                    'upRanged', 'sideRanged', 'neutralRanged', 'downRanged']) {
     const m = src[from[k] || k];
     cloneMoves[k] = { ...m, charge: false, chargedHit: undefined, slowmoHit: undefined, startup: m.startup * S + CLONE.delay, endlag: m.endlag * S + 0.05,
@@ -5985,7 +6162,7 @@ function summonShadowClone(f) {
     return;
   }
   f.cloneCD = CLONE.cd;
-  f.dodgeCount = Math.min(AIR_DODGE_MAX + FATIGUE_MAX, f.dodgeCount + 1); f.dodgeRecover = DODGE_RECOVER;   // (uses up a Z-vanish dot)
+  f.dodgeCount = Math.min(airDodgeMax(f) + FATIGUE_MAX, f.dodgeCount + 1); f.dodgeRecover = DODGE_RECOVER;   // (uses up a Z-vanish dot)
   const c = makeFighter({ name: 'CLONE', color: '#5a0a0a', energy: '#ff1a1a', x: f.x, controller: 'minion', char: 'COLBALIAS' });
   c.minion = true; c.owner = f;
   c.moveset = getCloneMoves();
@@ -7134,6 +7311,8 @@ const CHARACTERS = {
       bossAura: '#ff1a1a',      // a dark red aura that never goes out
       demonMeter: true,         // D-E-M-O-N meter
       doubleUlt: true,          // TWO meter bars, normal controls: a full bar = I transforms; transformed = I ultimate (uses that bar)
+      airDodges: 7,             // 7 Z vanishes in the air (his clones cost dots, so he gets more)
+      groundDodges: 6,          // 6 dodges on the ground before he tires
       glassJaw: true,           // takes the MOST base knockback in the game (see GLASS_JAW)
       transformAura: '#ff1a1a',
       // Colby's bowed-leg stance, but no scythe: one hand at his mouth with the cigarette, the other hanging loose
@@ -10031,7 +10210,7 @@ function updateProjectiles(dt) {
 }
 
 // ---------------- Dodges ----------------
-function fatigued(f, base, free = DODGE_FREE) {
+function fatigued(f, base, free = dodgeFree(f)) {
   const level = Math.min(FATIGUE_MAX, Math.max(0, f.dodgeCount - free));
   const slow = 1 + FATIGUE_SLOWER * level;
   const d = { ...base, level };
@@ -10047,7 +10226,7 @@ function fatigued(f, base, free = DODGE_FREE) {
 function startDodge(f, dir, down, up) {
   if (f.odm) odmBreak(f);                         // Sevon: any dodge / Z vanish while tethered cuts the ODM line (ready to re-fire)
   f.dodgeBuf = 0; f.jumpBuf = 0; f.flip = 0; f.squat = 0;
-  f.dodgeCount = Math.min(AIR_DODGE_MAX + FATIGUE_MAX, f.dodgeCount + 1);
+  f.dodgeCount = Math.min(airDodgeMax(f) + FATIGUE_MAX, f.dodgeCount + 1);
   f.dodgeRecover = DODGE_RECOVER;
   if (f.ground) {
     if (dir && !down) {
@@ -10066,7 +10245,7 @@ function startDodge(f, dir, down, up) {
     dx /= len; dy /= len;
     f.airDodges--;
     f.canCutJump = false;
-    f.action = { type: 'air', t: 0, ...fatigued(f, AIR_DODGE, AIR_DODGE_MAX), dx, dy, ghostT: 0 };
+    f.action = { type: 'air', t: 0, ...fatigued(f, AIR_DODGE, airDodgeMax(f)), dx, dy, ghostT: 0 };
     if (dx || dy) { f.vx = dx * f.action.speed; f.vy = dy * f.action.speed; }
     else { f.vx *= 0.3; f.vy = 0; }
     // Z VANISH: leave an after-image where you were and blink out
@@ -10163,9 +10342,8 @@ function startAttack(f, inp, btn) {
     return;
   }
   let move = f.moveset[key];
-  if (f.look && f.look.demonMeter && !f.minion) {     // ...and the Clone Launch Headbutt is his up J / up air J
+  if (f.look && f.look.demonMeter && !f.minion) {     // ...and the Clone Launch Headbutt is his up J (up air J is the Clone Swipe now)
     if (key === 'upGround') move = COLBALIAS_MOVES.hbUpJ;
-    else if (key === 'uair') move = COLBALIAS_MOVES.hbUair;
   }
   if (f.noScythe) {                                   // no scythe: punches replace the scythe moves
     const bare = CHARACTERS[f.char].bareMoves;
@@ -13629,7 +13807,7 @@ function drawFighter(p) {
   // Sketch: hit = red pen, dodging = pencil grey, charging = yellow highlighter
   if (sketch && tint) tint = p.hitFlash > 0 ? '#c0392b' : intangible ? (tired ? '#b0b0b0' : '#8c8c8c') : '#e0a400';
 
-  if (p.dodgeCount > DODGE_FREE && Math.random() < 0.15) burst(p.x, p.y - p.h, SWEAT, 1, Math.PI / 2, 0.8, 150);
+  if (p.dodgeCount > dodgeFree(p) && Math.random() < 0.15) burst(p.x, p.y - p.h, SWEAT, 1, Math.PI / 2, 0.8, 150);
 
   // Z vanish: almost invisible while air-dodging, with a faint flicker as you zip across
   const vanished = intangible && a && a.type === 'air';
@@ -14492,12 +14670,12 @@ function drawHUD() {
     }
 
     if (f.dodgeCount > 0 || !f.ground) {             // always shown in the air: your Z vanishes left
-      const dots = f.ground ? DODGE_FREE : AIR_DODGE_MAX;   // 4 dodges on the ground, 5 Z vanishes in the air
+      const dots = f.ground ? dodgeFree(f) : airDodgeMax(f);   // 4 dodges on the ground, 5 Z vanishes in the air (Colbalias: 6 / 7)
       for (let i = 0; i < dots; i++) {
         sctx.fillStyle = i < dots - f.dodgeCount ? '#a8ecff' : '#56493f';
         sctx.fillRect(sx - (dots * 9 - 3) / 2 + i * 9, sy + 16, 6, 6);   // centered row of dots
       }
-      if (f.dodgeCount > DODGE_FREE && SHOW_FIGHT_TEXT) text('TIRED x' + Math.min(FATIGUE_MAX, f.dodgeCount - DODGE_FREE), sx, sy + 40, 8, '#c27a12', 'center');
+      if (f.dodgeCount > dodgeFree(f) && SHOW_FIGHT_TEXT) text('TIRED x' + Math.min(FATIGUE_MAX, f.dodgeCount - dodgeFree(f)), sx, sy + 40, 8, '#c27a12', 'center');
     }
     if (f.shieldHP < SHIELD_MAX) {
       sctx.fillStyle = '#0e0c0c'; sctx.fillRect(sx - 27, sy + 4, 54, 9);
