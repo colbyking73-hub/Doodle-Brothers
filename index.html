@@ -1162,7 +1162,7 @@ const LANCE_MOVES = {
   upRanged: { name: 'Rising Axe Kick', startup: 0.08, active: 0.3, endlag: 0.26, landLag: 0.16,
     flip: true, flipTurns: 1, impactOnHit: true, hitstunBonus: 0.22,
     hitboxes: [{ x: 18, y: -60, r: 50, dmg: 3, base: 1250, growth: 0, angle: 86, from: 0, to: 0.14, group: 0 },   // carries them up
-               { x: 18, y: -50, r: 52, dmg: 7, base: 820, growth: 2.2, angle: 87, from: 0.16, to: 0.3, group: 1 }],  // heel up: pop
+               { x: 18, y: -50, r: 52, dmg: 7, base: 920, growth: 2.7, angle: 87, from: 0.16, to: 0.3, group: 1 }],  // heel up: pop (a bit stronger than it was: 820 / 2.2)
     wind: pose({ bob: -12, lean: 0.35, legA: [0.85, 1.6], legB: [0.5, 1.3], armA: [0.4, -1.4] }),
     strike: pose({ lean: 0.1, legA: [2.9, 0.05], legB: [0.6, 1.8], armA: [-1.6, 0.2] }),            // flipping, leg locked out
     strike2: pose({ lean: -0.25, legA: [3.05, 0.02], legB: [-0.4, 0.5], armA: [-2.2, 0.2] }), strike2At: 0.16,   // heel driven straight up
@@ -6414,7 +6414,7 @@ const SEVON_MOVES = {
     },
     step(f, a, dt) { if (a.phase === 'active' && Math.random() < dt * 60) burst(f.x, f.y - 40, SEVON_FIRE, 2, Math.PI / 2, 1, 260, { grav: -200 }); return false; } },
   // DOWN K: THIRD FORM - BLAZING UNIVERSE: a hop, then a huge flaming crescent brought down in front of him
-  downRanged: { name: 'Third Form: Blazing Universe', startup: 0.14, active: 0.2, endlag: 0.3, landLag: 0.16, hop: 420, charge: true,
+  blazingUniverse: { name: 'Third Form: Blazing Universe',     // (his old down K - retired for Total Concentration) startup: 0.14, active: 0.2, endlag: 0.3, landLag: 0.16, hop: 420, charge: true,
     hitboxes: [{ x: 50, y: -90, r: 46, dmg: 8, base: 300, growth: 3, angle: 70, from: 0, to: 0.08, group: 0 },
                { x: 70, y: -30, r: 50, dmg: 13, base: 460, growth: 7, angle: 65, from: 0.06, to: 0.2, group: 0 }],
     wind: pose({ lean: -0.35, bob: -16, legA: [1.0, 1.2], legB: [-0.6, 0.7], armA: [2.9, 0.3], armB: [2.7, 0.4], sw: 3.1 }),
@@ -6429,6 +6429,57 @@ const SEVON_MOVES = {
       return false;
     } },
 };
+
+// ---------------- TOTAL CONCENTRATION (Sevon, down K) ----------------
+// Down K (ground or air) switches it on / off - instant, like Lance's Kaioken. While it's on:
+//  - he hits harder, moves faster and his attacks come out quicker
+//  - every windup and every hit bursts with flame, and a fiery aura burns round him
+//  - but the breathing strains his body: he takes TC.drain % damage every second
+// He CAN'T go into it at TC.maxEnter % or more. Out of it, every one of his basic (J) attacks that lands HEALS him
+// TC.heal % - so he can fight his way back down under the limit and go into it again.
+const TC = { dealt: 1.12, speed: 1.18, startup: 0.85, drain: 1.5, maxEnter: 200, heal: 0.5, color: '#ff7a1a' };
+function tcSpeed(f, k) {                                   // (scales his movement - and his saved pre-transform stats too)
+  for (const s of [f.stats, f.baseStats]) if (s) { s.runSpeed *= k; s.airSpeed *= k; }
+  if (f.baseStats) f.baseStats = { ...f.baseStats };
+  f.stats = { ...f.stats };
+}
+function toggleTotalConc(f) {
+  if (f.minion) return;
+  if (f.tc) {                                              // switching it off
+    f.tc = false; tcSpeed(f, 1 / TC.speed);
+    burst(f.x, f.y - 45, ['#8f8f98', '#ffffff'], 14, 0, Math.PI, 300, { grav: 0 });
+    sfx.block();
+    return;
+  }
+  if (f.damage >= TC.maxEnter) {                           // too hurt to focus his breathing
+    painTexts.push({ x: f.x, y: f.y - 150, t: 0.8, max: 0.8, text: 'TOO HURT!', big: false });
+    burst(f.x, f.y - 60, ['#555555', '#8f8f98'], 10, -Math.PI / 2, 0.8, 200, { grav: -100 });
+    sfx.block();
+    return;
+  }
+  f.tc = true; tcSpeed(f, TC.speed);
+  if (SHOW_FIGHT_TEXT) ultBanner = { t: 0.9, title: 'BREATH OF FLAME', name: 'TOTAL CONCENTRATION!', color: TC.color, who: f };
+  ring(f.x, f.y - 45); ring(f.x, f.y - 20);
+  burst(f.x, f.y - 45, SEVON_FIRE, 50, 0, Math.PI, 760, { grav: -300 });
+  shake = Math.max(shake, 12); hitstop = Math.max(hitstop, 0.04);
+  impactFrame = 0.06; impactAt = { x: f.x, y: f.y - 50, ang: 0, all: false, focus: true, fire: true };
+  sfx.parry(); sfx.beam(0.4);
+}
+function endTotalConc(f) { if (f.tc) { f.tc = false; tcSpeed(f, 1 / TC.speed); } }
+// every frame: the strain, and the flames on his windups
+function updateTotalConc(f, dt) {
+  if (!f.tc) return;
+  f.damage += TC.drain * dt;
+  const a = f.action;
+  if (a && a.type === 'attack' && (a.phase === 'startup' || a.phase === 'charge') && Math.random() < dt * 70) {
+    burst(f.x + f.face * (20 + Math.random() * 50), f.y - 40 - Math.random() * 50, SEVON_FIRE, 2, -Math.PI / 2, 0.8, 220, { grav: -320 });
+  }
+  if (Math.random() < dt * 14) burst(f.x + (Math.random() - 0.5) * 40, f.y - 10, SEVON_FIRE, 1, -Math.PI / 2, 0.4, 160, { grav: -260 });   // embers off him
+}
+SEVON_MOVES.downRanged = { name: 'Total Concentration', startup: 0.02, active: 0.03, endlag: 0.06,
+  wind: pose({ bob: -12, lean: 0.25, legA: [0.9, 1.0], legB: [-0.8, 0.3], armA: [0.6, -0.7], armB: [0.5, -0.8], sw: 2.2 }),    // a deep breath in
+  strike: pose({ bob: -8, lean: -0.15, legA: [0.85, 0.6], legB: [-0.7, 0.2], armA: [0.6, -0.7], armB: [0.5, -0.8], sw: 2.4 }),  // ...and the flames roar out
+  fire(f) { toggleTotalConc(f); } };
 
 // ---------------- ODM GEAR (Sevon, neutral K) ----------------
 // 1. K: the grapple HOOK fires (aimed at whoever's in front of him). If it sticks in someone, they're TETHERED by a
@@ -6827,6 +6878,7 @@ const CHARACTERS = {
       katana: true,             // ...but it's a KATANA (see drawKatana)
       odm: true,                // ODM gear on his hips + the grapple (see ODM)
       fireHits: true,           // his hits burst into flames
+      totalConc: true,          // down K = TOTAL CONCENTRATION (see TC)
       transformAura: '#ff7a1a',
       // samurai stance: wide and low, the katana held up in both hands, pointing at them
       idle: pose({ lean: 0.1, bob: -9, legA: [0.78, 0.5], legB: [-0.62, 0.1], armA: [0.6, -0.7], armB: [0.5, -0.8], sw: 2.2 }),   // (chudan: hands low in front of his navel, tip at their eyes)
@@ -7309,7 +7361,7 @@ function setCharacter(f, charName) {
   f.stats = { ...DEFAULT_STATS, ...c.stats };
   f.look = c.look || {};
   f.w = 26 * (f.look.scale || 1); f.h = 90 * (f.look.scale || 1);   // bigger characters = bigger hurtbox
-  f.transformed = false; f.baseStats = null; f.kaioken = false; f.noScythe = false;
+  f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false;
   f.weapon = (c.look && c.look.weapon) || null;                // Colby / Colten start with their own weapon
 }
 function resetFighter(f, atSpawn) {
@@ -9517,6 +9569,7 @@ function powerOf(f) {
   if (f.strikeClone) return powerOf(f.owner);                    // his J-string clones hit with HIS power (it's his combo)
   if (f.minion) return ninjaLaw(f.owner).power * (f.owner && f.owner.transformed ? CLONE_RAGE.power : 1);   // clones: Inverse Ninja Law (+ rage)
   return (f.transformed ? tfStats(f).power : 1) * (f.kaioken ? kaiokenLv(f).dealt : 1) *   // both stack
+         (f.tc ? TC.dealt : 1) *                                                      // Sevon's TOTAL CONCENTRATION
          (f.revenge > 0 ? 1 + f.revenge : 1) *                                        // Aiden's stored REVENGE power
          hypePower(f);                                                                // Aiden's HYPE (weaker at low hype)
 }
@@ -9888,7 +9941,7 @@ function startAttack(f, inp, btn) {
   f.atkBuf = 0; f.spcBuf = 0; f.jumpBuf = 0; f.flip = 0; f.comboTimer = 0;
   f.action = { type: 'attack', key, move, btn, phase: 'startup', t: 0,
                charge: 0, mult: 1, hit: new Set(), air: !f.ground, started: time, cStick: fromC && f.ground, fromC,
-               startupMul: fromC ? C_STICK.speed : 1 };              // C-stick moves come out faster
+               startupMul: (fromC ? C_STICK.speed : 1) * (f.tc ? TC.startup : 1) };   // (Total Concentration: quicker too)              // C-stick moves come out faster
   if (btn === 'atk' && f.look && f.look.trackDash) startTrackDash(f, f.action);
   if (f.noScythe && /^(p[1-5]|k1)$/.test(key) && f.action.move.chain) colbyBlink(f, f.action);   // bare Colby's K string: BLINK round them
   // CAPTAIN HEEL'S VOICE: specials and smash attacks get a yell, normal attacks a grunt now and then
@@ -10716,6 +10769,7 @@ function updateFighter(f, inp, dt) {
   if (f.kiMark) { f.kiMark.time -= dt; kiMarkTarget(f); }         // Lance's ki mark wears off
   if (f.kiTpWait && !inp.blockHeld) f.kiTpWait = false;           // (Z let go: the next mark teleport is ready)
   if (f.kaioken) f.damage += kaiokenLv(f).drain * dt;             // Kaioken strain: 1% / 2% / 4% per second (x1 / x2 / x3)
+  if (f.tc) updateTotalConc(f, dt);                               // Sevon's Total Concentration: strain + flames
   updateBleed(f, dt);                                             // scythe wounds
   if (f.look && f.look.hype && !(f.action && f.action.type === 'taunt')) f.hype = Math.max(0, (f.hype || 0) - HYPE.drain * dt);   // Aiden's HYPE slowly drains (not while he's taunting)
   f.hypePulse = Math.max(0, (f.hypePulse || 0) - dt);
@@ -10909,6 +10963,7 @@ function updateFighter(f, inp, dt) {
     }
     endTransform(f);                                    // KO'd = you lose your transformation
     f.kaioken = false;                                  // ...and Kaioken
+    endTotalConc(f);                                    // ...and Total Concentration
     resetWeapons(f);                                    // ...and every weapon goes back to its owner (his own to him)
     f.action = null;
   }
@@ -11302,6 +11357,12 @@ function aiDecide(f, o, ai, L) {
     if (n > 0 && adx >= 240 && adx < 750 && Math.abs(dy) < 120 && Math.random() < 0.12) {
       f.face = toward; ai.tapSpc = true; ai.holdBtn = 'spc'; ai.hold = Math.random() * 0.5; return;   // Hellfire Shot from range
     }
+  }
+  // SEVON: TOTAL CONCENTRATION - go into it from a safe distance when he's under the limit, drop out of it once
+  // the strain has him close to the limit (then fight his way back down with J hits)
+  if (f.look && f.look.totalConc && !f.minion && !(oa && oa.type === 'attack' && adx < 200)) {
+    if (!f.tc && f.damage < TC.maxEnter - 40 && adx > 260 && Math.random() < 0.05) { ai.down = true; ai.tapSpc = true; return; }
+    if (f.tc && f.damage > TC.maxEnter - 20 && Math.random() < 0.05) { ai.down = true; ai.tapSpc = true; return; }
   }
   // AIDEN: low on HYPE and safely far away = TAUNT to pump it back up
   if (f.look && f.look.hype && f.ground && (f.hype || 0) < 60 && adx > 420 && !(oa && oa.type === 'attack') && Math.random() < 0.04) {
@@ -11727,6 +11788,14 @@ function update(dt) {
           // FIRE: hits burst into flames (Aiden)
           if (f.look && f.look.fireHits && t.damage > d0) {
             burst(hx, hy, FIRE, 8 + Math.round(h.dmg), Math.PI / 2, 1.4, 380, { grav: -300 });
+          }
+          // SEVON: in Total Concentration every hit ERUPTS in flame; out of it, his basic (J) hits heal him a little
+          if (f.tc && t.damage > d0) {
+            burst(hx, hy, SEVON_FIRE, 14 + Math.round(h.dmg * 1.5), -Math.PI / 2, 1.6, 520, { grav: -380 });
+            slashLine(hx, hy, Math.random() * Math.PI, 90, 0.1);
+          } else if (f.look && f.look.totalConc && !f.minion && a.btn === 'atk' && clean && t.damage > d0 && f.damage > 0) {
+            f.damage = Math.max(0, f.damage - TC.heal);
+            if (Math.random() < 0.5) painTexts.push({ x: f.x, y: f.y - 140, t: 0.4, max: 0.4, text: '-' + TC.heal + '%', big: false });
           }
           // REVENGE: his powered-up hit lands - the stored power is used up in a huge burst of fire
           if (f.revenge > 0 && t.damage > d0 && !a.move.noRevenge) consumeRevenge(f, hx, hy);
@@ -13364,6 +13433,7 @@ function drawFighter(p) {
       if (Math.random() < 0.12) bolt(p.x + (Math.random() - 0.5) * 40, p.y - 50 - Math.random() * 30, Math.random() * Math.PI * 2, 40, 0.07, Math.random() < 0.5 ? '#ff2a2a' : '#ffffff');
     } else drawAura(p, p.look.bossAura, false, 1.0 + 0.15 * stored, base + 0.35 * stored);
   }
+  if (p.tc) drawAura(p, TC.color, !p.transformed);                                // SEVON: TOTAL CONCENTRATION - a flame aura
   if (p.kaioken) for (let k = 0; k < Math.min(2, p.kaioken); k++) drawAura(p, KAIOKEN.color, !p.transformed && k === 0);   // (x2 / x3: a bigger, double aura)                // KAIOKEN: red aura (on top of Super Saiyan's gold)
   if (p.minion) {
     // SHADOW CLONE: a pitch-black silhouette with burning red eyes. Its eyes FLASH WHITE during the wind-up
@@ -14091,6 +14161,8 @@ function drawHUD() {
       text('HYPE', x + 106, y + 37, 6, HYPE.color, 'right', false);
     }
     if (f.kaioken) text(f.kaioken > 1 ? 'KAIOKEN x' + f.kaioken : 'KAIOKEN', x + 196, y + 54, 8, Math.floor(performance.now() / 250) % 2 ? KAIOKEN.color : '#ff8a3c', 'right', false);
+    if (f.tc) text('TOTAL CONC.', x + 196, y + 54, 8, Math.floor(performance.now() / 250) % 2 ? TC.color : '#ffd23f', 'right', false);
+    else if (f.look && f.look.totalConc && f.damage >= TC.maxEnter) text('TOO HURT FOR T.C.', x + 196, y + 54, 8, '#8f8f98', 'right', false);
     if (f.look && f.look.demonMeter) {                     // Colbalias's DEMON meter: each letter lights up as it fills
       const lit = Math.floor((f.demon || 0) / 20), full = (f.demon || 0) >= 100;
       const flash = full && Math.floor(performance.now() / 180) % 2;
