@@ -6275,10 +6275,11 @@ function stepHellwave(f, a) {
 // ...but several at once slowly overwhelm you.
 // ONE clone at a time: HALF as strong as Colbalias (its power, below), JUST AS FAST (his stats, no extra
 // startup), a QUARTER as durable (bursts after 25% damage), and takes 1.5x knockback (lighter).
-const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5, hits: 2, slow: 1.3 };   // up to TWO clones at once; each one bursts on its 2nd hit
+const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5, hits: 2, slow: 1.3, link: 0.5 };   // link = the share of a clone's damage Colbalias takes   // up to TWO clones at once; each one bursts on its 2nd hit
 // TRANSFORMED Colbalias: one MORE clone out at once, and each one takes one more hit before it bursts
 const cloneMax = owner => CLONE.max + (owner && owner.transformed ? 1 : 0);
-const cloneHitsMax = c => CLONE.hits + (c.owner && c.owner.transformed ? 1 : 0);
+// BIGGER LOBBIES: one more hit per fighter past two (3 in the match = +1, 4 = +2)
+const cloneHitsMax = c => CLONE.hits + (c.owner && c.owner.transformed ? 1 : 0) + Math.max(0, REAL_FIGHTERS - 2);
 // Summoning a clone costs one of his blue Z-vanish dots (they only refill on the ground) - no endless spam
 const cloneStats = () => { const s = { ...DEFAULT_STATS, ...CHARACTERS.COLBALIAS.stats }; s.weight = (s.weight || 1) / CLONE.kbTaken; return s; };
 // While COLBALIAS IS TRANSFORMED his clones turn vicious: faster on their feet, faster attacks, and their
@@ -6373,11 +6374,38 @@ function summonShadowClone(f) {
 }
 // The clones' brain: the normal AI at the FERAL setting, but it only moves, jumps and uses physical attacks
 // (no blocking, dodging, grabbing, specials, or ultimates - except up K to get back to the stage)
+// BIGGER LOBBIES = SMARTER CLONES: feral in a 1v1, HARD with 3 fighters, MASTER with 4 - and from HARD up they
+// defend themselves: shield, roll, spot-dodge and Z VANISH out of the way of hits to stay alive
+const cloneAiLevel = () => REAL_FIGHTERS >= 4 ? 'MASTER' : REAL_FIGHTERS >= 3 ? 'HARD' : 'FERAL';
+const CLONE_DODGE = { HARD: 0.5, MASTER: 0.78 };         // chance to dodge an attack that's about to land on it
 function minionInput(f) {
-  const inp = aiInput(f, 'FERAL');
-  inp.blockTap = inp.blockHeld = false; inp.dirTap = false;
+  const lvl = cloneAiLevel();
+  const inp = aiInput(f, lvl);
+  if (lvl === 'FERAL') { inp.blockTap = inp.blockHeld = false; inp.dirTap = false; }   // (feral: never defends)
   inp.grabTap = false; inp.ultTap = false; inp.flyTap = 0; inp.taunt = 0;
   if (inp.down) inp.spcTap = inp.spcHeld = false;         // (K = missiles / recovery only)
+  // SURVIVAL REFLEX: an attack is about to land on it - dodge out of the way (roll / spot dodge / Z vanish)
+  if (CLONE_DODGE[lvl] && !(f.action && f.action.type !== 'land')) {
+    const o = nearestFoe(f), oa = o && o.action;
+    if (oa && oa.type === 'attack' && oa.phase === 'startup' && Math.abs(o.x - f.x) < 180 && Math.abs(o.y - f.y) < 140) {
+      const left = oa.move.startup * (oa.startupMul || 1) - oa.t;
+      const rolled = oa.cloneRolls || (oa.cloneRolls = new Set());
+      if (left <= 0.09 && !rolled.has(f)) {
+        rolled.add(f);                                      // (one roll per attack per clone)
+        if (Math.random() < CLONE_DODGE[lvl] && (f.ground || canAirDodge(f))) {
+          const away = Math.sign(f.x - o.x) || 1;
+          Object.assign(inp, { blockTap: true, blockHeld: true, dirTap: true, atkTap: false, spcTap: false, jumpTap: false, up: false });
+          if (f.ground) { if (Math.random() < 0.55) { inp.dir = away; inp.down = false; } else { inp.dir = 0; inp.down = true; } }
+          else { inp.dir = away; inp.down = false; inp.up = Math.random() < 0.4; }
+        }
+      }
+    }
+    // shots flying at it: Z vanish / roll through them
+    if (!inp.blockTap && projectiles.some(s => s.owner && !allies(f, s.owner) && s.kind !== 'beam' && Math.hypot(s.x - f.x, s.y - (f.y - 45)) < 120 &&
+        ((f.x - s.x) * (s.vx || 0) + (f.y - 45 - s.y) * (s.vy || 0)) > 0) && Math.random() < CLONE_DODGE[lvl] * 0.05) {
+      Object.assign(inp, { blockTap: true, blockHeld: true, dirTap: true, dir: f.ground ? 0 : Math.sign(f.x - (nearestFoe(f) || f).x) || 1, down: f.ground });
+    }
+  }
   return inp;
 }
 function killMinion(c, quiet) {
@@ -7337,58 +7365,46 @@ function drawHaori(hip, shoulder, f, fig, opts, main, layer = 'back') {
   haoriHem(bot1, bot2, up, layer === 'back' ? 1 : 0.9);
   ctx.restore();
 }
-// GINGER HAIR (Sevon): real hair, not spikes - one smooth, full head of ginger hair swept BACK off his forehead and
-// flowing down past the back of his head, with darker strands combed through it, a soft highlight on top, a few
-// locks at the back ending in ORANGE tips, and one loose strand falling over his forehead. It sways as he moves.
-const SEVON_HAIR = {
-  base: '#b8441a', shade: '#86300f', light: '#d9672c', tip: '#ff8a2a',
-  // (head units: x = toward his front, y = down; head radius ~13)
-  tails: [[[-16, -9], [-24, -5], [-29, 2], 4], [[-18, -1], [-24, 6], [-25, 14], 4.2], [[-14, 5], [-18, 12], [-17, 20], 3.6]],
-  strands: [[[8, -12], [-6, -20], [-21, -9]], [[4, -8], [-9, -15], [-23, 0]], [[-1, -4], [-11, -8], [-18, 9]]],
-  fringe: [[8, -12], [16, -8], [13, 1], 2.4],
-};
+// GINGER BOWL CUT (Sevon): a full, rounded bowl of ginger hair sitting on his head like a helmet - a straight fringe
+// cut across his forehead, the sides and back cut level just above the nape - with darker strands combed down from the
+// crown, a soft shine on top, and a ragged ORANGE edge all the way round where it's cut. It bounces a little as he moves.
+const SEVON_HAIR = { base: '#b8441a', shade: '#86300f', light: '#dc6a2e', tip: '#ff8a2a' };
 function drawFlameHair(head, f, opts, main, fig) {
   const H = SEVON_HAIR, tinted = !!(opts.tint || sketch);
-  const sway = fig ? clamp(-(fig.vx || 0) * 0.008, -6, 6) : 0, lift = fig ? clamp((fig.vy || 0) * 0.006, -5, 6) : 0;
-  const P = ([x, y]) => { const k = clamp((-x - 10) / 16, 0, 1); return { x: head.x + f * (x + sway * k), y: head.y + y - lift * k }; };   // (the back of it sways)
-  const qp = (a, c, b, t) => ({ x: (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * c.x + t * t * b.x, y: (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * c.y + t * t * b.y });
-  const lock = (a, c, b, w) => {                                 // a tapered lock: root (width w) -> curving -> a fine point
-    const ang = Math.atan2(c.y - a.y, c.x - a.x), nx = -Math.sin(ang), ny = Math.cos(ang);
-    ctx.beginPath(); ctx.moveTo(a.x + nx * w, a.y + ny * w);
-    ctx.quadraticCurveTo(c.x + nx * w * 0.7, c.y + ny * w * 0.7, b.x, b.y);
-    ctx.quadraticCurveTo(c.x - nx * w * 0.5, c.y - ny * w * 0.5, a.x - nx * w, a.y - ny * w);
-    ctx.closePath(); ctx.fill();
-  };
+  const bob = fig ? clamp((fig.vy || 0) * 0.004, -2, 2.5) : 0;
+  const P = (x, y) => ({ x: head.x + f * x, y: head.y + y });
+  const R = 15, cy = -2 - bob;                                   // (a bit bigger than his head: it has volume)
+  // the outline: the dome over the top (front -> back), then the cut line along the bottom (back -> front)
+  const dome = [];
+  for (let t = -0.12; t <= Math.PI + 0.45; t += 0.12) dome.push(P(Math.cos(t) * R, cy - Math.sin(t) * R));
+  const cut = [P(-14.6, 6.5), P(-10, 5.5), P(-5, 1), P(1, -3.5), P(8, -4.5), P(14.4, -4)];   // nape -> over the ear -> the fringe
   const col = c => opts.tint || (sketch ? main : c);
   ctx.save();
-  // the locks at the back (under the main mass), each with an orange tip
-  for (const [r, c, t, w] of H.tails) {
-    const a = P(r), cc = P(c), b = P(t);
-    ctx.fillStyle = col(H.base); lock(a, cc, b, w);
-    if (!tinted) { ctx.fillStyle = H.tip; lock(qp(a, cc, b, 0.55), qp(a, cc, b, 0.78), b, w * 0.5); }
-  }
-  // the main mass: hairline high at the forehead, over the top, swept back and flowing down behind his head
   ctx.fillStyle = col(H.base);
-  const p = pts => pts.map(P);
-  const [s0, c1, e1, c2, e2, c3, e3, c4, e4, c5, e5] = p([[11, -5], [13, -16], [2, -18.5], [-11, -21], [-20, -11], [-25, -3], [-22, 8], [-19, 12], [-13, 9], [-11, 3], [-9, -3]]);
-  ctx.beginPath(); ctx.moveTo(s0.x, s0.y);
-  ctx.quadraticCurveTo(c1.x, c1.y, e1.x, e1.y); ctx.quadraticCurveTo(c2.x, c2.y, e2.x, e2.y);
-  ctx.quadraticCurveTo(c3.x, c3.y, e3.x, e3.y); ctx.quadraticCurveTo(c4.x, c4.y, e4.x, e4.y);
-  ctx.quadraticCurveTo(c5.x, c5.y, e5.x, e5.y);
-  const h1 = P([0, -7]); ctx.quadraticCurveTo(h1.x, h1.y, s0.x, s0.y);   // (the hairline across his head)
-  ctx.closePath(); ctx.fill();
+  ctx.beginPath(); [...dome, ...cut].forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
   if (!tinted) {
-    // strands combed back through it, and a soft highlight across the top
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = H.shade; ctx.lineWidth = 1;
-    for (const [r, c, t] of H.strands) { const a = P(r), cc = P(c), b = P(t); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(cc.x, cc.y, b.x, b.y); ctx.stroke(); }
-    ctx.strokeStyle = H.light; ctx.lineWidth = 1.6;
-    { const a = P([6, -14]), cc = P([-3, -19]), b = P([-13, -16]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(cc.x, cc.y, b.x, b.y); ctx.stroke(); }
+    // the ragged ORANGE cut edge: little points hanging off the bottom line
+    ctx.fillStyle = H.tip;
+    const edge = [dome[dome.length - 1], ...cut];
+    for (let i = 0; i < edge.length - 1; i++) {
+      const a = edge[i], b = edge[i + 1], n = 3;
+      for (let k = 0; k < n; k++) {
+        const u0 = k / n, u1 = (k + 1) / n, um = (u0 + u1) / 2;
+        const x0 = lerp(a.x, b.x, u0), y0 = lerp(a.y, b.y, u0), x1 = lerp(a.x, b.x, u1), y1 = lerp(a.y, b.y, u1);
+        ctx.beginPath(); ctx.moveTo(x0, y0 - 2.2); ctx.lineTo(x1, y1 - 2.2); ctx.lineTo(lerp(a.x, b.x, um), lerp(a.y, b.y, um) + 3.2); ctx.closePath(); ctx.fill();
+      }
+    }
+    // strands combed down from the crown to the cut line
+    ctx.strokeStyle = H.shade; ctx.lineWidth = 0.9; ctx.lineCap = 'round';
+    const crown = P(-1, cy - R + 2);
+    for (const e of [P(12, -6), P(6, -6.5), P(0, -5), P(-5, -1), P(-9.5, 3), P(-13, 4.5)]) {
+      ctx.beginPath(); ctx.moveTo(crown.x, crown.y + 2);
+      ctx.quadraticCurveTo(lerp(crown.x, e.x, 0.5) + (e.x - crown.x) * 0.25, lerp(crown.y, e.y, 0.35), e.x, e.y); ctx.stroke();
+    }
+    // a soft shine across the top of the bowl
+    ctx.strokeStyle = H.light; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(head.x - f * 1, head.y + cy, R - 3, Math.PI * 1.25, Math.PI * 1.6); ctx.stroke();
   }
-  // one loose strand falling over his forehead
-  { const [r, c, t, w] = H.fringe, a = P(r), cc = P(c), b = P(t);
-    ctx.fillStyle = col(H.base); lock(a, cc, b, w);
-    if (!tinted) { ctx.fillStyle = H.tip; lock(qp(a, cc, b, 0.6), qp(a, cc, b, 0.8), b, w * 0.5); } }
   ctx.restore();
 }
 function drawOdmGear(hip, f, opts) {
@@ -8762,10 +8778,10 @@ function knock(t, h, dirSign, mult, hx, hy) {
   }
   t.damage += dmg;
   if (t.minion) t.hitsTaken = (t.hitsTaken || 0) + 1;            // (Colbalias's clones burst on their CLONE.hits-th hit)
-  // CLONE LINK: whatever damage ANY of Colbalias's clones takes (summoned or J-string) goes straight back to him
+  // CLONE LINK: whatever damage ANY of Colbalias's clones takes (summoned or J-string) goes back to him - at CLONE.link (half)
   if (t.minion && t.owner && !t.owner.out && t.owner.respawnTimer <= 0 && dmg > 0) {
     const o = t.owner;
-    o.damage += dmg; o.hitFlash = Math.max(o.hitFlash || 0, 0.08);
+    o.damage += dmg * CLONE.link; o.hitFlash = Math.max(o.hitFlash || 0, 0.08);   // (he feels it - but only half of it)
     burst(o.x, o.y - 55, ['#ff1a1a', '#3a0000', '#ffffff'], 6, 0, Math.PI, 220, { grav: 0 });
   }
   if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + dmg * ULT_GAIN);   // getting hit charges your ultimate (not while transformed)
@@ -10257,7 +10273,7 @@ function godSpeedZap(f, t, h, hx, hy) {
   if (!godSpeed(f) || !t || t === f || t.respawnTimer > 0) return;
   const z = (h && h.noStop ? GOD_SPEED.tickZap : GOD_SPEED.zap) * (t.kaioken ? KAIOKEN.taken : 1);
   t.damage += z; if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + z * ULT_GAIN);
-  if (t.minion && t.owner && t.owner.respawnTimer <= 0) t.owner.damage += z;   // (clones pass it back to Colbalias)
+  if (t.minion && t.owner && t.owner.respawnTimer <= 0) t.owner.damage += z * CLONE.link;   // (clones pass it back to Colbalias - half of it)
   const n = h && h.noStop ? 1 : 3;
   for (let k = 0; k < n; k++) bolt(t.x + (Math.random() - 0.5) * 20, t.y - 30 - Math.random() * 50, Math.random() * Math.PI * 2, 30 + Math.random() * 40, 0.1, GOD_SPEED.colors[k % 3]);
   if (!(h && h.noStop)) burst(hx, hy, GOD_SPEED.colors, 8, 0, Math.PI, 420, { grav: 0 });
@@ -16629,7 +16645,8 @@ const MOVESETS = {
       ['DOWN + I (TRANSFORMED)', 'Shadow Clone Rush', '25 clones fight them one exchange at a time - each lands a combo and gets countered - then he teleports behind them for a dead-flat launching punch to the back of the head.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'TWO METER BARS: each bar is a full transform + ultimate. Use one, and the second can do it all again.',
-      'HIS CLONES have his whole moveset (slower and weaker) except ultimates, the gaze and summoning. Each takes 2 hits, and ANY damage a clone takes goes to Colbalias.',
+      'HIS CLONES have his whole moveset (slower and weaker) except ultimates, the gaze and summoning. Each takes 2 hits (+1 per fighter past two in the match), and Colbalias takes HALF of any damage a clone takes.',
+      'BIGGER MATCHES, SMARTER CLONES: with 3 fighters his clones fight like HARD CPUs, with 4 like MASTER - and they shield, roll and Z vanish to stay alive.',
       'MORE DODGES: 7 Z vanishes in the air and 6 ground dodges (everyone else: 5 / 4) - because summoning spends them.',
       'GLASS JAW: he takes the most knockback in the game - but his own hits do 15% more damage to make up for it. Keep your distance and let the clones work.',
       'D-E-M-O-N METER: fills as he lands hits - full = Hellwave on down K.' ] } ] },
