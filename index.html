@@ -5397,29 +5397,29 @@ COLBALIAS_MOVES.cloneDive = { name: 'Clone Falcon Dive', startup: 0.1, active: 0
 
 // ---- CLONE DETONATION (down J) ----
 const DETONATE = { r: 110, hit: { dmg: 11, base: 430, growth: 5.6, angle: 55 }, selfHit: { dmg: 5, base: 300, growth: 3, angle: 60 }, selfR: 72 };
-function detonateAt(f, x, y, r, h) {                              // one explosion: hits every foe in range, away from its centre
+function detonateAt(f, x, y, r, h, mult = 1) {                    // one explosion: hits every foe in range, away from its centre (mult: charged)
   hellBurst(x, y, 30, 760); ring(x, y);
   for (let k = 0; k < 8; k++) bolt(x, y, Math.random() * Math.PI * 2, 60 + Math.random() * 60, 0.16, DEVIL_LIGHTNING[k % 3]);
   burst(x, y, ['#ff2a2a', '#ff8a3c', '#ffd23f', '#3a0000'], 30, 0, Math.PI, 700, { grav: -150 });
   for (const t of fighters) {
     if (t === f || allies(f, t) || t.respawnTimer > 0 || t.dead || t.poofT > 0 || isIntangible(t)) continue;
     if (!circleHitsFighter(x, y, r, t)) continue;
-    applyHit(t, h, Math.sign(t.x - x) || f.face, powerOf(f), t.x, t.y - 50, { fighter: f });
+    applyHit(t, h, Math.sign(t.x - x) || f.face, powerOf(f) * mult, t.x, t.y - 50, { fighter: f });
   }
 }
 COLBALIAS_MOVES.detonate = { name: 'Clone Detonation', startup: 0.12, active: 0.06, endlag: 0.26, hitboxes: [],
   wind: handSign,
   strike: pose({ lean: -0.1, bob: -10, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [1.1, -2.4], armB: [0.9, -2.4] }),   // KATSU!
-  fire(f) {
+  fire(f, mult = 1) {
     if (f.minion) {                                               // a clone doing it: blows ITSELF up
-      detonateAt(f.owner || f, f.x, f.y - 50, DETONATE.r, DETONATE.hit); killMinion(f, true);
+      detonateAt(f.owner || f, f.x, f.y - 50, DETONATE.r, DETONATE.hit, mult); killMinion(f, true);
       shake = Math.max(shake, 12); sfx.blast(); return;
     }
     const mine = fighters.filter(c => c.minion && c.owner === f && !c.strikeClone && !c.dead && !(c.poofT > 0));
     if (!mine.length) {                                           // no clones out: a small burst of hellfire round himself
-      detonateAt(f, f.x, f.y - 45, DETONATE.selfR, DETONATE.selfHit); shake = Math.max(shake, 6); sfx.blast(); return;
+      detonateAt(f, f.x, f.y - 45, DETONATE.selfR, DETONATE.selfHit, mult); shake = Math.max(shake, 6); sfx.blast(); return;
     }
-    for (const c of mine) { detonateAt(f, c.x, c.y - 50, DETONATE.r, DETONATE.hit); killMinion(c, true); }
+    for (const c of mine) { detonateAt(f, c.x, c.y - 50, DETONATE.r, DETONATE.hit, mult); killMinion(c, true); }
     painTexts.push({ x: f.x, y: f.y - 150, t: 0.7, max: 0.7, text: 'KATSU!', big: true });
     impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: f.x, y: f.y - 60, ang: 0, all: true, focus: false, fire: true };
     shake = Math.max(shake, 18); hitstop = Math.max(hitstop, 0.06);
