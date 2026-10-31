@@ -4221,12 +4221,19 @@ function shipImpact(f, a) {
     const inCage = caged.includes(t);
     if (!inCage && (t.x < x0 || t.x > x1)) continue;
     // PERFECT BLOCK: shield thrown up right as the ship comes down (the usual perfect-block timing) = no damage, even
-    // shut in the cage. (A shield that's just held up gets crushed anyway.)
+    // shut in the cage. A shield that's just HELD up blocks it too - but no shield can take a whole ship: it's a
+    // GUARANTEED SHIELD BREAK (no damage, but they're left dizzy and wide open).
     const aiParryOk = t.controller !== 'dummy' || Math.random() < ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7, IMPOSSIBLE: 0.97 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3);
     // (a bit more lenient than a normal hit: a shield thrown up any time from "JUMP!" ending - when the swing starts - counts)
     if (t.shielding && t.shieldAge <= SHIP.parry && aiParryOk) {
       perfectBlock(t, {}, t.x, t.y - 60);                       // (the flash, the sound, a full shield - Heel isn't staggered: he's mid-ult)
       painTexts.push({ x: t.x, y: t.y - 160, t: 0.9, max: 0.9, text: 'PERFECT BLOCK!', big: true });
+      continue;
+    }
+    if (t.shielding) {                                         // BLOCKED... and the shield SHATTERS
+      burst(t.x, t.y - 50, ['#a8ecff', '#ffffff', '#6b3d1f'], 30, 0, Math.PI, 650, { grav: 600 });
+      t.shieldHP = 0; breakShield(t);
+      painTexts.push({ x: t.x, y: t.y - 160, t: 1.0, max: 1.0, text: 'SHIELD BROKEN!', big: true });
       continue;
     }
     if (!t.ground && !inCage) { painTexts.push({ x: t.x, y: t.y - 130, t: 0.7, max: 0.7, text: 'DODGED!', big: false }); continue; }   // in the air = safe (unless caged)
@@ -16788,7 +16795,7 @@ const MOVESETS = {
       ['GRAB + I (FULL METER)', "Dead Man's Deck Match", 'His grab ultimate - straight from a grab.'] ] },
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
       ['I (FULL METER)', 'CAGE MATCH', 'A steel cage drops over him and everyone nearby - nobody can leave until he lands his ultimate.'],
-      ['I (TRANSFORMED)', 'Pirate Ship Slam', 'A pirate ship comes crashing down - anyone in the cage is a guaranteed hit.'] ] },
+      ['I (TRANSFORMED)', 'Pirate Ship Slam', 'A pirate ship comes crashing down - anyone in the cage can't escape it. BLOCK it and your shield is guaranteed to SHATTER (dizzy, wide open); only a PERFECT BLOCK right as it lands saves you clean.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'HYPE: taunt (Y / X / Z) to fill it; it slowly drains. At low hype he only does 80% damage and is lighter. Full hype = full strength and full weight.',
       'HEAVY HITTER: every hit freezes longer, rocks the screen and throws CINDERS - they keep smouldering for a moment after.',
