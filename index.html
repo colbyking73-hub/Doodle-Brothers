@@ -4947,7 +4947,7 @@ const COLBALIAS_MOVES = {
 // Colbalias hits harder than Colby (he's the final boss): +15% damage, +10% launch on everything
 // COLBALIAS hits the SOFTEST in the game: every move does about a third of its written damage (knockback is left
 // alone, so he can still send people flying) - but he's the FASTEST: every move comes out and recovers 30% quicker.
-const COLBALIAS_TUNE = { dmg: 0.35, speed: 0.7 };
+const COLBALIAS_TUNE = { dmg: 0.6, speed: 0.7 };   // (was 0.35 - far too soft once he was a playable character: he barely dealt damage)
 for (const k in COLBALIAS_MOVES) {
   if (k === 'counter') continue;
   const m = COLBALIAS_MOVES[k];
@@ -5429,6 +5429,9 @@ COLBALIAS_MOVES.nair = COLBALIAS_MOVES.cloneFlail;
 COLBALIAS_MOVES.uair = COLBALIAS_MOVES.cloneSwipe;
 COLBALIAS_MOVES.dair = COLBALIAS_MOVES.cloneDive;
 COLBALIAS_MOVES.downGround = COLBALIAS_MOVES.detonate;
+// (his clone-string hits were tuned for when he was only a boss - 50% harder now that he's a real fighter)
+for (const m of [CLONE_STRING.catapultKick, CLONE_STRING.vaultAxe, CLONE_STRING.upKick, CLONE_STRING.headCrushHit, COLBALIAS_MOVES.jab2])
+  for (const h of m.hitboxes || []) h.dmg = Math.round(h.dmg * 1.5 * 10) / 10;
 
 // ---------------- COLBALIAS'S THROWS ----------------
 //  down    = GERMAN SUPLEX: arms round their waist, he bridges back and drives them head-first into the floor behind
@@ -6380,6 +6383,8 @@ function summonShadowClone(f) {
 // defend themselves: shield, roll, spot-dodge and Z VANISH out of the way of hits to stay alive
 const cloneAiLevel = () => REAL_FIGHTERS >= 4 ? 'MASTER' : REAL_FIGHTERS >= 3 ? 'HARD' : 'FERAL';
 const CLONE_DODGE = { HARD: 0.5, MASTER: 0.78 };         // chance to dodge an attack that's about to land on it
+// Colbalias's CPU: backOff = how often he backs away from them while his clones are fighting (to keep his range)
+const COLBALIAS_AI = { backOff: 0.45 };
 function minionInput(f) {
   const lvl = cloneAiLevel();
   const inp = aiInput(f, lvl);
@@ -11920,7 +11925,7 @@ const AI_LEVELS = {
   EASY:   { think: 0.38, defend: 0.12, aggro: 0.55, combo: 0.3,  mash: 2.5, sac: 0 },
   NORMAL: { think: 0.2,  defend: 0.4,  aggro: 0.75, combo: 0.7,  mash: 5, sac: 0.008 },
   HARD:   { think: 0.09, defend: 0.75, aggro: 0.92, combo: 0.97, mash: 8, sac: 0.02 },
-  MASTER: { think: 0.05, defend: 0.9,  aggro: 0.96, combo: 1,    mash: 11, sac: 0.35 },   // reacts almost instantly
+  MASTER: { think: 0.05, defend: 0.9,  aggro: 0.96, combo: 1,    mash: 11, sac: 0.12 },   // reacts almost instantly
   IMPOSSIBLE: { think: 0.016, defend: 0.99, aggro: 1, combo: 1, mash: 18, precog: true, sac: 0.6 },   // reacts instantly - and READS you (see precog in aiInput)
   FERAL:  AI_FERAL,                                                              // Colbalias's shadow clones
 };
@@ -11942,7 +11947,9 @@ function aiInput(f, level) {
   }
   // Keep a combo going once the first hit lands
   const act = f.action;
-  if (act && act.type === 'attack' && act.move.combo && act.hit.size > 0 && act.phase === 'active' &&
+  // (Colbalias: his CLONES land the hits in his string - so it counts as landed when they're stunned in front of him)
+  const cloneLanded = f.look && f.look.demonMeter && o && o.action && o.action.type === 'hitstun' && Math.abs(o.x - f.x) < 260;
+  if (act && act.type === 'attack' && act.move.combo && (act.hit.size > 0 || cloneLanded) && (act.phase === 'active' || (cloneLanded && act.phase === 'end')) &&
       !act.comboRolled) {
     act.comboRolled = true;
     if (Math.random() < L.combo) {
@@ -12139,11 +12146,11 @@ function aiDecide(f, o, ai, L) {
   // clone is always between them), then hangs back and shoots while the clones do the up-close work
   if (f.look && f.look.demonMeter && !f.minion) {
     const n = cloneCount(f);
-    const canSummon = (f.cloneCD || 0) <= 0 && n < cloneMax(f) && canAirDodge(f) && (f.demon || 0) < 100;
+    const canSummon = (f.cloneCD || 0) <= 0 && n < cloneMax(f) && f.dodgeCount <= airDodgeMax(f) - 3 && (f.demon || 0) < 100 && f.ground;   // (always keeps 3 Z vanishes in reserve for getting home)
     if (canSummon && adx < 800 && Math.abs(dy) < 220 && Math.random() < (adx < 180 ? 0.4 : 0.18)) {
       f.face = toward; ai.down = true; ai.tapSpc = true; return;
     }
-    if (n > 0 && adx < 240 && Math.abs(dy) < 160 && !(oa && (oa.type === 'hitstun' || oa.type === 'dizzy')) && Math.random() < 0.45) {
+    if (n > 0 && adx < 240 && Math.abs(dy) < 160 && !(oa && (oa.type === 'hitstun' || oa.type === 'dizzy')) && Math.random() < COLBALIAS_AI.backOff) {
       ai.dir = safeDir(f, -toward);                                       // back off - let the clones keep them busy
       if (f.ground && Math.random() < 0.12) ai.tapJump = true;
       return;
@@ -12184,6 +12191,34 @@ function aiDecide(f, o, ai, L) {
     return;
   }
 
+  // COLBALIAS - his own move choices (the generic ones throw away his kit: charged Red Chidoris point blank, clone dives
+  // at nothing): up close he starts the CLONE STRING (and follows it through) or detonates clones that are on them;
+  // the headbutt when they're right above; Red Chidori from MID range; the Falcon Dive only when they're below him;
+  // the Clone Flail / Swipe when they're beside / above him in the air.
+  if (f.look && f.look.demonMeter && !f.minion) {
+    const rr = Math.random();
+    if (f.ground && adx < 110 && Math.abs(dy) < 50) {
+      const cloneOnThem = fighters.some(c => c.minion && c.owner === f && !c.strikeClone && !c.dead && Math.hypot(c.x - o.x, c.y - o.y) < 100);
+      f.face = toward;
+      if (cloneOnThem && rr < 0.4) { ai.down = true; ai.tapAtk = true; }            // KATSU
+      else if (o.shielding && rr < 0.7) ai.tapGrab = true;
+      else if (rr < 0.8) ai.tapAtk = true;                                          // the clone string
+      else ai.tapGrab = true;
+      return;
+    }
+    if (f.ground && adx < 80 && dy < -60 && dy > -220) { ai.up = true; ai.tapAtk = true; return; }   // headbutt
+    if (f.ground && adx > 150 && adx < 430 && Math.abs(dy) < 40 && rr < 0.3) {    // Red Chidori, lightly charged
+      f.face = toward; ai.dir = toward; ai.tapAtk = true; ai.holdBtn = 'atk'; ai.hold = 0.08 + Math.random() * 0.22; return;
+    }
+    if (!f.ground) {
+      if (adx < 140 && dy > 70 && dy < 420 && rr < 0.6) { ai.down = true; ai.tapAtk = true; return; }   // Falcon Dive onto them
+      if (adx < 110 && Math.abs(dy) < 110) {
+        if (dy < -40) ai.up = true;                                                 // Clone Swipe overhead
+        else if (rr < 0.5) ai.dir = f.face === toward ? toward : -toward;           // knuckle / back kick
+        ai.tapAtk = true; return;                                                   // (no direction = Clone Flail)
+      }
+    }
+  }
   // GRAB: beats shields - grab anyone hiding behind one, and sometimes just mix it in up close
   if (f.ground && adx < 70 && Math.abs(dy) < 30 && f.face === toward &&
       Math.random() < (o.shielding ? 0.75 : 0.12)) {
@@ -12353,7 +12388,7 @@ function aiSafety(f, ai) {
   if (a && (a.type === 'hitstun' || a.type === 'dizzy')) return;
   const offLeft = f.x < STAGE.x, offRight = f.x > STAGE.x + STAGE.w;
   if (!f.ground && (offLeft || offRight || f.y > STAGE.y + 5)) {
-    ai.block = false; ai.down = false; ai.hold = 0; ai.tapAtk = false;
+    ai.block = false; ai.down = false; ai.hold = 0; ai.tapAtk = false; ai.tapSpc = false; ai.holdBtn = null;   // (no attacking / charging shots while trying to get home)
     // Under the stage: get out to the side first, then head back to the middle
     const under = f.y > STAGE.y + 5 && !offLeft && !offRight;
     ai.dir = under ? (f.x < W / 2 ? -1 : 1) : Math.sign(W / 2 - f.x);
@@ -12367,7 +12402,7 @@ function aiSafety(f, ai) {
       else if (canAirDodge(f) && (zFirst || gap > 140 || f.y > STAGE.y + 40)) {         // Z VANISH back toward the stage
         ai.tapBlock = true; ai.dir = under ? ai.dir : Math.sign(W / 2 - f.x); ai.up = f.y > STAGE.y - 120;
       }
-      else if (C === 'COLBALIAS' && !f.minion && !f.hbAirUsed) { ai.up = true; ai.tapAtk = true; }   // clone-boost headbutt
+      // (Colbalias: up K below = the DEMON'S GAZE: a lift - and a swap to his clone or whoever he's marked, often right back onto the stage)
       else if (!f.upSpecialUsed) { ai.up = true; ai.tapSpc = true; }                    // their up special
       else if (canAirDodge(f) && f.y < STAGE.y + 260) { ai.tapBlock = true; ai.up = true; }   // a last Z vanish
     }
