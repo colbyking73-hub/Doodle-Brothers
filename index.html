@@ -1135,7 +1135,7 @@ const LANCE_MOVES = {
     overcharge: true,                                                      // keep holding past full: up to 200% (double power + size)
     wind: pose({ armA: [-0.6, -1.6], lean: -0.25, bob: -8, legA: [0.7, 0.6], legB: [-0.7, 0.2] }),      // hand cupped back at the hip
     strike: pose({ armA: [1.57, 0], lean: 0.2, bob: -8, legA: [0.75, 0.6], legB: [-0.75, 0.2] }),      // thrust forward
-    fire(f, mult, c, a) { spawnBeam(f, mult, c, a ? a.over || 0 : 0); },
+    fire(f, mult, c, a) { spawnBeam(f, mult, c, a ? a.over || 0 : 0); if (a && a.noMark) projectiles[projectiles.length - 1].noMark = true; },
     // Z VANISH WHILE CHARGING (block / dodge): he blinks away in any direction and KEEPS charging. With someone KI-MARKED,
     // it's an Instant Transmission right behind them - and the Kamehameha goes off point-blank, straight away.
     step(f, a, dt, inp) {
@@ -1280,7 +1280,7 @@ function updateDisc(s, dt) {
     if (!circleHitsFighter(s.x, s.y, s.r * 0.9, t)) continue;
     if (applyHit(t, DISC.hit, dirSign, s.mult, s.x, s.y)) {
       s.hit.add(t);
-      markKi(o, t);
+      markKi(o, t, s);
       slashLine(s.x, s.y, s.vy * 0.001 + (dirSign > 0 ? 0 : Math.PI), 120, 0.14);
       burst(s.x, s.y, [DISC.color, DISC.glow, '#ffffff'], 12, dirSign > 0 ? 0 : Math.PI, 0.6, 420, { grav: 0 });
     }
@@ -1408,13 +1408,23 @@ function drawBleed() {
 // ---------------- KI MARK + INSTANT TRANSMISSION (Lance's passive) ----------------
 // Hit someone with his ki (Destructo Disc or Kamehameha) = they're MARKED for a few seconds (purple target
 // over them). While they're marked, his next Z vanish (air dodge) teleports him right BEHIND them, wherever
-// they are on the map, ready to start a combo. Using it spends the mark.
-const KI_MARK = { dur: 6, color: '#b04dff' };
-function markKi(by, t) {
+// they are on the map, ready to start a combo. Every teleport spends ONE mark.
+// MARKS STACK (up to KI_MARK.max): each separate ki attack that hits the same person adds one (a beam or a disc
+// counts once, however many times it ticks), so with 3 marks he can teleport to them 3 times in a row.
+// An Instant Transmission Kamehameha spends a mark, and its beam never gives one back.
+const KI_MARK = { dur: 6, color: '#b04dff', max: 3 };
+function markKi(by, t, src) {
   if (!by || !by.look || !by.look.kiMark || !t || t === by) return;
-  const fresh = !by.kiMark || by.kiMark.t !== t;
-  by.kiMark = { t, time: KI_MARK.dur };
-  if (fresh) painTexts.push({ x: t.x, y: t.y - 150, t: 0.6, max: 0.6, text: 'MARKED', big: false });
+  if (src) {
+    if (src.noMark) return;                                         // (the Instant Transmission Kamehameha's beam)
+    src.marked = src.marked || new Set();
+    if (src.marked.has(t)) { if (by.kiMark && by.kiMark.t === t) by.kiMark.time = KI_MARK.dur; return; }   // (same attack again: just keeps it fresh)
+    src.marked.add(t);
+  }
+  const same = by.kiMark && by.kiMark.t === t && by.kiMark.time > 0;
+  const stacks = same ? Math.min(KI_MARK.max, (by.kiMark.stacks || 1) + 1) : 1;
+  by.kiMark = { t, time: KI_MARK.dur, stacks };
+  painTexts.push({ x: t.x, y: t.y - 150, t: 0.6, max: 0.6, text: stacks > 1 ? 'MARKED x' + stacks : 'MARKED', big: false });
 }
 function kiMarkTarget(f) {
   const m = f.kiMark;
@@ -1431,9 +1441,10 @@ function kameVanish(f, a, inp) {
   const t = kiMarkTarget(f);
   if (t) {                                                          // INSTANT TRANSMISSION KAMEHAMEHA
     const keep = f.action;
-    kiTeleport(f, t);                                               // (puts him behind them, facing them)
+    kiTeleport(f, t);                                               // (puts him behind them, facing them - and spends a mark)
     f.action = keep; f.vx = 0; f.vy = 0;
     a.forceRelease = true;                                          // ...and lets it go right now
+    a.noMark = true;                                                // (this beam can't mark them again)
     painTexts.push({ x: f.x, y: f.y - 170, t: 0.8, max: 0.8, text: 'KAMEHAMEHA!', big: true });
     return;
   }
@@ -1457,7 +1468,8 @@ function kameVanish(f, a, inp) {
   sfx.vanish();
 }
 function kiTeleport(f, t) {
-  f.kiMark = null;
+  if (f.kiMark && (f.kiMark.stacks || 1) > 1) f.kiMark.stacks--;    // spends ONE mark (the rest stay for more teleports)
+  else f.kiMark = null;
   const from = { x: f.x, y: f.y - 45 };
   ghosts.push({ fig: figureOf(f), life: 0.35, max: 0.35, color: KI_MARK.color });
   burst(from.x, from.y, [KI_MARK.color, '#ffffff'], 12, 0, Math.PI, 360, { grav: 0 });
@@ -1497,6 +1509,11 @@ function drawKiMarks() {
     }
     ctx.fillStyle = '#ffffff';
     ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    const n = f.kiMark.stacks || 1;                                   // stacked marks: a purple dot for each one
+    if (n > 1) {
+      ctx.fillStyle = KI_MARK.color;
+      for (let k = 0; k < n; k++) { ctx.beginPath(); ctx.arc(x + (k - (n - 1) / 2) * 10, y - 22, 3.5, 0, Math.PI * 2); ctx.fill(); }
+    }
     ctx.restore();
   }
 }
@@ -1736,7 +1753,8 @@ for (let s = 1; s < CHAIN_LEN; s++) {
   COLBY_PUNCHES['p' + s] = { name: PUNCH_NAMES[j], startup: 0.02, active: 0.045, endlag: 0.06, chain: s, lunge: 330, lungeFriction: 0.4,
     chainLock: true, armor: true, electric: true, hitboxes: hit(56, -70), wind: PUNCH_POSES[j].wind, strike: PUNCH_POSES[j].strike };
 }
-// THE BLINK STRING (bare-handed, NEUTRAL K over and over): the punches TELEPORT him round them - but every hit
+// THE BLINK STRING (bare-handed, NEUTRAL K over and over - COLBY: only in GOD SPEED; normally it's the same
+// punches with no teleporting): the punches TELEPORT him round them - but every hit
 // keeps driving them the SAME way the string started:
 //   1. the opening punch (from where he stands)
 //   2. BLINK BEHIND them - a punch to the back of the head
@@ -1761,6 +1779,7 @@ function colbyBlink(f, a) {
   const m = a.move;
   if (/1$/.test(a.key) || !f.blinkDir) f.blinkDir = f.face;         // the string's direction is set by its first hit (kick or punch)
   if (!m.blink) return;
+  if (f.char === 'COLBY' && !godSpeed(f)) return;                    // COLBY only blinks in GOD SPEED (otherwise it's a straight punch string)
   const D = f.blinkDir;
   const t = fighters.filter(o => o !== f && !allies(f, o) && o.respawnTimer <= 0 && !o.dead && Math.abs(o.x - f.x) < BLINK.range && Math.abs(o.y - f.y) < 160)
     .sort((p, q) => Math.abs(p.x - f.x) - Math.abs(q.x - f.x))[0];
@@ -3541,6 +3560,7 @@ function finishThrow(f, a, v, hit, dir, hx, hy, endlag) {
   a.released = true;
   v.action = null; v.drawZ = 0;
   knock(v, hit, dir, f.revenge > 0 ? powerOf(f) : hypePower(f), hx, hy);
+  godSpeedZap(f, v, hit, hx, hy);                               // (GOD SPEED: throws get the lightning too)
   if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += THROW_HITSTUN_BONUS;
   a.dur = a.t + endlag;
 }
@@ -3762,6 +3782,97 @@ function stepThunderKnee(f, a, dt) {
     a.pose = pose({ lean: 0.55, bob: -34, legA: [1.55, 2.6], legB: [1.35, 2.5], armA: [0.5, -0.4], armB: [0.3, -0.4], sc: stowed(f) });   // kneeling on them
   }
 }
+
+// ---- STORM CYCLONE (up throw) ----
+// 1. he crouches and LEAPS high into the air with them still gripped
+// 2. up there he SPINS round and round with them (3-4 turns, getting faster and faster - building momentum)
+// 3. ...then HURLS them down at the stage as hard as he can. They hit so hard they BOUNCE back up toward him,
+//    stunned - and he's free to act right away (falling toward them), so he can combo off the bounce.
+// crouch / rise / spin / hurl = seconds; high = how far up he jumps; r = how far out they swing; ahead = how far
+// toward the middle of the stage they're thrown; spinDmg = % per full turn
+const SKY_SPIN = { crouch: 0.07, rise: 0.22, spin: 0.8, hurl: 0.11, high: 320, r: 66, ahead: 120, spinDmg: 1 };
+function stepSkySpin(f, a, dt) {
+  const v = a.victim, F = a.face0, T = a.t;
+  if (a.released) return;                                       // (he's free in the air: gravity takes over)
+  v.vx = v.vy = 0; f.vx = 0; f.vy = 0;
+  f.dropTimer = Math.max(f.dropTimer || 0, 0.1); v.dropTimer = Math.max(v.dropTimer || 0, 0.1);   // (no snagging on platforms up there)
+  if (a.gy === undefined) {
+    a.gy = f.y;
+    const s = f.onPlatform || STAGE;
+    a.lo = s.x + 50; a.hi = s.x + s.w - 50;
+    // thrown back TOWARD THE STAGE: toward its middle (so never out over the edge)
+    a.D = Math.sign((a.lo + a.hi) / 2 - f.x) || F;
+    a.spins = a.D === F ? 4 : 3.5;                              // (ends with them out on the side he throws them to)
+  }
+  const D = a.D, gs = godSpeed(f);
+  const sparks = n => { if (gs && Math.random() < dt * n) bolt(v.x, v.y - 40, Math.random() * Math.PI * 2, 30 + Math.random() * 30, 0.06, GOD_SPEED.colors[(Math.random() * 3) | 0]); };
+  if (T < SKY_SPIN.crouch) {                                    // 1a. sinks down, gripping them
+    const u = T / SKY_SPIN.crouch;
+    v.x = f.x + F * 42; v.y = a.gy; v.face = -F; thrownSpin(a, 0);
+    a.pose = pose({ lean: 0.1, bob: lerp(-6, -22, u), legA: [0.95, 1.4], legB: [-0.6, 1.0], grip: gripOn(f, v), sc: stowed(f) });
+    return;
+  }
+  const t1 = T - SKY_SPIN.crouch, top = a.gy - SKY_SPIN.high;
+  if (t1 < SKY_SPIN.rise) {                                     // 1b. ...and LEAPS up with them
+    const u = easeOut(t1 / SKY_SPIN.rise);
+    if (!a.leapt) { a.leapt = true; f.ground = false; dust(f.x, a.gy, 16, 2.2); ring(f.x, a.gy); sfx.whoosh(true); }
+    f.y = lerp(a.gy, top, u); f.ground = false; f.onPlatform = null;
+    v.x = f.x + F * 40; v.y = f.y - 6 * u; v.face = -F; thrownSpin(a, -F * 0.4 * u);
+    a.pose = pose({ lean: -0.15, bob: -4, legA: [1.3, 2.2], legB: [0.9, 2.0], grip: gripOn(f, v), sc: stowed(f) });
+    if (Math.random() < dt * 40) ghosts.push({ fig: figureOf(f), life: 0.14, max: 0.14, color: gs ? '#7fd8ff' : '#ffffff' });
+    sparks(30);
+    return;
+  }
+  const t2 = t1 - SKY_SPIN.rise;
+  if (t2 < SKY_SPIN.spin) {                                     // 2. SPINNING with them, faster and faster
+    const u = t2 / SKY_SPIN.spin, th = Math.PI * 2 * a.spins * Math.pow(u, 1.6);   // (speeds up all the way)
+    f.y = top - 14 * Math.sin(u * Math.PI);                     // (drifts up a touch more as he whirls)
+    const c = Math.cos(th);
+    v.x = f.x + F * SKY_SPIN.r * c; v.y = f.y - 8 + 8 * Math.sin(th * 2); v.drawZ = Math.sin(th);
+    f.face = c >= 0 ? F : -F;
+    v.face = Math.sign(f.x - v.x) || -F;
+    thrownSpin(a, -Math.sign(c || 1) * F * Math.PI / 2);        // flung out FLAT by the spin
+    a.pose = { ...pose({ lean: -0.35, bob: -6, legA: [0.9, 1.6], legB: [0.3, 1.2], grip: gripOn(f, v), sc: stowed(f) }), raw: true };
+    const half = Math.floor(th / Math.PI);
+    if (half !== (a.half || 0)) {                               // a whoosh every half turn
+      a.half = half; sfx.whoosh(true);
+      if (half % 2 === 0) { v.damage += SKY_SPIN.spinDmg; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + SKY_SPIN.spinDmg); }
+    }
+    if (Math.random() < dt * (20 + 50 * u)) ghosts.push({ fig: figureOf(v), life: 0.14, max: 0.14, color: gs ? '#7fd8ff' : '#ffffff' });
+    if (Math.random() < dt * 30 * u) burst(f.x, f.y - 40, ['#ffffff', '#cdb79a'], 1, Math.random() * Math.PI * 2, 0.3, 300, { grav: 0 });   // wind whipping round
+    sparks(40);
+    return;
+  }
+  // 3. HURLED down at the stage as hard as he can
+  if (!a.thrownFrom) {
+    a.thrownFrom = { x: v.x, y: v.y }; v.drawZ = 0;
+    a.impactX = clamp(f.x + D * SKY_SPIN.ahead, a.lo, a.hi);
+    f.face = D; sfx.whoosh(true); sfx.whoosh(false); shake = Math.max(shake, 8);
+    burst(v.x, v.y - 40, ['#ffffff', '#ffd23f'], 16, Math.atan2(-(a.gy - v.y), (a.impactX - v.x)), 0.5, 620, { grav: 0 });
+  }
+  const u = clamp((t2 - SKY_SPIN.spin) / SKY_SPIN.hurl, 0, 1);
+  v.x = lerp(a.thrownFrom.x, a.impactX, u); v.y = lerp(a.thrownFrom.y, a.gy, u);
+  thrownSpin(a, D * Math.PI * 0.8);                             // head first
+  v.face = -D;
+  a.pose = pose({ lean: 0.55, bob: -6, legA: [0.8, 1.5], legB: [-0.4, 1.0], armA: [0.7, 0], armB: [0.5, -0.3], sc: stowed(f) });   // follow-through, arm flung down at them
+  ghosts.push({ fig: figureOf(v), life: 0.16, max: 0.16, color: gs ? '#7fd8ff' : '#ffffff' });
+  sparks(60);
+  if (u >= 1) {
+    // THE IMPACT: so hard they bounce right back up (toward him) - his combo starts here
+    v.x = a.impactX; v.y = a.gy;
+    painfulSlam(v, v.x, a.gy, 0, true);
+    if (gs) lightningStrike(v);
+    impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: v.x, y: a.gy - 20, ang: Math.PI / 2, all: true, focus: true, invert: true };
+    hitstop = Math.max(hitstop, 0.16); shake = Math.max(shake, 26); camPunch = 1;
+    const back = Math.sign(f.x - v.x) || -D;                    // (bounces up leaning back his way)
+    finishThrow(f, a, v, THROWS.skySpin, back, v.x, a.gy - 30, 0.04);
+    if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += SKY_SPIN.bounceStun;
+    f.vy = 0; f.vx = 0; f.ground = false;                       // ...and he's free up there, falling toward them
+    f.airJumps = Math.max(f.airJumps || 0, 1); f.upSpecialUsed = false;
+    a.pose = pose({ lean: 0.3, bob: -4, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [0.9, -0.4], armB: [0.6, -0.6], sc: stowed(f) });
+  }
+}
+SKY_SPIN.bounceStun = 0.12;   // (extra stun on the bounce, on top of the usual throw bonus - time to get to them)
 
 // ---------------- MAX MALICIOUS MOONSAULT (ultimate) ----------------
 // A wrestling ring drops in around them. He IRISH-WHIPS them into the far ropes and bounces off the
@@ -4659,7 +4770,9 @@ const COLBALIAS_MOVES = {
   // HELL FLURRY: a blur of punches, both arms moving faster than you can see, with LONG reach. 7 quick hits
   // hold them in place in front of him, then a final blow knocks them up and away - easy to combo into, and
   // to follow up from. Not huge damage on its own.
-  jab: { name: 'Hell Flurry', startup: 0.05, active: 0.42, endlag: 0.2, lunge: 140, lungeFriction: 0.5, flurry: true,
+  // (His neutral J is the SHADOW CLONE STRING now - see CLONE_STRING below. The Hell Flurry / Hell Cross / Damned
+  //  Hook Kick are what his summoned shadow clones use as their J moves.)
+  hellFlurry: { name: 'Hell Flurry', startup: 0.05, active: 0.42, endlag: 0.2, lunge: 140, lungeFriction: 0.5, flurry: true,
     hitboxes: [
       // each blow: a long-reach hitbox AND a point-blank one (same group = still one hit), so it connects up close too
       ...[0, 1, 2, 3, 4, 5, 6].flatMap(k => [82, 34].map(x => ({ x, y: -70, r: x > 50 ? 38 : 34, dmg: 0.9, base: 40, growth: 0, angle: 60,
@@ -4676,9 +4789,9 @@ const COLBALIAS_MOVES = {
       }
       return false;
     } },
-  jab2: { name: 'Hell Cross', startup: 0.035, active: 0.05, endlag: 0.11, combo: 'jab3', lunge: 300, lungeFriction: 0.4,
+  hellCross: { name: 'Hell Cross', startup: 0.035, active: 0.05, endlag: 0.11, combo: 'jab3', lunge: 300, lungeFriction: 0.4,
     hitboxes: [{ x: 48, y: -70, r: 21, dmg: 3, base: 120, growth: 0.4, angle: 52 }], wind: CP.punch2.wind, strike: CP.punch2.strike },
-  jab3: { name: 'Damned Hook Kick', startup: 0.05, active: 0.07, endlag: 0.22, lunge: 360, lungeFriction: 0.4,
+  hookKick: { name: 'Damned Hook Kick', startup: 0.05, active: 0.07, endlag: 0.22, lunge: 360, lungeFriction: 0.4,
     hitboxes: [{ x: 46, y: -86, r: 24, dmg: 7, base: 400, growth: 4.6, angle: 42 }], wind: CB.jab3.wind, strike: CB.jab3.strike,
     fire(f) { hellBurst(f.x + f.face * 46, f.y - 86, 8); },
     // the end of the combo can be CANCELLED straight into another Hell Grab (neutral K) once it's landed
@@ -4815,6 +4928,73 @@ for (const k in COLBALIAS_MOVES) {
 // (his perfect-block counter is borrowed from the Stickman - give him his own soft copy of it)
 COLBALIAS_MOVES.counter = { ...STICKMAN_MOVES.counter, hitboxes: STICKMAN_MOVES.counter.hitboxes.map(h => ({ ...h, dmg: Math.round(h.dmg * COLBALIAS_TUNE.dmg * 10) / 10 })) };
 
+// ---------------- SHADOW CLONE STRING (Colbalias, neutral J x4) - kid Naruto style ----------------
+// He never throws a hit himself: every press, he flashes a hand sign and a SHADOW CLONE pops out in front of him
+// and does the hit (so it reaches well past where he's standing), then vanishes in a puff of smoke:
+//   1. a clone PUNCH   2. a clone LEG SWEEP   3. a clone SPINNING FRONT-FLIP KICK
+//   4. TWO clones at once (one in front, one on their far side) KICK THEM UP INTO THE AIR
+// These strike clones are separate from his summoned clones (down K): they only live for their one attack. Like
+// every clone, any damage they take goes straight back to Colbalias.
+// at = where the clone appears (in front of him); dmg is already his (soft) damage.
+const CLONE_STRING = {
+  punch: { name: 'Clone Punch', startup: 0.03, active: 0.07, endlag: 0.08, lunge: 240, lungeFriction: 0.4, chainLock: true,
+    hitboxes: [{ x: 62, y: -70, r: 32, dmg: 1.2, base: 120, growth: 0.3, angle: 50, pullIn: 58, holdStun: 0.3 },
+               { x: 24, y: -68, r: 28, dmg: 1.2, base: 120, growth: 0.3, angle: 50, pullIn: 58, holdStun: 0.3 }],
+    wind: CP.punch2.wind, strike: CP.punch2.strike },
+  sweep: { name: 'Clone Leg Sweep', startup: 0.03, active: 0.08, endlag: 0.1, chainLock: true,
+    hitboxes: [{ x: 66, y: -16, r: 32, dmg: 1.2, base: 240, growth: 0.3, angle: 84, holdStun: 0.26 },
+               { x: 26, y: -14, r: 30, dmg: 1.2, base: 240, growth: 0.3, angle: 84, holdStun: 0.26 }],
+    wind: COLBALIAS_MOVES.downGround.wind, strike: COLBALIAS_MOVES.downGround.strike },
+  flipKick: { name: 'Clone Flip Kick', startup: 0.03, active: 0.2, endlag: 0.12, chainLock: true, flip: true, hop: 300, lunge: 200, lungeFriction: 0.4,
+    hitboxes: [{ x: 48, y: -70, r: 40, dmg: 1.6, base: 300, growth: 0.6, angle: 78, from: 0.03, to: 0.2, holdStun: 0.24 },
+               { x: 18, y: -44, r: 32, dmg: 1.6, base: 300, growth: 0.6, angle: 78, from: 0.03, to: 0.2, holdStun: 0.24 }],
+    wind: pose({ bob: -14, lean: 0.4, legA: [1.0, 1.4], legB: [-0.5, 0.9], armA: [1.2, -0.6], armB: [0.8, -0.8] }),
+    strike: pose({ lean: 0.2, legA: [1.5, 0.1], legB: [-1.3, 0.1], armA: [2.6, 0], armB: [-2.6, 0] }) },
+  upKick: { name: 'Clone Rising Kick', startup: 0.03, active: 0.1, endlag: 0.12,
+    hitboxes: [{ x: 38, y: -92, r: 36, dmg: 1.1, base: 640, growth: 4.5, angle: 86 },
+               { x: 22, y: -48, r: 32, dmg: 1.1, base: 640, growth: 4.5, angle: 86 }],
+    wind: pose({ bob: -12, lean: 0.3, legA: [0.9, 1.4], legB: [-0.5, 0.4], armA: [0.6, -1.4], armB: [0.9, -1.6] }),
+    strike: pose({ lean: -0.25, legA: [2.9, 0.05], legB: [-0.3, 0.3], armA: [-1.0, -0.4], armB: [-1.4, -0.2] }),
+    fire(f) { hellBurst(f.x + f.face * 30, f.y - 90, 6, 300); } },
+};
+const CLONE_STRING_AT = 52;     // how far in front of him each clone appears
+// his own part of each hit: the hand sign (both hands together at his chest), stepping in after them
+const handSign = pose({ lean: 0.05, bob: -8, armA: [0.75, -1.75], armB: [0.7, -1.8], legA: [0.6, 0.45], legB: [-0.5, 0.15] });
+const handSign2 = pose({ lean: 0.12, bob: -10, armA: [0.8, -1.7], armB: [0.75, -1.75], legA: [0.7, 0.5], legB: [-0.55, 0.15] });
+const cloneStringMove = (name, next, which, lunge) => ({ name, startup: 0.035, active: 0.08, endlag: 0.1, combo: next, lunge, lungeFriction: 0.5,
+  cloneStrike: which, hitboxes: [], wind: handSign, strike: handSign2, fire(f) { cloneStrikeFire(f, which); } });
+COLBALIAS_MOVES.jab  = cloneStringMove('Clone Punch', 'jab2', 'punch', 120);
+COLBALIAS_MOVES.jab2 = cloneStringMove('Clone Leg Sweep', 'jab3', 'sweep', 160);
+COLBALIAS_MOVES.jab3 = cloneStringMove('Clone Flip Kick', 'jab4', 'flipKick', 180);
+COLBALIAS_MOVES.jab4 = { ...cloneStringMove('Double Clone Kick', null, 'upKick', 120), endlag: 0.16 };
+function cloneStrikeFire(f, which) {
+  if (f.minion) return;
+  const F = f.face;
+  // who it's aimed at: the nearest foe in front of him (within reach). The clone appears just in front of THEM
+  // (never past them) - or CLONE_STRING_AT in front of him if there's nobody there
+  const t = fighters.filter(o => !allies(f, o) && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0) && (o.x - f.x) * F > -10 && Math.abs(o.x - f.x) < 300 && Math.abs(o.y - f.y) < 150)
+    .sort((p, q) => Math.abs(p.x - f.x) - Math.abs(q.x - f.x))[0];
+  const at = t ? t.x - F * 44 : f.x + F * CLONE_STRING_AT;
+  spawnStrikeClone(f, which, at, F);
+  // the finisher: a SECOND clone at the same moment on the far side of them (facing back) - both kick them UP
+  if (which === 'upKick') spawnStrikeClone(f, which, t ? t.x + F * 44 : at + F * 88, t ? -F : F);
+}
+function spawnStrikeClone(f, key, x, face) {
+  const c = makeFighter({ name: 'CLONE', color: '#5a0a0a', energy: '#ff1a1a', x, controller: 'minion', char: 'COLBALIAS' });
+  c.minion = true; c.owner = f; c.strikeClone = true;
+  c.moveset = CLONE_STRING; c.stats = cloneStats();
+  c.look = { ...f.look, bossAura: null, smoke: false, demonMeter: false };
+  c.x = x; c.y = f.y; c.vx = 0; c.vy = f.ground ? 0 : Math.min(f.vy, 0);
+  c.face = face; c.ground = f.ground; c.onPlatform = f.onPlatform; c.halo = 0; c.invuln = 0;
+  c.stocks = Infinity; c.ult = 0; c.life = CLONE.life; c.cpuLevel = null;
+  const m = CLONE_STRING[key];
+  c.action = { type: 'attack', key, move: m, btn: 'atk', phase: 'startup', t: 0, charge: 0, mult: 1, hit: new Set(),
+               air: !c.ground, started: time, startupMul: 1 };
+  fighters.push(c);
+  burst(x, f.y - 50, ['#6e6e78', '#b4b4bb', '#3a0000'], 12, 0, Math.PI, 260, { grav: -60 });   // POOF - it appears
+  if (!playClonePoof()) sfx.whoosh(false);
+}
+
 const HELL_MISSILE = { stun: 0.55 };   // seconds they're frozen when the Hell Missile hits
 
 // ---------------- DEMON'S GAZE (Colbalias, down K) ----------------
@@ -4836,7 +5016,7 @@ function demonGaze(f) {
   // recover, sacrificing it, or to throw it into the opponent's face. No clones out = the closest opponent.
   const near = list => list.sort((p, q) => Math.hypot(p.x - f.x, p.y - f.y) - Math.hypot(q.x - f.x, q.y - f.y))[0];
   const alive = o => o !== f && o.respawnTimer <= 0 && !o.dead && !(o.poofT > 0);
-  const t = near(fighters.filter(o => alive(o) && o.minion && o.owner === f)) || near(fighters.filter(o => alive(o) && !allies(f, o)));
+  const t = near(fighters.filter(o => alive(o) && o.minion && !o.strikeClone && o.owner === f)) || near(fighters.filter(o => alive(o) && !allies(f, o)));
   const ex = f.x + f.face * 6, ey = f.y - 100;                  // his eyes
   burst(ex, ey, [GAZE.color, '#ffffff'], 8, 0, Math.PI, 200, { grav: 0 });
   sfx.parry();
@@ -5063,7 +5243,7 @@ function cloneShielded(att, t) {
   if (ta && (ta.holder || ta.type === 'clash' || ta.type === 'holding')) return true;   // held / clashing
   return fighters.some(g => g !== t && g.action && g.action.holder === t);           // holding someone
 }
-function cloneCount(owner) { return fighters.filter(c => c.minion && c.owner === owner && !c.dead && !(c.poofT > 0)).length; }
+function cloneCount(owner) { return fighters.filter(c => c.minion && c.owner === owner && !c.strikeClone && !c.dead && !(c.poofT > 0)).length; }   // (summoned clones only)
 function ninjaLaw(owner) { return NINJA_LAW[clamp(cloneCount(owner), 1, 3)]; }
 // Blown away: the clone is knocked back hard by one mighty blow, then bursts into a puff of smoke
 function smashClone(hero, c) {
@@ -5103,8 +5283,10 @@ function getCloneMoves() {
   if (cloneMoves) return cloneMoves;
   cloneMoves = {};
   const src = COLBALIAS_MOVES;
+  // (his J string is the clone string now - his clones still fight with the Hell Flurry / Hell Cross / Hook Kick)
+  const from = { jab: 'hellFlurry', jab2: 'hellCross', jab3: 'hookKick' };
   for (const k of ['counter', 'jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair', 'upRanged']) {
-    const m = src[k];
+    const m = src[from[k] || k];
     cloneMoves[k] = { ...m, charge: false, chargedHit: undefined, slowmoHit: undefined, startup: m.startup + CLONE.delay, endlag: m.endlag + 0.05,
       hitboxes: (m.hitboxes || []).map(h => ({ ...h, dmg: Math.round(h.dmg * CLONE.dmg * 10) / 10, base: h.base * CLONE.kb, growth: h.growth * CLONE.kb * 0.8, xray: undefined })) };
   }
@@ -5168,6 +5350,8 @@ function updateMinions(dt) {
     c.transformed = rage; c.baseStats = null;                          // (just for the aura - their power comes from CLONE_RAGE)
     c.life -= dt;
     if (c.poofT > 0) { c.poofT -= dt; if (c.poofT <= 0) killMinion(c); continue; }   // smashed: flying away, then POOF
+    // STRIKE CLONES (his J string): gone the moment their one attack is over - or the moment they're hit
+    if (c.strikeClone && (!c.action || c.action.type !== 'attack' || c.action.phase === 'end' || (c.owner && (c.owner.out || c.owner.respawnTimer > 0)))) { killMinion(c); continue; }
     const busy = c.action && ['grabbed', 'thrown', 'whipped', 'ultVictim', 'timeStop'].includes(c.action.type);
     if (!busy && ((c.hitsTaken || 0) >= CLONE.hits || c.life <= 0 || (c.owner && c.owner.out))) killMinion(c);   // 2 hits and it's gone
   }
@@ -5666,8 +5850,9 @@ const CHARACTERS = {
       // Grabbing/throwing: scythe slung diagonally across his back, hands free
       stow: { gx: -6, gy: 22, pitch: 2.25, yaw: -0.7, n: [0, 0, -1], hands: 0 },
     },
-    // his own throws (see COLBY'S THROWS): REAPER'S RUN both ways, REAPER'S HARVEST, THUNDER KNEE
-    throwKinds: { forward: 'neckRun', back: 'neckRunBack', up: 'harvest', down: 'thunderKnee' },
+    // his own throws (see COLBY'S THROWS): REAPER'S RUN both ways, STORM CYCLONE (up), THUNDER KNEE
+    // (his old up throw, REAPER'S HARVEST, is still in the code - swap 'skySpin' back to 'harvest' to bring it back)
+    throwKinds: { forward: 'neckRun', back: 'neckRunBack', up: 'skySpin', down: 'thunderKnee' },
   },
   LANCE: {
     moves: LANCE_MOVES,
@@ -5775,7 +5960,7 @@ function addPowerJab(m, dmg) {
   m.chargedHit = { min: 0.25, lunge: 560,
     hitboxes: m.hitboxes.map(h => ({ ...h, x: h.x + 8, r: h.r + 8, dmg, base: 470, growth: 7, angle: 38, xray: undefined })) };
 }
-for (const name of CHAR_NAMES) addPowerJab(CHARACTERS[name].moves.jab, name === 'LANCE' ? 9 : 11);   // Lance hits softer
+for (const name of CHAR_NAMES) if (!CHARACTERS[name].moves.jab.cloneStrike) addPowerJab(CHARACTERS[name].moves.jab, name === 'LANCE' ? 9 : 11);   // Lance hits softer (Colbalias's clone string has no power jab)
 addPowerJab(COLBY_PUNCHES.p1, 11);       // bare-handed: the first hit of the string (kick or punch) can be charged too
 for (const h of AIDEN_MOVES.jab.chargedHit.hitboxes) { h._truck = false; truckHit(h); }   // Aiden's charged chop hits like a truck too
 addPowerJab(COLBY_PUNCHES.k1, 11);
@@ -5827,7 +6012,12 @@ CHARACTERS.LANCE.altUlt = {
 CHARACTERS.LANCE.transformName = 'SUPER SAIYAN';
 CHARACTERS.LANCE.transformStats = { power: 1.1, speed: 1.18 };   // Super Saiyan: +10% power (not +20%), +18% speed (not +10%)
 CHARACTERS.LANCE.downThrow = 'broly';      // down throw = Broly-style ankle grab + repeated floor slams
-CHARACTERS.COLBY.transformName = 'REAPER FORM';
+// Colby: GOD SPEED (Killua's Nen, Hunter x Hunter) - a crackling electric aura, he moves and attacks much faster,
+// EVERY hit he lands adds extra lightning damage, and his bare-handed K string blinks round them (see GOD_SPEED)
+CHARACTERS.COLBY.transformName = 'GOD SPEED';
+CHARACTERS.COLBY.transformStats = { power: 1.1, speed: 1.3 };   // the lightning adds the damage - God Speed is about SPEED
+CHARACTERS.COLBY.look.transformAura = '#7fd8ff';
+CHARACTERS.COLBY.look.godSpeed = true;
 CHARACTERS.COLBY.bareMoves = COLBY_PUNCHES;  // used while his scythe is thrown
 CHARACTERS.COLTEN.bareMoves = COLBY_PUNCHES; // Colten (Colby's echo): the same bare-handed string while his sword is thrown
 // AIDEN'S TAUNTS - three little skits (see HEEL_TAUNT / heelTauntStep / drawHeelTauntProps):
@@ -6873,6 +7063,7 @@ function applyHit(t, h, dirSign, mult, hx, hy, src = {}) {
   }
 
   knock(t, h, dirSign, mult, hx, hy);
+  godSpeedZap(src.fighter || src.by || (src.shot && src.shot.owner), t, h, hx, hy);   // Colby in GOD SPEED: + lightning damage
   return true;
 }
 
@@ -6892,6 +7083,12 @@ function knock(t, h, dirSign, mult, hx, hy) {
   }
   t.damage += dmg;
   if (t.minion) t.hitsTaken = (t.hitsTaken || 0) + 1;            // (Colbalias's clones burst on their CLONE.hits-th hit)
+  // CLONE LINK: whatever damage ANY of Colbalias's clones takes (summoned or J-string) goes straight back to him
+  if (t.minion && t.owner && !t.owner.out && t.owner.respawnTimer <= 0 && dmg > 0) {
+    const o = t.owner;
+    o.damage += dmg; o.hitFlash = Math.max(o.hitFlash || 0, 0.08);
+    burst(o.x, o.y - 55, ['#ff1a1a', '#3a0000', '#ffffff'], 6, 0, Math.PI, 220, { grav: 0 });
+  }
   if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + dmg * ULT_GAIN);   // getting hit charges your ultimate (not while transformed)
   // SUPER ARMOR (Colby's 7-hit string): he takes the damage but can't be knocked out of it
   if (t.action && t.action.type === 'attack' && t.action.move.armor && (t.action.phase !== 'end' || t.action.hit.size > 0)) {
@@ -7292,7 +7489,10 @@ THROWS.neckRun     = { dmg: 6,  base: 560, growth: 3.4, angle: 16 };   // low an
 THROWS.neckRunBack = THROWS.neckRun;
 THROWS.harvest     = { dmg: 8,  base: 470, growth: 6.4, angle: 88 };   // straight up off the blade
 THROWS.thunderKnee = { dmg: 10, base: 330, growth: 5.4, angle: 80, xray: 'RIBS' };   // knees into the gut: bounces them up
-for (const k of ['neckRun', 'neckRunBack', 'harvest', 'thunderKnee']) THROW_ANIM[k] = { dur: 3, rel: 3 };   // (each one sets its own end)
+// STORM CYCLONE (up throw): the bounce off the stage. Launch barely grows with % - it always pops them up to about
+// the same height (back toward him in the air), so the combo off it works at any %
+THROWS.skySpin     = { dmg: 7,  base: 880, growth: 2.2, angle: 84 };
+for (const k of ['neckRun', 'neckRunBack', 'harvest', 'thunderKnee', 'skySpin']) THROW_ANIM[k] = { dur: 3, rel: 3 };   // (each one sets its own end)
 // Swing angle at time t (in his facing direction)
 function brolyTheta(t) {
   if (t < BROLY.lift) return lerp(0.2, BROLY.up, easeOut(t / BROLY.lift));   // yank them up by the ankles
@@ -7458,6 +7658,7 @@ function stepThrow(f, a, dt) {
   if (a.kind === 'neckRun' || a.kind === 'neckRunBack') return stepNeckRun(f, a, dt);   // Colby's throws
   if (a.kind === 'harvest') return stepHarvest(f, a, dt);
   if (a.kind === 'thunderKnee') return stepThunderKnee(f, a, dt);
+  if (a.kind === 'skySpin') return stepSkySpin(f, a, dt);
   f.vx = approach(f.vx, 0, FRICTION * dt);
   if (a.released) return;
   const v = a.victim;
@@ -7480,6 +7681,7 @@ function stepThrow(f, a, dt) {
     v.action = null;
     const own = CHARACTERS[f.char].throwStats || {};
     knock(v, own[a.kind] || THROWS[a.kind], a.face0, f.revenge > 0 ? powerOf(f) : hypePower(f), v.x, v.y - 50);   // (Revenge powers up throws too)      // angles are relative to the starting facing
+    godSpeedZap(f, v, THROWS[a.kind], v.x, v.y - 50);
     if (f.look && f.look.fireHits) { burst(v.x, v.y - 50, FIRE, 18, Math.PI / 2, 1.2, 450, { grav: -250 }); if (f.revenge > 0) consumeRevenge(f, v.x, v.y - 50); }
     if (v.action && v.action.type === 'hitstun' && !v.action.crit) v.action.dur += THROW_HITSTUN_BONUS;   // extra time to follow up
     if (a.kind === 'down') {
@@ -8086,16 +8288,16 @@ const KI_YELLOW_HEX = '#ffd23f';
 // 3. then it's FAST: a flurry of blows - he vanishes - a flying kick from the LEFT - another from the RIGHT, which
 //    pops them up into the air - he teleports onto them, grabs a leg, swings them round 360 and hurls them into the
 //    ground -
-// 4. (the fight starts again here) - hanging in the air, he rains a BARRAGE of small yellow ki blasts down in a wide
-//    arc across the WHOLE stage (anyone can be hit), then fires one GIANT yellow ki ball straight at the one he
+// 4. (the fight starts again here) - hanging in the air, he rains a BARRAGE of small yellow ki blasts straight down
+//    ONTO the one he grounded (a tight cone at them), then fires one GIANT yellow ki ball straight at the one he
 //    grounded (it can catch anyone it passes, too).
 const RUSH = { dash: 2600, dashTime: 0.24, talk: 5.67, voiceVol: 2.4,
                flurry: 0.55, flurryEvery: 0.05, vanish: 0.08, kick: 0.2, kickFrom: 420, pop: 0.2, popH: 210, grab: 0.08,
                swing: 0.34, swingR: 72, throwT: 0.14, settle: 0.12,
                perHit: 0.7, kickDmg: 4, slamDmg: 5,
                barrage: 0.75, blastEvery: 0.016, blastSpeed: 1450, ballCharge: 0.3, ballSpeed: 1050, ballR: 48, endlag: 0.35,
-               riseT: 0.16, barrageH: 430, spread: 1.3,      // he shoots up to barrageH above the stage first; spread = the fan (+- radians from straight down)
-               blast: { r: 11, dmg: 0.8, base: 110, growth: 0, angle: 75, noStop: true, stun: 0.45, stunColor: KI_YELLOW_HEX } };   // (stun: anyone else a blast hits is stunned for a moment)
+               riseT: 0.16, barrageH: 430, spread: 0.09,     // he shoots up to barrageH above the stage first; spread = the cone (+- radians either side of the target)
+               blast: { r: 11, dmg: 0.3, base: 110, growth: 0, angle: 75, noStop: true, stun: 0.45, stunColor: KI_YELLOW_HEX } };   // (stun: anyone else a blast hits is stunned for a moment) (dmg 0.3: they almost all land now, ~12% in all)
 const KI_YELLOW = '#ffd23f';
 let myTurnBuf = null;
 function loadMyTurnSfx() {
@@ -8244,13 +8446,15 @@ function stepKiBarrage(f, a, dt) {
     }
     f.y = Math.min(a.y0, a.top);
     if (v && v.respawnTimer <= 0) f.face = Math.sign(v.x - f.x) || f.face;
-    // ...then just UNLOADS: ki blasts spraying out of his hand in a wide fan below him - not aimed, there's just so
-    // many of them that they cover the stage (plenty go off to the sides, not only at the one he grounded)
+    // ...then just UNLOADS: a storm of ki blasts out of his hand, all of them POURING DOWN ONTO the one he grounded
+    // (a tight cone right at them - not sprayed over the whole stage)
     const bt = a.t - RUSH.riseT;
     a.blastT = (a.blastT || 0) - dt;
+    const live = v && v.respawnTimer <= 0;
+    const aim = Math.atan2((live ? v.y - 30 : STAGE.y) - hand.y, (live ? v.x : f.x + f.face * 120) - hand.x);
     while (a.blastT <= 0 && bt < RUSH.barrage) {
       a.blastT += RUSH.blastEvery;
-      const ang = Math.PI / 2 + (Math.random() * 2 - 1) * RUSH.spread;   // (PI/2 = straight down, then up to +-75 degrees out to either side)
+      const ang = aim + (Math.random() * 2 - 1) * RUSH.spread;          // (spread = how far either side of them a blast can stray)
       const sp = RUSH.blastSpeed * (0.85 + Math.random() * 0.3);
       projectiles.push({ owner: f, x: hand.x, y: hand.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, ...RUSH.blast,
                          mult: a.power * powerOf(f), life: 1.2, kind: 'orb', color: KI_YELLOW, hit: new Set(), pierce: false, trail: [], grav: 0,
@@ -8327,12 +8531,31 @@ const TRANSFORM = { power: 1.2, speed: 1.1, drain: ULT_MAX / 14 };   // drain: f
 const tfStats = f => (f.char && CHARACTERS[f.char] && CHARACTERS[f.char].transformStats) || TRANSFORM;
 function powerOf(f) {
   if (!f) return 1;
+  if (f.strikeClone) return powerOf(f.owner);                    // his J-string clones hit with HIS power (it's his combo)
   if (f.minion) return ninjaLaw(f.owner).power * (f.owner && f.owner.transformed ? CLONE_RAGE.power : 1);   // clones: Inverse Ninja Law (+ rage)
   return (f.transformed ? tfStats(f).power : 1) * (f.kaioken ? kaiokenLv(f).dealt : 1) *   // both stack
          (f.revenge > 0 ? 1 + f.revenge : 1) *                                        // Aiden's stored REVENGE power
          hypePower(f);                                                                // Aiden's HYPE (weaker at low hype)
 }
 function auraColor(f) { return (f.look && f.look.transformAura) || f.energy; }
+// GOD SPEED (Colby transformed): every hit he lands zaps them with EXTRA lightning damage on top
+// (zap = % added per hit; tiny rapid hits add tickZap instead)
+const GOD_SPEED = { zap: 1.5, tickZap: 0.3, colors: ['#ffffff', '#7fd8ff', '#bfeaff'] };
+const godSpeed = f => !!(f && f.transformed && f.look && f.look.godSpeed && !f.minion);
+function godSpeedZap(f, t, h, hx, hy) {
+  if (!godSpeed(f) || !t || t === f || t.respawnTimer > 0) return;
+  const z = (h && h.noStop ? GOD_SPEED.tickZap : GOD_SPEED.zap) * (t.kaioken ? KAIOKEN.taken : 1);
+  t.damage += z; if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + z * ULT_GAIN);
+  if (t.minion && t.owner && t.owner.respawnTimer <= 0) t.owner.damage += z;   // (clones pass it back to Colbalias)
+  const n = h && h.noStop ? 1 : 3;
+  for (let k = 0; k < n; k++) bolt(t.x + (Math.random() - 0.5) * 20, t.y - 30 - Math.random() * 50, Math.random() * Math.PI * 2, 30 + Math.random() * 40, 0.1, GOD_SPEED.colors[k % 3]);
+  if (!(h && h.noStop)) burst(hx, hy, GOD_SPEED.colors, 8, 0, Math.PI, 420, { grav: 0 });
+}
+// the crackling GOD SPEED aura: little arcs of lightning jumping all over him
+function drawGodSpeedArcs(p) {
+  if (Math.random() < 0.55) bolt(p.x + (Math.random() - 0.5) * 34, p.y - 10 - Math.random() * 80, Math.random() * Math.PI * 2, 14 + Math.random() * 22, 0.05, GOD_SPEED.colors[(Math.random() * 3) | 0]);
+  if (Math.random() < 0.08) bolt(p.x, p.y - 50, Math.random() * Math.PI * 2, 50 + Math.random() * 30, 0.06, '#ffffff');
+}
 function startTransform(f) {
   f.transformed = true; f.ultBuf = 0;
   heelSay(f, 'roar');                                        // (Captain Heel roars as the cage drops)
@@ -8419,7 +8642,7 @@ function updateBeam(s, dt) {
       if (s.final.lanceKO && !(s.startDmg || (s.startDmg = new Map())).has(t)) s.startDmg.set(t, t.damage);
       let h = last ? s.final : s.tick;
       if (last && s.final.lanceKO && (s.startDmg.get(t) > 0 || o.kaioken)) h = { ...s.final, koAt: 0.001 };
-      if (applyHit(t, h, s.dir, s.mult, t.x - s.dir * 10, s.y)) markKi(o, t);   // Lance's ki marks them
+      if (applyHit(t, h, s.dir, s.mult, t.x - s.dir * 10, s.y)) markKi(o, t, s);   // Lance's ki marks them (once per beam)
     }
   }
   return s.life <= 0;
@@ -8582,7 +8805,9 @@ function startDodge(f, dir, down, up) {
 // Bare-handed Colby's shared string: which hit comes next ('k' = kick button, 'p' = punch button)
 function nextChainKey(f, kind) {
   const step = f.comboTimer > 0 && f.chainStep >= 1 && f.chainStep < CHAIN_LEN ? f.chainStep : 0;
-  if (kind === 'p' && step === 5) return 'kFinish';             // THE BLINK STRING: the 6th K = the air-teleport finisher (Heaven's Axe)
+  // THE BLINK STRING: the 6th K = the air-teleport finisher (Heaven's Axe). Colby only gets it in GOD SPEED -
+  // without it his K string has no teleports at all (it runs on to the 7th hit, the Superman Punch)
+  if (kind === 'p' && step === 5 && (f.char !== 'COLBY' || godSpeed(f))) return 'kFinish';
   if (step === CHAIN_LEN - 1) return kind + 'Finish';            // 7th hit = the finisher for that button
   return kind + (step + 1);
 }
@@ -8837,7 +9062,7 @@ function updateScythes(dt) {
         if (allies(s.owner, t)) continue;
         s.hit.add(t);
         const SH = s.warp ? WARP.hit : SCYTHE_THROW.hit;          // (the warp scythe cuts through and keeps going)
-        if (applyHit(t, { ...SH, dmg: SH.dmg * SW }, s.dir, powerOf(s.owner), s.x, s.y, {})) {
+        if (applyHit(t, { ...SH, dmg: SH.dmg * SW }, s.dir, powerOf(s.owner), s.x, s.y, { by: s.owner })) {
           // it bites in... and stops dead right there, spinning
           if (!s.warp) startScytheHover(s);
           if (s.weapon !== 'sword' && !t.shielding) addBleed(t);   // the thrown scythe makes them bleed too
@@ -8856,7 +9081,7 @@ function updateScythes(dt) {
         if (t === s.owner || allies(s.owner, t) || t.respawnTimer > 0 || projPhase(t)) continue;
         if ((s.chip.get(t) || 0) > 0 || !circleHitsFighter(s.x, s.y, SCYTHE_THROW.r + 8, t)) continue;
         s.chip.set(t, SCYTHE_THROW.hoverEvery);
-        applyHit(t, { ...SCYTHE_THROW.hoverHit }, Math.sign(t.x - s.x) || s.dir, powerOf(s.owner), s.x, s.y, {});
+        applyHit(t, { ...SCYTHE_THROW.hoverHit }, Math.sign(t.x - s.x) || s.dir, powerOf(s.owner), s.x, s.y, { by: s.owner });
       }
       for (const [t, c] of s.chip) s.chip.set(t, c - dt);
       s.hoverT -= dt;
@@ -8875,7 +9100,7 @@ function updateScythes(dt) {
         if (t === o || allies(o, t) || t.respawnTimer > 0 || s.recallHit.has(t) || projPhase(t)) continue;
         if (!circleHitsFighter(s.x, s.y, SCYTHE_THROW.r, t)) continue;
         s.recallHit.add(t);
-        applyHit(t, { ...SCYTHE_THROW.recallHit }, Math.sign(dx) || -s.dir, powerOf(o), s.x, s.y, {});
+        applyHit(t, { ...SCYTHE_THROW.recallHit }, Math.sign(dx) || -s.dir, powerOf(o), s.x, s.y, { by: o });
       }
       if (d < 40 || s.t > 2) {                                                     // caught it!
         scythes.splice(i, 1);
@@ -9842,7 +10067,7 @@ function padInput(i, binds = bindings) {                  // (binds = that playe
 }
 function inputFor(f) {
   if (f.controller === 'net') return netInputFor(f);       // online: this tick's inputs from both players (net.js)
-  if (f.controller === 'minion') return minionInput(f);
+  if (f.controller === 'minion') return f.strikeClone ? emptyInput() : minionInput(f);   // (strike clones just do their one hit)
   if (f.controller === 'keyboard') return keyboardInput(f.binds || bindings);                 // (each player's own preset)
   if (f.controller && f.controller.startsWith('pad')) return padInput(+f.controller.slice(3), f.binds || bindings);
   return dummyInput(f);
@@ -10394,6 +10619,7 @@ function update(dt) {
             if (sfx.shing) sfx.shing(); sfx.clash(true);                                    // DING
           }
           if (f.look && f.look.demonMeter && t.damage > d0) gainDemon(f);    // landing hits fills D-E-M-O-N
+          if (f.strikeClone && f.owner && t.damage > d0) gainDemon(f.owner);  // (his J-string clones' hits count as his)
           if (demonBoost > 1) hellBurst(hx, hy, 20, 550);
           // Colby's TIME meter fills up as he lands hits
           if (f.look && f.look.timeStop && t.damage > d0) f.timeMeter = Math.min(100, (f.timeMeter || 0) + TIME_STOP.gain);
@@ -11061,7 +11287,7 @@ function basePose(p) {
     }
     return pose({ lean: 0.4, bob: -14, legA: [0.95, 1.1], legB: [-0.8, 0.3], armA: [0.6, 0] });   // follow-through
   }
-  if (a && a.type === 'throw' && ['elbowDrop', 'piledriver', 'rko', 'neckRun', 'neckRunBack', 'harvest', 'thunderKnee'].includes(a.kind)) return { ...(a.pose || pose({})) };
+  if (a && a.type === 'throw' && ['elbowDrop', 'piledriver', 'rko', 'neckRun', 'neckRunBack', 'harvest', 'thunderKnee', 'skySpin'].includes(a.kind)) return { ...(a.pose || pose({})) };
   if (a && a.type === 'throw' && a.kind === 'giantSwing') {
     if (a.released) return pose({ lean: -0.2, bob: -6, legA: [0.6, 0.5], legB: [-0.6, 0.3], armA: [-1.7, 0], armB: [-1.5, -0.2], armC: [-1.4, 0.1], armD: [-1.2, 0] });
     return { ...pose({ lean: -0.35, bob: -10, legA: [0.7, 0.6], legB: [-0.6, 0.4], grip: gripOn(p, a.victim, 0) }), raw: true };   // leaning back, spinning
@@ -12044,6 +12270,7 @@ function drawFighter(p) {
     (a.type === 'attack' && (a.move.rapid || a.move.beam) && a.phase !== 'end') ||
     (ult && ult.user === p && ult.phase === 'final'));                      // ultimate charge-up
   if (p.transformed) drawAura(p, auraColor(p), true);                       // TRANSFORMED: big, constant aura (everyone)
+  if (godSpeed(p) && !sketch) drawGodSpeedArcs(p);                          // Colby's GOD SPEED: electricity crackling all over him
   else if (powered) drawAura(p);
   else if (p.look && p.look.bossAura) {                                     // the final boss always smoulders
     // HELLFIRE SHOT stored (not being charged right now): his aura tells you. Partly charged = it burns a
@@ -12066,7 +12293,7 @@ function drawFighter(p) {
     // SHADOW CLONE: a pitch-black silhouette with burning red eyes. Its eyes FLASH WHITE during the wind-up
     // of every attack - the tell that a hit is coming.
     const windup = a && a.type === 'attack' && a.phase === 'startup';
-    const fadeIn = clamp((CLONE.life - p.life) / 0.15, 0, 1), fadeOut = clamp(p.life / 0.6, 0, 1);
+    const fadeIn = p.strikeClone ? 1 : clamp((CLONE.life - p.life) / 0.15, 0, 1), fadeOut = clamp(p.life / 0.6, 0, 1);   // (J-string clones pop in at once)
     if (!sketch && !pixelMode) drawFigure(figureOf(p), { alpha: alpha * 0.8 * Math.min(fadeIn, fadeOut), tint: '#5a0a0a', outline: FIG_OUTLINE });   // dark red rim
     drawFigure(figureOf(p), { alpha: alpha * 0.92 * Math.min(fadeIn, fadeOut), tint: tint || (sketch ? '#333333' : '#140404'),
       eye: windup ? (Math.floor(p.anim * 30) % 2 ? '#ffffff' : '#ffb0b0') : '#ff2020' });
