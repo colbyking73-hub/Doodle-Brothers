@@ -5082,6 +5082,19 @@ COLBALIAS_MOVES.upRanged = { name: 'Clone Launch Headbutt', startup: 0.1, active
     hellBurst(f.x + f.face * 30, f.y - 100, 14, 420); sfx.whoosh(true);
   },
   onHit(f, t) { devilBolts(t.x, t.y - 70, 5); hellBurst(t.x, t.y - 70, 16, 500); shake = Math.max(shake, 12); } };
+// COLBALIAS himself: the headbutt is his UP J (ground) and UP AIR J now - up K is the DEMON'S GAZE again (his recovery).
+// From the ground it's the full clone launch; in the air the clone gives him a smaller boost, once per airtime.
+{
+  const HB = COLBALIAS_MOVES.upRanged;
+  const hbFire = air => function (f, mult, c, a) {
+    if (!f.minion) { const k = spawnStrikeClone(f, 'boost', f.x - f.face * 8, f.face); k.action.t = CLONE_STRING.boost.startup; }
+    if (!air) { f.vy = LAUNCH_HB.vy * 0.85; f.vx = f.face * LAUNCH_HB.vx; f.ground = false; f.y -= 2; a.air = true; }
+    else if (!f.hbAirUsed) { f.hbAirUsed = true; f.vy = Math.min(f.vy, -720); f.vx = f.face * LAUNCH_HB.vx * 0.6; }
+    hellBurst(f.x + f.face * 30, f.y - 100, 14, 420); sfx.whoosh(true);
+  };
+  COLBALIAS_MOVES.hbUpJ = { ...HB, fire: hbFire(false) };
+  COLBALIAS_MOVES.hbUair = { ...HB, name: 'Clone Boost Headbutt', fire: hbFire(true) };
+}
 
 // ---------------- RED CHIDORI (Colbalias, side K) ----------------
 // Hold K: a crackling sphere of RED lightning gathers round his hand (the longer, the stronger). Let go: a clone pops
@@ -5530,6 +5543,7 @@ function stepGazeSwap(f, a, dt) {
 }
 function updateGaze(f, dt) {
   f.gazeCD = Math.max(0, (f.gazeCD || 0) - dt);
+  if (f.ground) f.hbAirUsed = false;                             // (the air headbutt's boost comes back on landing)
   if (!f.gazeMark) return;
   f.gazeMark.time -= dt;
   const t = f.gazeMark.t;
@@ -6369,7 +6383,7 @@ const SEVON_MOVES = {
     fire(f) { flameSlash(f, 14, -6, 10); } },
   // ---------- K ----------
   // NEUTRAL K: ODM HOOK - see ODM / stepOdm
-  neutralRanged: { name: 'ODM Hook', startup: 0.07, active: 0.06, endlag: 0.18, landLag: 0.08, noClash: true,
+  neutralRanged: { name: 'ODM Hook', startup: 0.035, active: 0.04, endlag: 0.1, landLag: 0.06, noClash: true,
     wind: pose({ lean: -0.1, bob: -8, legA: [0.75, 0.6], legB: [-0.6, 0.2], armA: [0.4, -0.3], armB: [1.1, -0.9], sw: 2.2 }),   // hand on the trigger at his hip
     strike: pose({ lean: 0.1, bob: -8, legA: [0.75, 0.6], legB: [-0.6, 0.2], armA: [1.5, 0.05], armB: [1.1, -0.9], sw: 2.2 }),
     fire(f) { fireOdmHook(f); } },
@@ -6423,8 +6437,8 @@ const SEVON_MOVES = {
 // 3. K again (while reeling, or after): the LEVI SPIN - he whirls at them, blade out, spinning like a saw. While the
 //    cable holds it ALWAYS gets to them - the only answers are a last-second SHIELD or a last-second Z VANISH.
 // (The cable snaps if he's hit, if it times out, or if they get too far apart.)
-const ODM = { hookSpeed: 2000, hookLife: 0.5, hookR: 16, dur: 4, maxDist: 1500,
-              reel: 2300, reelTime: 0.8, arrive: 70,
+const ODM = { hookSpeed: 3400, hookLife: 0.34, hookR: 18, dur: 4, maxDist: 1500,   // (a fast hook: it sticks almost the moment it fires)
+              reel: 3900, reelTime: 0.42, arrive: 80,             // (a SNAPPY reel: yanked in almost instantly)
               spin: 2700, spinTime: 0.9, contact: 62, hits: 4, every: 0.06,
               hookHit: { dmg: 1.5, base: 60, growth: 0, angle: 30, noStop: true },
               spinHit: { dmg: 2.2, base: 40, growth: 0, angle: 40, noStop: true },
@@ -6498,6 +6512,16 @@ function startOdmSpin(f) {
 function stepOdm(f, a, dt, inp) {
   const O = f.odm, t = O && O.t;
   if (!t) { f.action = { type: 'land', t: 0, dur: 0.2 }; return; }
+  // Z VANISH at ANY point while the cable's connected (reeling, spinning, even mid-slashes): he cuts the line and
+  // vanishes - the hook's ready to fire again straight away
+  if (inp && inp.blockTap) {
+    if (a.phase === 'hits' && t.action) t.action.locked = false;
+    odmBreak(f); f.action = null; f.dodgeCool = 0;
+    if (f.ground) { f.ground = false; f.y -= 2; }
+    f.airDodges = Math.max(1, f.airDodges);                     // (always works - it doesn't need a spare dot)
+    startDodge(f, inp.dir, inp.down, inp.up);
+    return;
+  }
   const dx = t.x - f.x, dy = (t.y - 45) - (f.y - 45), d = Math.hypot(dx, dy) || 1;
   const gas = () => { if (Math.random() < dt * 50) burst(f.x - Math.sign(dx || f.face) * 14, f.y - 46, ['#ffffff', '#d8dde6'], 1, dx > 0 ? Math.PI : 0, 0.5, 260, { grav: 0 }); };
   if (a.type === 'odmReel') {                                  // REELING IN at them
@@ -6586,46 +6610,80 @@ function drawOdmCables() {
   }
 }
 // ---- Sevon's look: the flame-hemmed haori, flame hair, the katana, the ODM gear ----
-function drawHaori(hip, shoulder, f, fig, opts, main) {
-  const sway = clamp(-(fig.vx || 0) * 0.016, -16, 16), lift = clamp(-(fig.vy || 0) * 0.01, -10, 12);
-  const top1 = { x: shoulder.x + f * 6, y: shoulder.y + 1 }, top2 = { x: shoulder.x - f * 8, y: shoulder.y - 1 };
-  const bot2 = { x: hip.x - f * (20 + sway * 0.8), y: hip.y + 36 - lift }, bot1 = { x: hip.x + f * 3, y: hip.y + 28 };
-  ctx.save();
-  ctx.beginPath(); ctx.moveTo(top1.x, top1.y); ctx.lineTo(top2.x, top2.y); ctx.lineTo(bot2.x, bot2.y); ctx.lineTo(bot1.x, bot1.y); ctx.closePath();
-  if (opts.tint) { ctx.fillStyle = opts.tint; ctx.fill(); ctx.restore(); return; }
-  ctx.fillStyle = sketch ? PAPER : '#f4f1ea'; ctx.fill();
-  if (sketch) { ctx.strokeStyle = main; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); return; }
-  // the FLAME HEM: tongues of fire licking up from the bottom edge
-  const N = 6, up = { x: (top2.x + top1.x) / 2 - (bot1.x + bot2.x) / 2, y: (top2.y + top1.y) / 2 - (bot1.y + bot2.y) / 2 };
-  const L = Math.hypot(up.x, up.y) || 1; up.x /= L; up.y /= L;
+// THE HAORI: a long white cloak that covers most of him - a wide BACK panel (drawn behind his body, flaring out
+// behind him as he moves) and a FRONT panel (drawn over his torso and near leg, open a little at the front so a
+// strip of his blue body shows). Both have the flame hem.
+function haoriHem(bot1, bot2, up, h0) {
+  const N = 7;
   for (const [col, h] of [['#ff7a1a', 1], ['#e0301e', 0.55]]) {
     ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(bot1.x, bot1.y);
     for (let i = 0; i <= N; i++) {
       const u = i / N, bx = lerp(bot1.x, bot2.x, u), by = lerp(bot1.y, bot2.y, u);
-      const tall = (i % 2 ? 15 : 8) * h + Math.sin(time * 9 + i * 1.7) * 2;
-      ctx.lineTo(bx + up.x * tall + (bot2.x - bot1.x) * 0.04, by + up.y * tall);
+      const tall = (i % 2 ? 15 : 8) * h * h0 + Math.sin(time * 9 + i * 1.7) * 2;
+      ctx.lineTo(bx + up.x * tall + (bot2.x - bot1.x) * 0.03, by + up.y * tall);
       ctx.lineTo(lerp(bot1.x, bot2.x, Math.min(1, u + 0.5 / N)), lerp(bot1.y, bot2.y, Math.min(1, u + 0.5 / N)) + up.y * 2);
     }
     ctx.lineTo(bot2.x, bot2.y); ctx.closePath(); ctx.fill();
   }
+}
+function drawHaori(hip, shoulder, f, fig, opts, main, layer = 'back') {
+  const sway = clamp(-(fig.vx || 0) * 0.016, -16, 16), lift = clamp(-(fig.vy || 0) * 0.01, -10, 12);
+  const ux = (shoulder.x - hip.x) / TORSO, uy = (shoulder.y - hip.y) / TORSO;     // up his spine
+  const px = -uy * f, py = ux * f;                                              // toward his front
+  const at = (o, up, fw) => ({ x: o.x + ux * up + px * fw, y: o.y + uy * up + py * fw });
+  let pts, bot1, bot2;
+  if (layer === 'back') {
+    // shoulders to mid-shin, wide - the back edge flares out behind him
+    const t1 = at(shoulder, 3, 7), t2 = at(shoulder, 4, -9);
+    bot2 = { x: hip.x - f * (26 + sway * 0.9), y: hip.y + 38 - lift };
+    bot1 = { x: hip.x + f * 12 + sway * 0.2, y: hip.y + 40 - lift * 0.3 };
+    pts = [t1, t2, at(hip, 4, -14), bot2, bot1, at(hip, 2, 10)];
+  } else {
+    // the front panel: over his chest and hips, hanging to the shin - its front edge stops just short of his
+    // body line, so the haori looks worn OPEN over him
+    const t1 = at(shoulder, 2, 2), t2 = at(shoulder, 4, -9);
+    bot2 = { x: hip.x - f * (15 + sway * 0.5), y: hip.y + 37 - lift * 0.6 };
+    bot1 = { x: hip.x + f * 7 + sway * 0.15, y: hip.y + 39 - lift * 0.2 };
+    pts = [t1, t2, at(hip, 0, -10), bot2, bot1, at(hip, 4, 1)];
+  }
+  ctx.save();
+  ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
+  if (opts.tint) { ctx.fillStyle = opts.tint; ctx.fill(); ctx.restore(); return; }
+  ctx.fillStyle = sketch ? PAPER : layer === 'back' ? '#e6e1d6' : '#f6f3ec'; ctx.fill();   // (the back panel a shade darker: it's in shadow)
+  ctx.strokeStyle = sketch ? main : 'rgba(60,50,40,0.35)'; ctx.lineWidth = sketch ? 2 : 1.5; ctx.stroke();
+  if (sketch) { ctx.restore(); return; }
+  if (layer === 'front') {                                     // a fold line down the panel
+    ctx.strokeStyle = 'rgba(60,50,40,0.18)'; ctx.lineWidth = 1.5;
+    const a = at(shoulder, 0, -4), b = { x: lerp(bot1.x, bot2.x, 0.45), y: lerp(bot1.y, bot2.y, 0.45) - 6 };
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  const up = { x: ux, y: uy };
+  haoriHem(bot1, bot2, up, layer === 'back' ? 1 : 0.9);
   ctx.restore();
 }
+// GINGER HAIR: a neat, swept-up haircut - a ginger cap with short spikes swept back, each spike tipped ORANGE
 function drawFlameHair(head, f, opts, main) {
-  const spikes = [[-0.95, 13], [-0.65, 16], [-0.35, 17], [-0.05, 16], [0.25, 15], [0.55, 13], [0.8, 10]];   // [angle from the top (+ = front), length]
+  // [angle from the top (+ = front), length] - all swept BACK over his head, the back ones longest
+  const spikes = [[-1.25, 10], [-0.95, 13], [-0.65, 14], [-0.35, 13], [-0.05, 11], [0.25, 9], [0.55, 7], [0.85, 5]];
   ctx.save();
-  ctx.fillStyle = opts.tint || (sketch ? main : '#ffcf33');
-  ctx.beginPath(); ctx.arc(head.x - f * 1, head.y - 2, 12.5, Math.PI * 1.02, Math.PI * 1.98); ctx.closePath(); ctx.fill();
+  const base = opts.tint || (sketch ? main : '#b8441a'), tipCol = '#ff7f1a';
+  ctx.fillStyle = base;
+  // the cap: a slanted hairline - high at the forehead, down to the ear at the back
+  ctx.beginPath();
+  for (let t = -1.95; t <= 1.15; t += 0.1) { const a = -Math.PI / 2 + f * t; ctx.lineTo(head.x + Math.cos(a) * 12.8, head.y - 0.5 + Math.sin(a) * 12.8); }
+  ctx.closePath(); ctx.fill();
   for (const pass of opts.tint || sketch ? [0] : [0, 1]) {
-    ctx.fillStyle = opts.tint || (sketch ? main : pass ? '#e0301e' : '#ffcf33');
     for (const [o, len0] of spikes) {
-      const len = pass ? len0 * 0.45 : len0, ang = -Math.PI / 2 + f * o;
-      const base = pass ? 10 + len0 * 0.55 : 10;
-      const bx = head.x + Math.cos(ang) * base, by = head.y + Math.sin(ang) * base;
-      const w = pass ? 2.2 : 4.5, dir = ang - f * 0.25;
+      const ang = -Math.PI / 2 + f * o, dir = ang - f * 1.05;      // swept well back (lying along the head, not standing up)
+      const r0 = 9, w = pass ? 2.2 : 4.4;
+      // pass 0 = the whole ginger spike; pass 1 = just its outer third, in orange
+      const s0 = pass ? len0 * 0.6 : 0, len = len0;
+      const bx = head.x + Math.cos(ang) * r0 + Math.cos(dir) * s0, by = head.y + Math.sin(ang) * r0 + Math.sin(dir) * s0;
+      ctx.fillStyle = pass ? tipCol : base;
       ctx.beginPath();
-      ctx.moveTo(bx + Math.cos(ang + Math.PI / 2) * w, by + Math.sin(ang + Math.PI / 2) * w);
-      ctx.lineTo(bx + Math.cos(dir) * len, by + Math.sin(dir) * len);
-      ctx.lineTo(bx - Math.cos(ang + Math.PI / 2) * w, by - Math.sin(ang + Math.PI / 2) * w);
+      ctx.moveTo(bx + Math.cos(dir + Math.PI / 2) * w, by + Math.sin(dir + Math.PI / 2) * w);
+      ctx.lineTo(head.x + Math.cos(ang) * r0 + Math.cos(dir) * len, head.y + Math.sin(ang) * r0 + Math.sin(dir) * len);
+      ctx.lineTo(bx - Math.cos(dir + Math.PI / 2) * w, by - Math.sin(dir + Math.PI / 2) * w);
       ctx.closePath(); ctx.fill();
     }
   }
@@ -6641,36 +6699,50 @@ function drawOdmGear(hip, f, opts) {
   }
   ctx.restore();
 }
+// THE KATANA: a proper nichirin blade, shorter than before - long two-hand grip (wrapped, with diamonds), a flame
+// tsuba, a gold habaki collar, a gently curved blade with a wavy HAMON line and the burning red-orange edge
+const KATANA = { grip: 22, blade: 74 };
 function drawKatana(shoulder, pz, f, opts) {
   const { hand, ux, uy } = swordHold(shoulder, pz, f);
   const nx = -uy, ny = ux;
-  const P = (along, across) => { const c = -0.0009 * along * along; return { x: hand.x + ux * along + nx * (across + c), y: hand.y + uy * along + ny * (across + c) }; };   // (a slight curve)
-  const outline = opts.outline || 0;
+  const P = (along, across) => { const c = along > 0 ? -0.0016 * along * along : 0; return { x: hand.x + ux * along + nx * (across + c), y: hand.y + uy * along + ny * (across + c) }; };   // (curve: the edge side is the inside)
+  const outline = opts.outline || 0, G = KATANA.grip, B = KATANA.blade;
   ctx.save();
   ctx.lineCap = 'round';
   if (opts.tint) {
     ctx.strokeStyle = opts.tint; ctx.lineWidth = 5 + outline;
-    ctx.beginPath(); ctx.moveTo(P(-16, 0).x, P(-16, 0).y);
-    for (let s = 0; s <= 100; s += 10) ctx.lineTo(P(s, 0).x, P(s, 0).y);
+    ctx.beginPath(); ctx.moveTo(P(-G + 4, 0).x, P(-G + 4, 0).y);
+    for (let s = 0; s <= B; s += 6) ctx.lineTo(P(s, 0).x, P(s, 0).y);
     ctx.stroke(); ctx.restore(); return;
   }
-  // grip: dark wrap with light diamonds
+  // grip (tsuka): dark wrap, light diamond pattern, a small pommel cap
   ctx.strokeStyle = '#2a1a12'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(P(-16, 0).x, P(-16, 0).y); ctx.lineTo(P(4, 0).x, P(4, 0).y); ctx.stroke();
-  if (!sketch) { ctx.fillStyle = '#e8e2cf'; for (const s of [-12, -6, 0]) { ctx.beginPath(); ctx.arc(P(s, 0).x, P(s, 0).y, 1.3, 0, Math.PI * 2); ctx.fill(); } }
-  // the tsuba: a round guard shaped like a flame
-  ctx.fillStyle = sketch ? '#333' : '#ff7a1a';
-  ctx.beginPath(); ctx.arc(P(5, 0).x, P(5, 0).y, 6, 0, Math.PI * 2); ctx.fill();
-  if (!sketch) { ctx.fillStyle = '#e0301e'; ctx.beginPath(); ctx.arc(P(5, 0).x, P(5, 0).y, 3, 0, Math.PI * 2); ctx.fill(); }
-  // the blade: steel, with the burning red-orange edge of a Flame Hashira's nichirin sword
-  const back = [], edge = [];
-  for (let s = 8; s <= 100; s += 8) { back.push(P(s, -2.6 * (1 - s / 130))); edge.push(P(s, 2.6 * (1 - s / 130))); }
-  const tip = P(106, 0);
-  ctx.fillStyle = sketch ? '#ddd' : '#c9d2de';
-  ctx.beginPath(); [...back, tip, ...edge.reverse()].forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(P(-G + 4, 0).x, P(-G + 4, 0).y); ctx.lineTo(P(3, 0).x, P(3, 0).y); ctx.stroke();
   if (!sketch) {
-    ctx.strokeStyle = '#ff5a1a'; ctx.lineWidth = 2;
-    ctx.beginPath(); edge.reverse(); edge.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+    ctx.fillStyle = '#e8e2cf';
+    for (let s = -G + 8; s <= 0; s += 5) { const p = P(s, 0); ctx.beginPath(); ctx.moveTo(p.x + ux * 2, p.y + uy * 2); ctx.lineTo(p.x + nx * 1.6, p.y + ny * 1.6); ctx.lineTo(p.x - ux * 2, p.y - uy * 2); ctx.lineTo(p.x - nx * 1.6, p.y - ny * 1.6); ctx.closePath(); ctx.fill(); }
+    ctx.fillStyle = '#c9a23a'; const k = P(-G + 3, 0); ctx.beginPath(); ctx.arc(k.x, k.y, 2.8, 0, Math.PI * 2); ctx.fill();   // kashira
+  }
+  // tsuba: an oval guard, flame-orange with a red heart
+  const g = P(4.5, 0), ang = Math.atan2(uy, ux);
+  ctx.fillStyle = sketch ? '#333' : '#ff7a1a';
+  ctx.beginPath(); ctx.ellipse(g.x, g.y, 2.4, 6.5, ang, 0, Math.PI * 2); ctx.fill();
+  if (!sketch) { ctx.fillStyle = '#e0301e'; ctx.beginPath(); ctx.ellipse(g.x, g.y, 1.4, 3.6, ang, 0, Math.PI * 2); ctx.fill(); }
+  // habaki (gold collar)
+  if (!sketch) { ctx.strokeStyle = '#d9b44a'; ctx.lineWidth = 4.4; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(P(6.5, 0).x, P(6.5, 0).y); ctx.lineTo(P(10, 0).x, P(10, 0).y); ctx.stroke(); ctx.lineCap = 'round'; }
+  // the blade: back (spine) and edge, tapering to a kissaki tip
+  const back = [], edge = [];
+  for (let s = 9; s <= B - 6; s += 5) { const w = 2.3 * (1 - (s / B) * 0.3); back.push(P(s, -w)); edge.push(P(s, w)); }
+  const tip = P(B, -0.8), shoulderPt = P(B - 6, 2.0);
+  ctx.fillStyle = sketch ? '#ddd' : '#cfd7e2';
+  ctx.beginPath(); [...back, tip, shoulderPt, ...edge.slice().reverse()].forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
+  if (!sketch) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;     // wavy hamon line
+    ctx.beginPath();
+    for (let s = 10; s <= B - 8; s += 2) { const p = P(s, 0.6 + Math.sin(s * 0.55) * 0.5); s === 10 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y); }
+    ctx.stroke();
+    ctx.strokeStyle = '#ff5a1a'; ctx.lineWidth = 1.8;                  // the burning edge
+    ctx.beginPath(); edge.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.lineTo(shoulderPt.x, shoulderPt.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
   }
   ctx.restore();
 }
@@ -6750,14 +6822,14 @@ const CHARACTERS = {
     look: {
       body: '#2f6fe0',          // blue
       haori: true,              // Rengoku's white haori with the flame hem (see drawHaori)
-      flameHair: true,          // yellow hair with flame-red tips (see drawFlameHair)
+      flameHair: true,          // ginger haircut with orange tips (see drawFlameHair)
       greatsword: true,         // (the sword system: drawn in his hands, two-handed grip)...
       katana: true,             // ...but it's a KATANA (see drawKatana)
       odm: true,                // ODM gear on his hips + the grapple (see ODM)
       fireHits: true,           // his hits burst into flames
       transformAura: '#ff7a1a',
       // samurai stance: wide and low, the katana held up in both hands, pointing at them
-      idle: pose({ lean: 0.08, bob: -9, legA: [0.78, 0.5], legB: [-0.62, 0.1], armA: [1.15, -0.9], armB: [1.0, -0.8], sw: 2.15 }),
+      idle: pose({ lean: 0.1, bob: -9, legA: [0.78, 0.5], legB: [-0.62, 0.1], armA: [0.6, -0.7], armB: [0.5, -0.8], sw: 2.2 }),   // (chudan: hands low in front of his navel, tip at their eyes)
     },
     transformName: 'FLAME HASHIRA',
   },
@@ -9684,6 +9756,7 @@ function fatigued(f, base, free = DODGE_FREE) {
 }
 
 function startDodge(f, dir, down, up) {
+  if (f.odm) odmBreak(f);                         // Sevon: any dodge / Z vanish while tethered cuts the ODM line (ready to re-fire)
   f.dodgeBuf = 0; f.jumpBuf = 0; f.flip = 0; f.squat = 0;
   f.dodgeCount = Math.min(AIR_DODGE_MAX + FATIGUE_MAX, f.dodgeCount + 1);
   f.dodgeRecover = DODGE_RECOVER;
@@ -9795,8 +9868,16 @@ function startAttack(f, inp, btn) {
     summonShadowClone(f);                             // Colbalias: down K = SHADOW CLONE (full meter: Hellwave)
     return;
   }
-  // (Colbalias's up K used to be the Demon's Gaze swap - it's the Clone Launch Headbutt now, a normal move)
+  if (key === 'upRanged' && f.look && f.look.demonMeter && !f.minion) {
+    f.spcBuf = 0;
+    demonGaze(f);                                     // Colbalias: up K = DEMON'S GAZE - look (mark) / SWAP places (his recovery)
+    return;
+  }
   let move = f.moveset[key];
+  if (f.look && f.look.demonMeter && !f.minion) {     // ...and the Clone Launch Headbutt is his up J / up air J
+    if (key === 'upGround') move = COLBALIAS_MOVES.hbUpJ;
+    else if (key === 'uair') move = COLBALIAS_MOVES.hbUair;
+  }
   if (f.noScythe) {                                   // no scythe: punches replace the scythe moves
     const bare = CHARACTERS[f.char].bareMoves;
     if (bare && bare[key]) move = bare[key];
@@ -12586,7 +12667,7 @@ function drawFigure(fig, opts = {}) {
   if (look.oneArm) { /* only one arm (Future Gohan) - nothing on the far side */ }
   else if (grip) ikArm(shoulder, { x: grip.x - f * 3, y: grip.y + 7 });
   else if (S && (S.hands === 2 || S.hands === 'B')) ikArm(shoulder, S.at(S.hb));
-  else if (look.greatsword && !fig.noScythe) ikArm(shoulder, swordSecondHand(shoulder, pz, f));   // both hands on the greatsword
+  else if (look.greatsword && !fig.noScythe) ikArm(shoulder, swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9));   // both hands on the greatsword (Sevon: spaced along the katana grip)
   else if (MUS) muscleLimb(shoulder, pz.armB, AL, AL2, f, ARM_W, back, null);
   else limb(shoulder, pz.armB, 16, 15, f);
   if (four) {                                                 // far LOWER arm
@@ -12699,6 +12780,7 @@ function drawFigure(fig, opts = {}) {
     line(hip, shoulder);
     limb(hip, pz.legA, LEG_UP, LEG_LOW, f);
   }
+  if (look.haori) drawHaori(hip, shoulder, f, fig, opts, main, 'front');   // SEVON: the haori's front panel, over his torso and near leg
   // FLAME BELT (Incineroar): a ring of flickering fire around his waist
   if (look.flameBelt) {
     const fl = sketch ? ['#e0a400'] : opts.tint ? [opts.tint] : ['#ff5a1a', '#ffb02e', '#ffe066'];
@@ -13055,7 +13137,7 @@ function swordHold(shoulder, pz, f) {
   return { hand, ux: Math.sin(ang) * f, uy: Math.cos(ang) };
 }
 // TWO-HANDED GRIP: his other hand holds the hilt just below the first one (toward the pommel)
-const swordSecondHand = (shoulder, pz, f) => { const s = swordHold(shoulder, pz, f); return { x: s.hand.x - s.ux * 9, y: s.hand.y - s.uy * 9 }; };
+const swordSecondHand = (shoulder, pz, f, gap = 9) => { const s = swordHold(shoulder, pz, f); return { x: s.hand.x - s.ux * gap, y: s.hand.y - s.uy * gap }; };   // (gap: how far down the hilt)
 function drawGreatsword(shoulder, pz, f, opts) {
   const { hand, ux, uy } = swordHold(shoulder, pz, f);              // (ux, uy = along the blade)
   const nx = -uy, ny = ux;                                         // across it
@@ -14055,9 +14137,18 @@ function drawHUD() {
       for (let b = 0; b < 2; b++) if (um >= (b + 1) / 2) {
         sctx.fillStyle = flash ? '#ffffff' : '#ff2a2a'; sctx.fillRect(x + 2 + b * 103, y + 80, 103, 2);
       }
-      sctx.fillStyle = '#0e0c0c'; sctx.fillRect(x + 104, y + 79, 3, 12);
+      // the DIVIDER between charge 1 and charge 2: a bold white line sticking out above and below the bar
+      sctx.fillStyle = '#0e0c0c'; sctx.fillRect(x + 101, y + 70, 9, 21);
+      sctx.fillStyle = sketch ? '#333333' : '#ffffff'; sctx.fillRect(x + 104, y + 70, 3, 21);
+      // a diamond for each charge, sitting on top of its half of the bar: lit = ready
+      for (let b = 0; b < 2; b++) {
+        const lit = um >= (b + 1) / 2, cx = x + 52 + b * 104, cy = y + 74;
+        sctx.fillStyle = '#0e0c0c'; sctx.beginPath(); sctx.moveTo(cx, cy - 6); sctx.lineTo(cx + 6, cy); sctx.lineTo(cx, cy + 6); sctx.lineTo(cx - 6, cy); sctx.closePath(); sctx.fill();
+        sctx.fillStyle = lit ? (flash ? '#ffffff' : '#ff2a2a') : (sketch ? 'rgba(0,0,0,0.25)' : '#4a1c1c');
+        sctx.beginPath(); sctx.moveTo(cx, cy - 4); sctx.lineTo(cx + 4, cy); sctx.lineTo(cx, cy + 4); sctx.lineTo(cx - 4, cy); sctx.closePath(); sctx.fill();
+      }
       if (f.transformed) {                                 // the transformation's own timer: a thin gold line above the bars
-        sctx.fillStyle = '#ffd23f'; sctx.fillRect(x + 2, y + 76, 206 * clamp((f.tfTime || 0) / (ULT_MAX / TRANSFORM.drain), 0, 1), 3);
+        sctx.fillStyle = '#ffd23f'; sctx.fillRect(x + 2, y + 78, 206 * clamp((f.tfTime || 0) / (ULT_MAX / TRANSFORM.drain), 0, 1), 2);
       }
       if (um >= 0.5 && !f.out) text((um >= 1 ? 'x2' : 'x1') + ' ULT [I]' + (!f.transformed ? '   HOLD [I] TRANSFORM' : ''), x + 105, y - 8, 9, flash ? '#ffffff' : '#ff6a6a', 'center');
     }
