@@ -391,7 +391,7 @@ const CLASH_CHIP   = 0.15;  // damage BOTH fighters take on each exchanged blow 
 // the clash first while the loser is left stunned right in front of them: a free combo.
 // (period = how long the bar takes to fill - a bit quicker than it was)
 const CLASH_BAR = { period: 0.34, winDmg: 2.2, finalStun: 0.6, missMul: 0.5,
-                    cpu: { EASY: [30, 75], NORMAL: [50, 88], HARD: [66, 95], MASTER: [80, 99] } };
+                    cpu: { EASY: [30, 75], NORMAL: [50, 88], HARD: [66, 95], MASTER: [80, 99], IMPOSSIBLE: [94, 100] } };
 const MAX_CHARGE   = 1.0;   // seconds of holding for a full charge
 const CHARGE_BONUS = 0.8;   // full charge = +80% damage and knockback
 const OVERCHARGE_TIME = 1.2; // moves with "overcharge" (Lance's Kamehameha): this much MORE holding goes 100% -> 200%
@@ -4218,7 +4218,7 @@ function shipImpact(f, a) {
     if (!inCage && (t.x < x0 || t.x > x1)) continue;
     // PERFECT BLOCK: shield thrown up right as the ship comes down (the usual perfect-block timing) = no damage, even
     // shut in the cage. (A shield that's just held up gets crushed anyway.)
-    const aiParryOk = t.controller !== 'dummy' || Math.random() < ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3);
+    const aiParryOk = t.controller !== 'dummy' || Math.random() < ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7, IMPOSSIBLE: 0.97 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3);
     // (a bit more lenient than a normal hit: a shield thrown up any time from "JUMP!" ending - when the swing starts - counts)
     if (t.shielding && t.shieldAge <= SHIP.parry && aiParryOk) {
       perfectBlock(t, {}, t.x, t.y - 60);                       // (the flash, the sound, a full shield - Heel isn't staggered: he's mid-ult)
@@ -5673,6 +5673,7 @@ function legionNewExchange(U) {
               own: ownList.length ? ownList[n % ownList.length] : LV.palm,
               clones: A.pair ? [{ side: -1, app: 'run' }, { side: 1, app: 'poof' }] : [{ side: A.side, app: A.app }] };
   E.A0 = A.appT * s; E.C0 = E.A0 + A.ta * s; E.CI = E.C0 + E.C.wT * s; E.END = E.CI + E.C.sT * s;
+  if (U.user.arcadeBoss && !A.pair) E.clones.push({ side: -E.clones[0].side, app: 'poof' });   // ARCADE BOSS: +1 clone in every exchange (from the other side)
   if (E.clones.some(c => c.app === 'poof')) E.poofed = false;
   U.ex.push(E);
   U.crowd = Math.max(0, U.crowd - E.clones.length);
@@ -6277,7 +6278,7 @@ function stepHellwave(f, a) {
 // startup), a QUARTER as durable (bursts after 25% damage), and takes 1.5x knockback (lighter).
 const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5, hits: 2, slow: 1.3, link: 0.5 };   // link = the share of a clone's damage Colbalias takes   // up to TWO clones at once; each one bursts on its 2nd hit
 // TRANSFORMED Colbalias: one MORE clone out at once, and each one takes one more hit before it bursts
-const cloneMax = owner => CLONE.max + (owner && owner.transformed ? 1 : 0);
+const cloneMax = owner => CLONE.max + (owner && owner.transformed ? 1 : 0) + (owner && owner.arcadeBoss ? 1 : 0);   // (the ARCADE final boss: +1 more)
 // BIGGER LOBBIES: one more hit per fighter past two (3 in the match = +1, 4 = +2)
 const cloneHitsMax = c => CLONE.hits + (c.owner && c.owner.transformed ? 1 : 0) + Math.max(0, REAL_FIGHTERS - 2);
 // Summoning a clone costs one of his blue Z-vanish dots (they only refill on the ground) - no endless spam
@@ -6381,7 +6382,8 @@ const CLONE_DODGE = { HARD: 0.5, MASTER: 0.78 };         // chance to dodge an a
 function minionInput(f) {
   const lvl = cloneAiLevel();
   const inp = aiInput(f, lvl);
-  if (lvl === 'FERAL') { inp.blockTap = inp.blockHeld = false; inp.dirTap = false; }   // (feral: never defends)
+  const offStage = !f.ground && (f.x < STAGE.x || f.x > STAGE.x + STAGE.w || f.y > STAGE.y + 5);
+  if (lvl === 'FERAL' && !offStage) { inp.blockTap = inp.blockHeld = false; inp.dirTap = false; }   // (feral: never defends - but it will Z vanish home)
   inp.grabTap = false; inp.ultTap = false; inp.flyTap = 0; inp.taunt = 0;
   if (inp.down) inp.spcTap = inp.spcHeld = false;         // (K = missiles / recovery only)
   // SURVIVAL REFLEX: an attack is about to land on it - dodge out of the way (roll / spot dodge / Z vanish)
@@ -7365,45 +7367,46 @@ function drawHaori(hip, shoulder, f, fig, opts, main, layer = 'back') {
   haoriHem(bot1, bot2, up, layer === 'back' ? 1 : 0.9);
   ctx.restore();
 }
-// GINGER BOWL CUT (Sevon): a full, rounded bowl of ginger hair sitting on his head like a helmet - a straight fringe
-// cut across his forehead, the sides and back cut level just above the nape - with darker strands combed down from the
-// crown, a soft shine on top, and a ragged ORANGE edge all the way round where it's cut. It bounces a little as he moves.
-const SEVON_HAIR = { base: '#b8441a', shade: '#86300f', light: '#dc6a2e', tip: '#ff8a2a' };
+// GINGER SWOOP (Sevon): a Bieber-style cut - short and neat at the back and sides, with all the length on top brushed
+// FORWARD into a big side-swept fringe that swoops down over his forehead. Plain ginger (no dyed tips), with darker
+// strands following the sweep and a shine across the top. The fringe bounces a little as he moves.
+const SEVON_HAIR = { base: '#bf4a1c', shade: '#8a3311', light: '#e2763a' };
 function drawFlameHair(head, f, opts, main, fig) {
   const H = SEVON_HAIR, tinted = !!(opts.tint || sketch);
-  const bob = fig ? clamp((fig.vy || 0) * 0.004, -2, 2.5) : 0;
-  const P = (x, y) => ({ x: head.x + f * x, y: head.y + y });
-  const R = 15, cy = -2 - bob;                                   // (a bit bigger than his head: it has volume)
-  // the outline: the dome over the top (front -> back), then the cut line along the bottom (back -> front)
-  const dome = [];
-  for (let t = -0.12; t <= Math.PI + 0.45; t += 0.12) dome.push(P(Math.cos(t) * R, cy - Math.sin(t) * R));
-  const cut = [P(-14.6, 6.5), P(-10, 5.5), P(-5, 1), P(1, -3.5), P(8, -4.5), P(14.4, -4)];   // nape -> over the ear -> the fringe
+  const bob = fig ? clamp((fig.vy || 0) * 0.005, -2.5, 3) : 0, sway = fig ? clamp(-(fig.vx || 0) * 0.004, -2.5, 2.5) : 0;
+  const P = (x, y, k = 0) => ({ x: head.x + f * (x + sway * k), y: head.y + y + bob * k });   // (k: how much the point bounces)
   const col = c => opts.tint || (sketch ? main : c);
   ctx.save();
   ctx.fillStyle = col(H.base);
-  ctx.beginPath(); [...dome, ...cut].forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
+  // the outline: up the back of the head, over the top, out into the swoop, its tip, back under it to the hairline
+  const pts = {
+    nape: P(-10.5, 4.5), back: P(-14.2, -3), crownB: P(-9, -14.5), top: P(2, -17.5, 0.3), front: P(13, -13, 0.6),
+    out: P(19, -8, 1), tip: P(16.5, -0.5, 1), under: P(10.5, -4, 0.8), brow: P(4, -6.5, 0.4), temple: P(-2, -4), ear: P(-6.5, 1.5),
+  };
+  ctx.beginPath();
+  ctx.moveTo(pts.nape.x, pts.nape.y);
+  ctx.quadraticCurveTo(P(-14.8, 2).x, P(-14.8, 2).y, pts.back.x, pts.back.y);
+  ctx.quadraticCurveTo(P(-14.5, -11).x, P(-14.5, -11).y, pts.crownB.x, pts.crownB.y);
+  ctx.quadraticCurveTo(P(-4, -18.5).x, P(-4, -18.5).y, pts.top.x, pts.top.y);
+  ctx.quadraticCurveTo(P(9, -17.5, 0.4).x, P(9, -17.5, 0.4).y, pts.front.x, pts.front.y);
+  ctx.quadraticCurveTo(P(18, -11.5, 0.8).x, P(18, -11.5, 0.8).y, pts.out.x, pts.out.y);       // the swoop bulging forward...
+  ctx.quadraticCurveTo(P(19.5, -3.5, 1).x, P(19.5, -3.5, 1).y, pts.tip.x, pts.tip.y);        // ...and curling down to its tip
+  ctx.quadraticCurveTo(P(13.5, -4.5, 0.9).x, P(13.5, -4.5, 0.9).y, pts.under.x, pts.under.y);
+  ctx.quadraticCurveTo(P(7, -4, 0.6).x, P(7, -4, 0.6).y, pts.brow.x, pts.brow.y);
+  ctx.lineTo(pts.temple.x, pts.temple.y);
+  ctx.quadraticCurveTo(P(-5, -2).x, P(-5, -2).y, pts.ear.x, pts.ear.y);
+  ctx.quadraticCurveTo(P(-8, 4).x, P(-8, 4).y, pts.nape.x, pts.nape.y);
+  ctx.closePath(); ctx.fill();
   if (!tinted) {
-    // the ragged ORANGE cut edge: little points hanging off the bottom line
-    ctx.fillStyle = H.tip;
-    const edge = [dome[dome.length - 1], ...cut];
-    for (let i = 0; i < edge.length - 1; i++) {
-      const a = edge[i], b = edge[i + 1], n = 3;
-      for (let k = 0; k < n; k++) {
-        const u0 = k / n, u1 = (k + 1) / n, um = (u0 + u1) / 2;
-        const x0 = lerp(a.x, b.x, u0), y0 = lerp(a.y, b.y, u0), x1 = lerp(a.x, b.x, u1), y1 = lerp(a.y, b.y, u1);
-        ctx.beginPath(); ctx.moveTo(x0, y0 - 2.2); ctx.lineTo(x1, y1 - 2.2); ctx.lineTo(lerp(a.x, b.x, um), lerp(a.y, b.y, um) + 3.2); ctx.closePath(); ctx.fill();
-      }
-    }
-    // strands combed down from the crown to the cut line
+    // strands following the sweep: from the crown, forward over the top and down into the fringe
     ctx.strokeStyle = H.shade; ctx.lineWidth = 0.9; ctx.lineCap = 'round';
-    const crown = P(-1, cy - R + 2);
-    for (const e of [P(12, -6), P(6, -6.5), P(0, -5), P(-5, -1), P(-9.5, 3), P(-13, 4.5)]) {
-      ctx.beginPath(); ctx.moveTo(crown.x, crown.y + 2);
-      ctx.quadraticCurveTo(lerp(crown.x, e.x, 0.5) + (e.x - crown.x) * 0.25, lerp(crown.y, e.y, 0.35), e.x, e.y); ctx.stroke();
+    for (const [a, c, b] of [[[-10, -11], [2, -18, 0.3], [16, -5, 1]], [[-8, -6], [4, -14, 0.4], [14, -2.5, 1]], [[-11, -3], [-2, -9], [9, -5, 0.7]], [[-12, 1], [-7, -4], [1, -6]]]) {
+      const A = P(...a), C = P(...c), B = P(...b);
+      ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(C.x, C.y, B.x, B.y); ctx.stroke();
     }
-    // a soft shine across the top of the bowl
+    // a shine across the top of the swoop
     ctx.strokeStyle = H.light; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(head.x - f * 1, head.y + cy, R - 3, Math.PI * 1.25, Math.PI * 1.6); ctx.stroke();
+    { const A = P(-6, -14), C = P(3, -18, 0.3), B = P(12, -11, 0.6); ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(C.x, C.y, B.x, B.y); ctx.stroke(); }
   }
   ctx.restore();
 }
@@ -8739,7 +8742,7 @@ function applyHit(t, h, dirSign, mult, hx, hy, src = {}) {
   // PERFECT BLOCK: shield went up just as the hit arrived
   // (The AI only lands some of its perfect blocks, depending on difficulty - otherwise it would counter everything.)
   const aiParryOk = t.controller !== 'dummy' ||
-    Math.random() < ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3);
+    Math.random() < ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7, IMPOSSIBLE: 0.97 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3);
   if (t.shielding && t.shieldAge <= PARRY_WINDOW && aiParryOk) {
     perfectBlock(t, src, hx, hy);
     return true;
@@ -11865,7 +11868,7 @@ function inputFor(f) {
   if (f.controller && f.controller.startsWith('pad')) return padInput(+f.controller.slice(3), f.binds || bindings);
   return dummyInput(f);
 }
-const DUMMY_MODES = ['AI NORMAL', 'AI HARD', 'AI MASTER', 'AI EASY', 'STAND', 'SHIELD', 'JUMP', 'DODGE'];
+const DUMMY_MODES = ['AI NORMAL', 'AI HARD', 'AI MASTER', 'AI IMPOSSIBLE', 'AI EASY', 'STAND', 'SHIELD', 'JUMP', 'DODGE'];
 let dummyMode = 0;
 function dummyInput(f) {
   const mode = f.cpuLevel || DUMMY_MODES[dummyMode];      // each CPU can have its own level (set on the select screen)
@@ -11899,6 +11902,7 @@ const AI_LEVELS = {
   NORMAL: { think: 0.2,  defend: 0.4,  aggro: 0.75, combo: 0.7,  mash: 5 },
   HARD:   { think: 0.09, defend: 0.75, aggro: 0.92, combo: 0.97, mash: 8 },
   MASTER: { think: 0.05, defend: 0.9,  aggro: 0.96, combo: 1,    mash: 11 },   // top level: reacts almost instantly
+  IMPOSSIBLE: { think: 0.016, defend: 0.99, aggro: 1, combo: 1, mash: 18, precog: true },   // reacts instantly - and READS you (see precog in aiInput)
   FERAL:  AI_FERAL,                                                              // Colbalias's shadow clones
 };
 
@@ -11937,11 +11941,33 @@ function aiInput(f, level) {
     const oa = o.action, left = oa.move.startup * (oa.startupMul || 1) - oa.t;   // seconds until it's live
     if (left <= 0.06 && left > 0 && oa.reflexFor !== f) {
       oa.reflexFor = f;                                         // (one roll per attack)
-      const lv = { EASY: 0.06, NORMAL: 0.25, HARD: 0.45, MASTER: 0.65, FERAL: 0 }[level] ?? 0.25;   // (then the difficulty's perfect-block success roll in applyHit)
+      const lv = { EASY: 0.06, NORMAL: 0.25, HARD: 0.45, MASTER: 0.65, IMPOSSIBLE: 0.95, FERAL: 0 }[level] ?? 0.25;   // (then the difficulty's perfect-block success roll in applyHit)
       const free = !f.action || f.action.type === 'land', staggered = f.action && f.action.type === 'parried' && !f.action.tried;
       if ((free && f.ground && Math.random() < lv) || (staggered && Math.random() < lv * 1.6)) {
         ai.tapBlock = true; ai.block = true; ai.dir = 0; ai.down = false; ai.tapAtk = ai.tapSpc = false;
       }
+    }
+  }
+
+  // IMPOSSIBLE - PRECOGNITION: it sees everything coming. Grabs get jumped or spot-dodged the instant they start;
+  // shots about to hit it get perfect-blocked (and reflected); and anything you whiff gets punished immediately.
+  if (L.precog && o && !f.minion && (!f.action || f.action.type === 'land')) {
+    const oa = o.action, close = Math.abs(o.x - f.x) < 170 && Math.abs(o.y - f.y) < 120;
+    // in the air: Z VANISH straight through whatever's about to hit it
+    if (oa && oa.type === 'attack' && oa.phase === 'startup' && close && !f.ground && oa.precogAir !== f && canAirDodge(f)) {
+      const left = oa.move.startup * (oa.startupMul || 1) - oa.t;
+      if (left <= 0.05) { oa.precogAir = f; if (Math.random() < 0.85) { ai.tapBlock = true; ai.dir = Math.sign(f.x - o.x) || 1; ai.up = false; ai.down = false; ai.tapAtk = ai.tapSpc = false; } }
+    }
+    if (oa && oa.type === 'grab' && close && oa.t < 0.06 && oa.precogFor !== f) {
+      oa.precogFor = f;
+      if (Math.random() < 0.9) { if (f.ground && Math.random() < 0.5) { ai.tapBlock = true; ai.down = true; ai.dir = 0; } else { ai.tapJump = true; ai.jumpHold = 0.2; } ai.tapAtk = ai.tapSpc = ai.tapGrab = false; }
+    }
+    const shot = projectiles.find(s => s.owner && !allies(f, s.owner) && s.kind !== 'beam' && !s.precogFor &&
+      Math.hypot(s.x - f.x, s.y - (f.y - 45)) < 90 && ((f.x - s.x) * (s.vx || 0) + (f.y - 45 - s.y) * (s.vy || 0)) > 0);
+    if (shot && f.ground) { shot.precogFor = true; if (Math.random() < 0.85) { ai.tapBlock = true; ai.block = true; ai.dir = 0; ai.down = false; ai.tapAtk = ai.tapSpc = false; } }
+    if (oa && oa.type === 'attack' && oa.phase === 'end' && close && !oa.punishedBy) {   // a whiffed move: punish it
+      oa.punishedBy = f; f.face = Math.sign(o.x - f.x) || f.face;
+      if (Math.abs(o.x - f.x) < 80) ai.tapAtk = true; else { ai.dir = f.face; ai.tapAtk = true; }
     }
   }
 
@@ -12257,11 +12283,21 @@ function aiSafety(f, ai) {
   if (!f.ground && (offLeft || offRight || f.y > STAGE.y + 5)) {
     ai.block = false; ai.down = false; ai.hold = 0; ai.tapAtk = false;
     // Under the stage: get out to the side first, then head back to the middle
-    ai.dir = (f.y > STAGE.y + 5 && !offLeft && !offRight) ? (f.x < W / 2 ? -1 : 1) : Math.sign(W / 2 - f.x);
-    if (f.y > STAGE.y - 40 && f.vy > -100) {
+    const under = f.y > STAGE.y + 5 && !offLeft && !offRight;
+    ai.dir = under ? (f.x < W / 2 ? -1 : 1) : Math.sign(W / 2 - f.x);
+    const gap = offLeft ? STAGE.x - f.x : offRight ? f.x - (STAGE.x + STAGE.w) : 0;      // how far out past the edge
+    const C = f.char;
+    // Captain Heel (Cross Chop dives back down) and Colbalias (the gaze is a lift + swap) don't have a normal
+    // recovery move - they lean on Z VANISHES (and Colbalias's clone-boost headbutt) instead
+    const zFirst = C === 'AIDEN' || C === 'COLBALIAS' || f.minion;
+    if (f.y > STAGE.y - 60 && f.vy > -160 && !a) {
       if (f.airJumps > 0) { ai.tapJump = true; ai.jumpHold = 0.3; }                      // double jump
-      else if (!f.upSpecialUsed && !a) { ai.up = true; ai.tapSpc = true; }               // rocket jump
-      else if (canAirDodge(f) && !a && f.y < STAGE.y + 120) { ai.tapBlock = true; ai.up = true; } // air dodge up
+      else if (canAirDodge(f) && (zFirst || gap > 140 || f.y > STAGE.y + 40)) {         // Z VANISH back toward the stage
+        ai.tapBlock = true; ai.dir = under ? ai.dir : Math.sign(W / 2 - f.x); ai.up = f.y > STAGE.y - 120;
+      }
+      else if (C === 'COLBALIAS' && !f.minion && !f.hbAirUsed) { ai.up = true; ai.tapAtk = true; }   // clone-boost headbutt
+      else if (!f.upSpecialUsed) { ai.up = true; ai.tapSpc = true; }                    // their up special
+      else if (canAirDodge(f) && f.y < STAGE.y + 260) { ai.tapBlock = true; ai.up = true; }   // a last Z vanish
     }
     return;
   }
@@ -15111,7 +15147,7 @@ function drawHUD() {
     if (near) text(btn + ': PICK UP SCYTHE', S.x, S.y, 9, Math.floor(performance.now() / 200) % 2 ? '#ffffff' : '#ffd23f', 'center');
     else text('NO SCYTHE', S.x, S.y, 7, '#8f8f98', 'center', false);
   }
-  if (turbo && SHOW_FIGHT_TEXT) text('TURBO x' + TURBO_SPEED, W - 16, 26, 10, Math.floor(performance.now() / 400) % 2 ? '#d63a2a' : '#ff5a3c', 'right');
+  if ((netActive() ? netTurbo : turbo) && SHOW_FIGHT_TEXT) text('TURBO x' + TURBO_SPEED, W - 16, 26, 10, Math.floor(performance.now() / 400) % 2 ? '#d63a2a' : '#ff5a3c', 'right');
   for (const p of painTexts) {                          // manga sound words on the Broly slams
     if (!p.ult && !SHOW_FIGHT_TEXT && !KEEP_TEXTS.has(p.text)) continue;   // (only the ultimates', clashes' and criticals' words show)
     const k = p.t / p.max, C = toScreen(p.x, p.y - (1 - k) * 25);
@@ -15339,6 +15375,7 @@ let scene = 'home';                   // 'home' | 'options' | 'select' | 'contro
 // TURBO MODE: an optional side mode - the whole game runs 1.2x faster again (TURBO_SPEED, on top of GAME_SPEED). The normal speed is the real game;
 // turn this on from the character select (TURBO button / X / T) or the pause menu. Remembered in this browser.
 const TURBO_SPEED = 1.2;                                  // (on top of GAME_SPEED)
+let netTurbo = false;                                     // ONLINE TURBO: off unless the HOST turns it on (T / controller X in the room) - shared with everyone
 const GAME_SPEED = 1.1;                                   // the whole game runs 10% faster than its original pace (online too - both players run the same version)
 let turbo = (() => { try { return localStorage.getItem('stickman-brawl-turbo') === '1'; } catch (e) { return false; } })();
 function setTurbo(on) {
@@ -15430,7 +15467,7 @@ const CHAR_INFO = {
 };
 // The name a fighter is SHOWN by (their id - AIDEN, COLBY... - never changes, so saves and online play aren't affected)
 const charName = c => (c && CHAR_INFO[c] && CHAR_INFO[c].name) || c;
-const CPU_LEVELS = ['AI EASY', 'AI NORMAL', 'AI HARD', 'AI MASTER'];
+const CPU_LEVELS = ['AI EASY', 'AI NORMAL', 'AI HARD', 'AI MASTER', 'AI IMPOSSIBLE'];
 // WATCH MODE: CPU vs CPU. Nobody joins as a player - any controller / the keyboard / the mouse just
 // drives a HOST cursor that picks both CPUs' fighters and levels. Turned on in GAME OPTIONS.
 let watchMode = false;
@@ -15505,6 +15542,13 @@ const devLabel = p => {
 // ONLINE ROOM: the select screen is the room's lobby (net.js keeps the two in step)
 const netRoom = () => !!(netplay && netplay.inRoom);
 const netGuest = () => netRoom() && netplay.role === 'guest';
+// ONLINE TURBO: only the host can switch it on (it's sent to everyone with the match options). Not recommended:
+// the faster game is harder to keep in step over the internet.
+function toggleNetTurbo() {
+  if (netGuest()) { selMsg = { text: 'ONLY THE HOST CAN TURN ON ONLINE TURBO', t: 1.8 }; menuSfx('back'); return; }
+  netTurbo = !netTurbo; menuSfx('pick');
+  selMsg = { text: netTurbo ? 'ONLINE TURBO ON (x' + TURBO_SPEED + ') - NOT RECOMMENDED: IT CAN LAG MORE' : 'ONLINE TURBO OFF', t: 2.2 };
+}
 function tryStart() {
   if (!allReady()) return;
   if (!netRoom()) return startMatch();
@@ -15654,10 +15698,10 @@ function selectBack(p) {
 function selectUpdate(dt) {
   if (selMsg) { selMsg.t -= dt; if (selMsg.t <= 0) selMsg = null; }
   const devs = menuDevices(dt);
-  if (tapped('KeyT') && !netRoom()) setTurbo(!turbo);
+  if (tapped('KeyT')) { if (!netRoom()) setTurbo(!turbo); else toggleNetTurbo(); }
   for (const d of devs) {
     if (d.tap.alt) return openControls('select');
-    if (d.tap.turbo && !netRoom()) setTurbo(!turbo);
+    if (d.tap.turbo) { if (!netRoom()) setTurbo(!turbo); else toggleNetTurbo(); }
     if (d.tap.start && allReady()) return tryStart();
     if (watchMode) {                               // WATCH MODE: every device drives the one HOST cursor
       host.cur.x = clamp(host.cur.x + d.nav.x * 900 * dt, 8, W - 8);
@@ -15732,6 +15776,7 @@ function checkMatchEnd() {
   }
 }
 function showResults() {
+  if (arcade && arcade.active) { const won = !!matchOver.winner && matchOver.winner === fighters[0]; matchOver = null; arcadeMatchOver(won); return; }   // ARCADE: on to the next fight (or back to fight 1)
   const team = matchOver.team;
   results = {
     winner: matchOver.winner ? fighters.indexOf(matchOver.winner) : -1,
@@ -15800,6 +15845,7 @@ function claimFighter(dev) {
   menuSfx('pick');
 }
 function backToSelect() {
+  if (arcade && arcade.active) { arcadeQuit(); return; }   // (quitting a fight in ARCADE leaves the gauntlet)
   scene = 'select'; paused = false;
   removeAllMinions();
   for (const f of fighters) { stopKameCharge(f); stopShotCharge(f); }
@@ -15970,6 +16016,7 @@ function drawSelect() {
     if (netRoom()) {                                           // ONLINE ROOM: this button = INVITE (copies an invite with the code)
       slantRect(TURBO_BTN.x, TURBO_BTN.y, TURBO_BTN.w, TURBO_BTN.h, 14, hoverT ? '#ffffff' : '#1d7fb0');
       text('INVITE  ' + netplay.code, TURBO_BTN.x + TURBO_BTN.w / 2, TURBO_BTN.y + 26, 10, hoverT ? '#0e0c0c' : '#ffffff', 'center', false);
+      text('ONLINE TURBO: ' + (netTurbo ? 'ON' : 'OFF') + (netGuest() ? '  (HOST PICKS)' : '  (T / X)') + '  - NOT RECOMMENDED', TURBO_BTN.x + TURBO_BTN.w / 2, TURBO_BTN.y + 58, 8, netTurbo ? '#ff5a3c' : '#b4b4bb', 'center', false);
     } else {
       slantRect(TURBO_BTN.x, TURBO_BTN.y, TURBO_BTN.w, TURBO_BTN.h, 14, hoverT ? '#ffffff' : turbo ? '#d63a2a' : '#26211f');
       text('TURBO ' + (turbo ? 'ON x' + TURBO_SPEED : 'OFF') + ' [T/X]', TURBO_BTN.x + TURBO_BTN.w / 2, TURBO_BTN.y + 26, 9,
@@ -16064,7 +16111,7 @@ function drawSelect() {
       if (q.cpu) {
         const lr = levelRect(c), lh = players.some(p => localHuman(p) && inRect(p.cur, lr));
         sctx.fillStyle = lh ? '#ffffff' : 'rgba(0,0,0,0.6)'; sctx.fillRect(lr.x, lr.y, lr.w, lr.h);
-        text('LV: ' + q.level.slice(3) + ' >', lr.x + 10, lr.y + 18, 9, lh ? '#0e0c0c' : '#ffffff', 'left', false);
+        text((q.level.length > 11 ? '' : 'LV: ') + q.level.slice(3) + ' >', lr.x + 10, lr.y + 18, 9, lh ? '#0e0c0c' : '#ffffff', 'left', false);
       }
       sctx.fillStyle = 'rgba(0,0,0,0.7)'; sctx.fillRect(c.x, c.y + c.h - 44, c.w, 44);
       const shownName = q.char ? charName(q.char) : '', longName = shownName.length > 9;
@@ -16823,8 +16870,169 @@ function drawMovesets() {
     sctx.fillText('LEFT / RIGHT = CHARACTER   -   UP / DOWN / MOUSE WHEEL = SCROLL   -   B / ESC = BACK', W / 2, H - 14);
   });
 }
-const homeItems = () => (appUpdate().state === 'ready' ? ['UPDATE NOW'] : []).concat(['PLAY', 'ONLINE', 'MOVESETS', 'CONTROLS', 'OPTIONS']).concat(window.appInfo ? ['QUIT'] : []);
-const homeItemRect = k => { const step = homeItems().length > 6 ? 54 : 64; return { x: W / 2 - 170, y: 334 + k * step, w: 340, h: step - 12 }; };   // (tighter when there are 7 items)
+// ---------------- ARCADE MODE: a gauntlet of 1v1s, ending with COLBALIAS as the final boss ----------------
+// Pick your fighter and a difficulty, then beat everyone in order. Lose ANY fight and the gauntlet starts over from
+// fight 1. The last fight is on HELLFIRE against the BOSS Colbalias: a less balanced version only found here - one
+// more shadow clone allowed out at once, and an extra clone joining every exchange of his Shadow Clone Rush.
+// (Add more fights to ARCADE_ROUNDS later - the gauntlet is just this list.)
+const ARCADE_ROUNDS = ['STICKMAN', 'AIDEN', 'LANCE', 'COLBY', 'COLBALIAS'];
+const ARCADE_DIFFS = ['EASY', 'NORMAL', 'HARD', 'MASTER', 'IMPOSSIBLE'];
+const ARCADE_STOCKS = 3;
+let arcade = null;   // { phase: 'pick' | 'vs' | 'lose' | 'win', sel, diff, round, t, dev, saved, active }
+const arcadePicks = () => ROSTER.filter(Boolean);
+function openArcade(dev) {
+  arcade = { phase: 'pick', sel: 0, diff: 1, round: 0, t: 0, dev: dev || 'keyboard', active: false, saved: null };
+  scene = 'arcade';
+}
+// (your normal couch setup is put away while you play arcade, and put back when you leave)
+function arcadeSave() {
+  arcade.saved = { players: players.map(p => ({ off: p.off, cpu: p.cpu, char: p.char, level: p.level, dev: p.dev, team: p.team, name: p.name, profile: p.profile })),
+                   stage: gameOptions.stage, stocks: gameOptions.stocks, teams: gameOptions.teams, watch: watchMode };
+}
+function arcadeRestore() {
+  const S = arcade && arcade.saved; if (!S) return;
+  S.players.forEach((q, i) => Object.assign(players[i], q));
+  gameOptions.stage = S.stage; gameOptions.stocks = S.stocks; gameOptions.teams = S.teams; watchMode = S.watch;
+  for (const f of fighterPool) f.arcadeBoss = false;
+}
+function arcadeQuit() {
+  arcadeRestore(); arcade = null;
+  removeAllMinions(); paused = false; matchOver = null;
+  scene = 'home'; home.phase = 'menu'; menuSfx('back');
+}
+function arcadeStartRound() {
+  const A = arcade, foe = ARCADE_ROUNDS[A.round], boss = A.round === ARCADE_ROUNDS.length - 1;
+  const me = players[0], cpu = players[1];
+  Object.assign(me, { off: false, cpu: false, dev: A.dev, char: arcadePicks()[A.sel], team: 0, name: 'YOU' });
+  Object.assign(cpu, { off: false, cpu: true, dev: null, char: foe, level: 'AI ' + ARCADE_DIFFS[A.diff], team: 1, name: 'CPU' });
+  for (let i = 2; i < players.length; i++) players[i].off = true;
+  gameOptions.stage = boss ? STAGE_LIST.findIndex(s => s.hell) : 0;   // the final boss fight is on HELLFIRE
+  gameOptions.stocks = ARCADE_STOCKS; gameOptions.teams = false; watchMode = false;
+  for (const f of fighterPool) f.arcadeBoss = false;
+  startMatch();
+  fighters[1].arcadeBoss = boss;                  // (the boss version of Colbalias - see cloneMax / the clone rush)
+  if (boss) fighters[1].name = 'FINAL BOSS';
+}
+// a match just ended (called instead of the results screen while arcade is on)
+function arcadeMatchOver(won) {
+  const A = arcade;
+  removeAllMinions();
+  if (!won) { A.phase = 'lose'; menuSfx('back'); }
+  else if (A.round >= ARCADE_ROUNDS.length - 1) { A.phase = 'win'; menuSfx('go'); }
+  else { A.round++; A.phase = 'vs'; menuSfx('go'); }
+  A.t = 0; scene = 'arcade';
+}
+function arcadeUpdate(dt) {
+  const A = arcade; if (!A) { scene = 'home'; return; }
+  A.t += dt;
+  const devs = menuDevices(dt), picks = arcadePicks();
+  for (const d of devs) {
+    if (A.phase === 'pick') {
+      if (d.tap.left) { A.sel = (A.sel + picks.length - 1) % picks.length; menuSfx('move'); }
+      if (d.tap.right) { A.sel = (A.sel + 1) % picks.length; menuSfx('move'); }
+      if (d.tap.up) { A.diff = Math.max(0, A.diff - 1); menuSfx('move'); }
+      if (d.tap.down) { A.diff = Math.min(ARCADE_DIFFS.length - 1, A.diff + 1); menuSfx('move'); }
+      if (d.tap.ok || d.tap.start) { A.dev = d.dev; arcadeSave(); A.active = true; A.round = 0; A.phase = 'vs'; A.t = 0; menuSfx('go'); return; }
+      if (d.tap.back || d.tap.esc) { arcade = null; goHome(); return; }
+    } else if (A.phase === 'vs') {
+      if ((d.tap.ok || d.tap.start) && A.t > 0.4) { arcadeStartRound(); return; }
+      if (d.tap.esc) { arcadeQuit(); return; }
+    } else if (A.phase === 'lose') {
+      if ((d.tap.ok || d.tap.start) && A.t > 0.6) { A.round = 0; A.phase = 'vs'; A.t = 0; menuSfx('go'); return; }   // the gauntlet starts over
+      if (d.tap.back || d.tap.esc) { arcadeQuit(); return; }
+    } else if (A.phase === 'win') {
+      if ((d.tap.ok || d.tap.start || d.tap.back || d.tap.esc) && A.t > 1) { arcadeQuit(); return; }
+    }
+  }
+  if (A.phase === 'vs' && A.t > 2.6) { arcadeStartRound(); return; }   // (starts by itself after a moment)
+  if (mouse.click && A.phase === 'pick') {
+    picks.forEach((c, k) => { if (inRect(mouse, arcadeTileRect(k))) { if (A.sel === k) { A.dev = 'keyboard'; arcadeSave(); A.active = true; A.round = 0; A.phase = 'vs'; A.t = 0; menuSfx('go'); } else { A.sel = k; menuSfx('move'); } } });
+    ARCADE_DIFFS.forEach((_, k) => { if (inRect(mouse, arcadeDiffRect(k))) { A.diff = k; menuSfx('move'); } });
+  }
+  if (mouse.right && A.phase === 'pick') { arcade = null; goHome(); }
+  mouse.click = mouse.right = mouse.moved = false;
+}
+const arcadeTileRect = k => { const n = arcadePicks().length, w = 128, gap = 12, x0 = W / 2 - (n * w + (n - 1) * gap) / 2; return { x: x0 + k * (w + gap), y: 470, w, h: 64 }; };
+const arcadeDiffRect = k => ({ x: W / 2 - 340 + k * 136, y: 580, w: 128, h: 44 });
+function drawArcade() {
+  const A = arcade; if (!A) return;
+  const th = menuTheme(), px = th === 'pixel', sk = th === 'sketch';
+  const F = (s, bold) => px ? `${Math.max(8, Math.round(s * 0.5))}px ${PX_FONT}` : sk ? `${s}px ${DOODLE_FONT}` : `${bold ? 'italic ' : ''}${s}px ${CG_FONT}`;
+  const ink = sk ? INK : '#ffffff', dim = sk ? '#5a5470' : '#c9bfc4', accent = sk ? MARKERS[0] : '#ffd23f';
+  const picks = arcadePicks();
+  withMenuDrawing(() => {
+    if (sk) drawNotebook(); else if (px) { drawPXBackground(); blitPX(); } else drawCGBackground();
+    const title = (str, y, size, col) => { sctx.textAlign = 'center'; sctx.font = F(size, true); sctx.fillStyle = sk ? 'rgba(29,27,42,0.9)' : '#000'; sctx.fillText(str, W / 2 + 4, y + 4); sctx.fillStyle = col || (sk ? MARKERS[0] : '#ffffff'); sctx.fillText(str, W / 2, y); };
+    const ladder = (y, upto, beatAll) => {                       // the gauntlet: who's next
+      const n = ARCADE_ROUNDS.length, w = 190, x0 = W / 2 - (n * w) / 2;
+      ARCADE_ROUNDS.forEach((c, k) => {
+        const x = x0 + k * w, done = beatAll || k < upto, now = k === upto && !beatAll, boss = k === n - 1;
+        if (!sk) slantRect(x + 6, y - 26, w - 12, 38, 8, now ? '#d62a22' : done ? 'rgba(60,140,60,0.8)' : 'rgba(0,0,0,0.55)');
+        else { if (now) { sctx.fillStyle = 'rgba(255,224,40,0.7)'; sctx.fillRect(x + 6, y - 26, w - 12, 38); } doodleRect(x + 6, y - 26, w - 12, 38, k, INK, 2); }
+        sctx.font = F(boss ? 15 : 16, true); sctx.textAlign = 'center'; sctx.fillStyle = now ? (sk ? INK : '#ffffff') : done ? (sk ? MARKERS[3] : '#bfffbf') : dim;
+        sctx.fillText((k + 1) + '. ' + (boss ? 'BOSS: ' : '') + charName(c), x + w / 2, y);
+      });
+    };
+    if (A.phase === 'pick') {
+      title('ARCADE', 92, 64);
+      sctx.font = F(18); sctx.fillStyle = dim; sctx.textAlign = 'center';
+      sctx.fillText('Beat all five in a row. Lose once and you start over from the first fight.', W / 2, 130);
+      ladder(180, -1, false);
+      const ch = picks[A.sel];
+      const keep = sketch; if (sk) sketch = true;
+      drawPortrait(ch, W / 2, 420, 2.6, sk ? INK : (CHARACTERS[ch].look.body || '#fff'), menuTime);
+      sketch = keep;
+      sctx.font = F(30, true); sctx.fillStyle = ink; sctx.textAlign = 'center'; sctx.fillText(charName(ch), W / 2, 446);
+      picks.forEach((c, k) => {
+        const r = arcadeTileRect(k), on = k === A.sel;
+        if (sk) { if (on) { sctx.fillStyle = 'rgba(255,224,40,0.75)'; sctx.fillRect(r.x, r.y, r.w, r.h); } doodleRect(r.x, r.y, r.w, r.h, k + 20, INK, on ? 3 : 1.5); }
+        else slantRect(r.x, r.y, r.w, r.h, 10, on ? '#d62a22' : 'rgba(20,16,18,0.85)');
+        sctx.font = F(charName(c).length > 9 ? 13 : 16, true); sctx.fillStyle = on ? (sk ? INK : '#ffffff') : dim; sctx.fillText(charName(c), r.x + r.w / 2, r.y + 38);
+      });
+      sctx.font = F(16, true); sctx.fillStyle = dim; sctx.fillText('DIFFICULTY', W / 2, 568);
+      ARCADE_DIFFS.forEach((dn, k) => {
+        const r = arcadeDiffRect(k), on = k === A.diff;
+        if (sk) { if (on) { sctx.fillStyle = 'rgba(232,67,58,0.35)'; sctx.fillRect(r.x, r.y, r.w, r.h); } doodleRect(r.x, r.y, r.w, r.h, k + 40, INK, on ? 3 : 1.5); }
+        else slantRect(r.x, r.y, r.w, r.h, 8, on ? (dn === 'IMPOSSIBLE' ? '#7a00a8' : '#d62a22') : 'rgba(20,16,18,0.85)');
+        sctx.font = F(dn.length > 8 ? 13 : 16, true); sctx.fillStyle = on ? (sk ? INK : '#ffffff') : dim; sctx.fillText(dn, r.x + r.w / 2, r.y + 29);
+      });
+      sctx.font = F(15); sctx.fillStyle = dim;
+      sctx.fillText('LEFT / RIGHT = FIGHTER   -   UP / DOWN = DIFFICULTY   -   J / ENTER = START   -   K / ESC = BACK', W / 2, H - 16);
+    } else if (A.phase === 'vs') {
+      const foe = ARCADE_ROUNDS[A.round], boss = A.round === ARCADE_ROUNDS.length - 1, me = picks[A.sel];
+      title(boss ? 'FINAL BOSS' : 'FIGHT ' + (A.round + 1) + ' OF ' + ARCADE_ROUNDS.length, 96, boss ? 70 : 56, boss ? '#ff2a2a' : null);
+      ladder(160, A.round, false);
+      const keep = sketch; if (sk) sketch = true;
+      drawPortrait(me, W / 2 - 300, 560, 3, sk ? INK : (CHARACTERS[me].look.body || '#fff'), menuTime, 1);
+      drawPortrait(foe, W / 2 + 300, 560, 3, sk ? INK : (CHARACTERS[foe].look.body || '#fff'), menuTime, -1);
+      sketch = keep;
+      sctx.textAlign = 'center'; sctx.font = F(30, true); sctx.fillStyle = ink;
+      sctx.fillText(charName(me), W / 2 - 300, 610); sctx.fillText(charName(foe), W / 2 + 300, 610);
+      sctx.font = F(90, true); sctx.fillStyle = boss ? '#ff2a2a' : accent; sctx.fillText('VS', W / 2, 420);
+      sctx.font = F(17); sctx.fillStyle = dim;
+      sctx.fillText(ARCADE_DIFFS[A.diff] + '  -  ' + ARCADE_STOCKS + ' STOCKS' + (boss ? '  -  HELLFIRE  -  ONE MORE CLONE THAN NORMAL' : ''), W / 2, 660);
+      if (A.t > 0.4) sctx.fillText('J / ENTER = FIGHT', W / 2, H - 16);
+    } else if (A.phase === 'lose') {
+      title('DEFEATED', 220, 90, '#ff2a2a');
+      sctx.textAlign = 'center'; sctx.font = F(24); sctx.fillStyle = ink;
+      sctx.fillText('You fell at fight ' + (A.round + 1) + ' (' + charName(ARCADE_ROUNDS[A.round]) + '). The gauntlet starts over from fight 1.', W / 2, 300);
+      ladder(380, A.round, false);
+      sctx.font = F(20); sctx.fillStyle = dim;
+      if (A.t > 0.6) sctx.fillText('J / ENTER = TRY AGAIN FROM FIGHT 1   -   K / ESC = QUIT', W / 2, 480);
+    } else if (A.phase === 'win') {
+      title('ARCADE CLEAR!', 220, 84, '#ffd23f');
+      sctx.textAlign = 'center'; sctx.font = F(24); sctx.fillStyle = ink;
+      sctx.fillText(charName(picks[A.sel]) + ' beat all ' + ARCADE_ROUNDS.length + ' - including the FINAL BOSS - on ' + ARCADE_DIFFS[A.diff] + '.', W / 2, 300);
+      ladder(380, ARCADE_ROUNDS.length, true);
+      const keep = sketch; if (sk) sketch = true;
+      drawPortrait(picks[A.sel], W / 2, 640, 2.4, sk ? INK : (CHARACTERS[picks[A.sel]].look.body || '#fff'), menuTime);
+      sketch = keep;
+      if (A.t > 1) { sctx.font = F(18); sctx.fillStyle = dim; sctx.fillText('PRESS ANY BUTTON', W / 2, H - 16); }
+    }
+  });
+}
+const homeItems = () => (appUpdate().state === 'ready' ? ['UPDATE NOW'] : []).concat(['PLAY', 'ARCADE', 'ONLINE', 'MOVESETS', 'CONTROLS', 'OPTIONS']).concat(window.appInfo ? ['QUIT'] : []);
+const homeItemRect = k => { const n = homeItems().length, step = n > 7 ? 47 : n > 6 ? 54 : 64; return { x: W / 2 - 170, y: 334 + k * step, w: 340, h: step - 12 }; };   // (tighter when there are 7 items)
 function goHome() { scene = 'home'; home.phase = 'menu'; menuSfx('back'); }
 function homeUpdate(dt) {
   const devs = menuDevices(dt);
@@ -16853,6 +17061,7 @@ function homeChoose(item) {
   else if (item === 'UPDATE NOW') { if (window.appInfo && window.appInfo.installUpdate) window.appInfo.installUpdate(); }   // installs + restarts
   else if (item === 'ONLINE') { scene = 'select'; sbNet.ui.show('menu'); }
   else if (item === 'MOVESETS') openMovesets();
+  else if (item === 'ARCADE') openArcade();
   else if (item === 'CONTROLS') openControls('home');
   else if (item === 'OPTIONS') { scene = 'options'; opt.row = 0; }
   else if (item === 'QUIT') window.close();
@@ -17324,11 +17533,13 @@ function frame(now) {
     else if (scene === 'options') optionsUpdate(elapsed);
     else if (scene === 'controls') controlsUpdate(elapsed);
     else if (scene === 'movesets') movesetsUpdate(elapsed);
+    else if (scene === 'arcade') arcadeUpdate(elapsed);
     else if (scene === 'results') resultsUpdate(elapsed);
     for (const k in pressed) delete pressed[k];
     if (scene === 'select') drawSelect(); else if (scene === 'controls') drawControls();
     else if (scene === 'home') drawHome(); else if (scene === 'options') drawOptions();
     else if (scene === 'movesets') drawMovesets();
+    else if (scene === 'arcade') drawArcade();
     else if (scene === 'results' && results) drawResults();
     drawUpdateToast(elapsed);
     acc = 0;
@@ -17365,7 +17576,7 @@ function frame(now) {
     matchOver.t += elapsed;
     if (matchOver.t > 2.4) { showResults(); menuTime = 0; requestAnimationFrame(frame); return; }
   }
-  const speed = () => GAME_SPEED * timeScale * (turbo && !netActive() ? TURBO_SPEED : 1) * (slowmo > 0 ? SLOWMO_HIT_SCALE : 1);
+  const speed = () => GAME_SPEED * timeScale * ((netActive() ? netTurbo : turbo) ? TURBO_SPEED : 1) * (slowmo > 0 ? SLOWMO_HIT_SCALE : 1);
   acc += elapsed * speed() * (netActive() ? netPace() : 1);   // turbo = faster; big hits = slow-mo; online = stay in step with the others
   impactFrame = Math.max(0, impactFrame - elapsed * Math.max(timeScale, 0.25));   // lasts longer in slow-mo
   acc = Math.min(acc, STEP * 24);                    // (never try to catch up more than 0.2s at once)

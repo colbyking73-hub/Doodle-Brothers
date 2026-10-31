@@ -104,7 +104,7 @@
       peer: null, conn: null, conns: new Map(), nextMid: 1, connected: false, active: false,
       code: '', ping: 0, name: loadName(),
       slots: Array.from({ length: SLOTS }, (_, i) => emptySlot(i)),
-      opts: { stage: gameOptions.stage || 0, stocks: gameOptions.stocks || 3, teams: !!gameOptions.teams },
+      opts: { stage: gameOptions.stage || 0, stocks: gameOptions.stocks || 3, teams: !!gameOptions.teams, turbo: false },
       pendingDevs: [], sent: {}, lastRoster: '',
     };
   }
@@ -382,7 +382,7 @@
       if (!d.dev) players[i].off = true;                    // (nothing left to play it with)
     }
     N.me = mySlots(N)[0] !== undefined ? mySlots(N)[0] : N.me;
-    if (N.role === 'guest') { gameOptions.stage = N.opts.stage; gameOptions.stocks = N.opts.stocks; gameOptions.teams = !!N.opts.teams; }
+    if (N.role === 'guest') { gameOptions.stage = N.opts.stage; gameOptions.stocks = N.opts.stocks; gameOptions.teams = !!N.opts.teams; netTurbo = !!N.opts.turbo; }
   }
   // the select screen -> the room (run every frame on the select screen while in a room)
   function syncFromPlayers() {
@@ -400,7 +400,7 @@
         p.name = name;
         N.slots[i] = { ...emptySlot(i), kind: 'human', owner: 0, name, char: p.char, team: p.team || 0, build: BUILD };
       });
-      N.opts = { stage: gameOptions.stage || 0, stocks: gameOptions.stocks, teams: !!gameOptions.teams };
+      N.opts = { stage: gameOptions.stage || 0, stocks: gameOptions.stocks, teams: !!gameOptions.teams, turbo: !!netTurbo };   // (TURBO: the host's choice, for everyone)
       if (JSON.stringify([N.slots, N.opts]) !== N.lastRoster) broadcastRoster();
     } else {
       for (const i of mySlots(N)) {
@@ -483,7 +483,7 @@
       p.name = String(s.kind === 'cpu' ? 'CPU' : s.name || 'P' + (i + 1)).slice(0, 12);
     });
     gameOptions.stage = m.opts.stage; gameOptions.stocks = m.opts.stocks; gameOptions.teams = !!m.opts.teams; gore = !!m.gore;
-    turbo = false; cannon.on = false; demo = null; showHitboxes = false; showControls = false;
+    turbo = false; netTurbo = !!m.opts.turbo; cannon.on = false; demo = null; showHitboxes = false; showControls = false;   // (online turbo: only if the host turned it on)
     time = 0; simRng = null; dummyMode = 0;
     cam.x = W / 2; cam.y = 390; cam.z = 1;
     startMatch();
@@ -646,7 +646,7 @@
     }
     netplay = null;
     if (saved && !quiet) {
-      turbo = saved.turbo; gore = saved.gore; gameOptions.stage = saved.stage; gameOptions.stocks = saved.stocks; gameOptions.teams = saved.teams;
+      turbo = saved.turbo; netTurbo = false; gore = saved.gore; gameOptions.stage = saved.stage; gameOptions.stocks = saved.stocks; gameOptions.teams = saved.teams;
       saved.players.forEach((p, i) => Object.assign(players[i], p, { char: null, remote: false, mineSeat: false }));
       showControls = saved.showControls;
       saved = null;
