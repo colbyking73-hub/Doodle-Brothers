@@ -10682,7 +10682,7 @@ function startTransform(f) {
 //  3rd transform: ULTRA INSTINCT    - the cutscene (see ULTRA INSTINCT), keeps Super Saiyan 2's power + auto dodge
 // Super Saiyan and Super Saiyan 2 never wear off on their own: when the meter runs out he KEEPS the form (and its buffs) -
 // he just can't use his ultimate until the next full meter, which takes him a step up. When Ultra Instinct's meter runs
-// out he drops all the way back to base and starts climbing again. A KO resets the ladder too.
+// out he drops all the way back to base and starts climbing again. KOs DON'T reset it - he keeps his form through deaths.
 const LANCE_FORMS = [null,
   { name: 'SUPER SAIYAN',   power: 1.1,  speed: 1.18 },
   { name: 'SUPER SAIYAN 2', power: 1.2,  speed: 1.32, lightning: true },
@@ -10719,7 +10719,7 @@ function drawSsj2Arcs(p) {
 function endTransform(f, ko = false) {
   // LANCE'S FORMS: Super Saiyan / Super Saiyan 2 STAY on (buffs and all) when the meter runs out - only Ultra Instinct
   // ending (or a KO) drops him all the way back to base, to climb the ladder again
-  if (f.lanceForm && (ko || f.lanceForm >= 3)) setLanceForm(f, 0);
+  if (f.lanceForm >= 3) setLanceForm(f, 0);                 // (KOs never cost him Super Saiyan / Super Saiyan 2 - only Ultra Instinct ending does)
   if (!f.transformed) return;
   f.transformed = false;
   // (the cage comes down with the transformation - unless he's mid PIRATE SHIP SLAM: then the ship smashes it)
@@ -17582,9 +17582,9 @@ const MOVESETS = {
       ['DOWN K (HOLD, GROUND)', 'Ki Charge', 'The DBZ power-up scream: his aura swells out round him and slowly fills his ultimate meter (full in about 8 seconds) so he can transform. He is wide open - any hit knocks him out of it, and only letting go, BLOCK or Z VANISH gets him out. Not while his meter is in use.'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
-      ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out.'],
-      ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'Lightning crackles round his aura: +20% damage, +32% move speed, attacks 32% faster. Also stays on when the meter runs out.'],
-      ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out he drops back to base and climbs again.'],
+      ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out - and through KOs.'],
+      ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'Lightning crackles round his aura: +20% damage, +32% move speed, attacks 32% faster. Also stays on when the meter runs out, and through KOs.'],
+      ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
