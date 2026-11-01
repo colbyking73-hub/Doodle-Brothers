@@ -8335,7 +8335,7 @@ function setCharacter(f, charName) {
   f.stats = { ...DEFAULT_STATS, ...c.stats };
   f.look = c.look || {};
   f.w = 26 * (f.look.scale || 1); f.h = 90 * (f.look.scale || 1);   // bigger characters = bigger hurtbox
-  f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false; f.ui = false; stopUiSong(f);
+  f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false; f.ui = false; f.lanceForm = 0; f.formBase = null; stopUiSong(f);
   f.weapon = (c.look && c.look.weapon) || null;                // Colby / Colten start with their own weapon
 }
 function resetFighter(f, atSpawn) {
@@ -10574,12 +10574,12 @@ function spawnUltBeam(f) {
 // Meter runs out = you power back down.
 const TRANSFORM = { power: 1.2, speed: 1.1, drain: ULT_MAX / 14 };   // drain: full meter lasts ~14 seconds
 // Some characters' transformations are tuned differently (Lance's Super Saiyan: less power, more speed)
-const tfStats = f => f.ui ? UI_STATS : (f.char && CHARACTERS[f.char] && CHARACTERS[f.char].transformStats) || TRANSFORM;
+const tfStats = f => (f.lanceForm && LANCE_FORMS[f.lanceForm]) || (f.ui ? UI_STATS : null) || (f.char && CHARACTERS[f.char] && CHARACTERS[f.char].transformStats) || TRANSFORM;
 function powerOf(f) {
   if (!f) return 1;
   if (f.strikeClone) return powerOf(f.owner);                    // his J-string clones hit with HIS power (it's his combo)
   if (f.minion) return ninjaLaw(f.owner).power * (f.owner && f.owner.transformed ? CLONE_RAGE.power : 1);   // clones: Inverse Ninja Law (+ rage)
-  return (f.transformed ? tfStats(f).power : 1) * (f.kaioken ? kaiokenLv(f).dealt : 1) *   // both stack
+  return (f.transformed || f.lanceForm ? tfStats(f).power : 1) * (f.kaioken ? kaiokenLv(f).dealt : 1) *   // both stack (Lance: his form stays on)
          (f.tc ? TC.dealt : 1) *                                                      // Sevon's TOTAL CONCENTRATION
          (f.look && f.look.glassJaw ? GLASS_JAW.dmgBonus : 1) *                         // Colbalias: hits harder to make up for his glass jaw + debuffs
          (f.look && f.look.heavyHits ? 0.92 : 1) *                                     // Captain Heel: a touch less damage (he topped the CPU tournament)
@@ -10622,7 +10622,50 @@ function startTransform(f) {
   sfx.parry(); sfx.beam(0.6);
   if (f.char === 'AIDEN') startCage(f);            // AIDEN: CAGE MATCH - a steel cage drops over him and his opponent
 }
-function endTransform(f) {
+// ---------------- LANCE'S FORMS: a ladder, one step per full meter ----------------
+//  1st transform: SUPER SAIYAN      - golden hair + aura, faster and stronger
+//  2nd transform: SUPER SAIYAN 2    - spikier hair, LIGHTNING crackling round his aura, faster and stronger again
+//  3rd transform: ULTRA INSTINCT    - the cutscene (see ULTRA INSTINCT), keeps Super Saiyan 2's power + auto dodge
+// Super Saiyan and Super Saiyan 2 never wear off on their own: when the meter runs out he KEEPS the form (and its buffs) -
+// he just can't use his ultimate until the next full meter, which takes him a step up. When Ultra Instinct's meter runs
+// out he drops all the way back to base and starts climbing again. A KO resets the ladder too.
+const LANCE_FORMS = [null,
+  { name: 'SUPER SAIYAN',   power: 1.1,  speed: 1.18 },
+  { name: 'SUPER SAIYAN 2', power: 1.2,  speed: 1.32, lightning: true },
+  { name: 'ULTRA INSTINCT', power: 1.2,  speed: 1.32 }];
+const SSJ2_ARCS = ['#ffffff', '#bfeaff', '#ffe066'];
+function setLanceForm(f, n) {
+  if (!f.formBase) f.formBase = { ...f.stats };              // (his own base speed, before any form)
+  f.lanceForm = n;
+  const sp = n ? LANCE_FORMS[n].speed : 1;
+  f.stats = { ...f.formBase, runSpeed: f.formBase.runSpeed * sp, airSpeed: f.formBase.airSpeed * sp };
+  f.baseStats = null;                                        // (ending the meter never puts his old speed back)
+  if (!n) f.formBase = null;
+}
+function lanceTransform(f) {
+  const next = Math.min(3, (f.lanceForm || 0) + 1);
+  f.ultBuf = 0;
+  if (next >= 3) { startUltraInstinct(f); return; }          // the third: ULTRA INSTINCT (the cutscene)
+  setLanceForm(f, next);
+  f.transformed = true;                                      // (a full meter to spend on his ultimates)
+  ultBanner = { t: 1.2, title: 'TRANSFORM', name: LANCE_FORMS[next].name, color: '#ffe066', who: f };
+  hitstop = Math.max(hitstop, 0.25);
+  impactFrame = 0.08; impactAt = { x: f.x, y: f.y - 50, ang: 0, all: true, focus: true };
+  shake = Math.max(shake, next === 2 ? 18 : 12);
+  ring(f.x, f.y - 45); if (next === 2) ring(f.x, f.y - 80);
+  burst(f.x, f.y - 45, ['#ffe066', '#ffffff'], next === 2 ? 70 : 46, 0, Math.PI, next === 2 ? 1000 : 800, { grav: 0 });
+  for (let k = 0; k < (next === 2 ? 10 : 4); k++) bolt(f.x, f.y - 50, Math.random() * Math.PI * 2, next === 2 ? 110 : 70, 0.14, next === 2 ? SSJ2_ARCS[k % 3] : '#ffe066');
+  sfx.parry(); sfx.beam(next === 2 ? 0.9 : 0.6); if (next === 2) sfx.clash(true);
+}
+// Super Saiyan 2's lightning: arcs jumping round his aura (drawing only)
+function drawSsj2Arcs(p) {
+  if (realRandom() < 0.45) bolt(p.x + (realRandom() - 0.5) * 50, p.y - 10 - realRandom() * 95, realRandom() * Math.PI * 2, 16 + realRandom() * 26, 0.05, SSJ2_ARCS[(realRandom() * 3) | 0]);
+  if (realRandom() < 0.06) bolt(p.x, p.y - 55, realRandom() * Math.PI * 2, 60 + realRandom() * 30, 0.06, '#ffffff');
+}
+function endTransform(f, ko = false) {
+  // LANCE'S FORMS: Super Saiyan / Super Saiyan 2 STAY on (buffs and all) when the meter runs out - only Ultra Instinct
+  // ending (or a KO) drops him all the way back to base, to climb the ladder again
+  if (f.lanceForm && (ko || f.lanceForm >= 3)) setLanceForm(f, 0);
   if (!f.transformed) return;
   f.transformed = false;
   // (the cage comes down with the transformation - unless he's mid PIRATE SHIP SLAM: then the ship smashes it)
@@ -10654,8 +10697,8 @@ const UI = { color: '#d8e2ff', glow: '#9fb6ff', hair: '#f4f6ff',
   beats: { bell: 11.9, scream: 14.0, barrage: 16.5, walk: 22.5, past: 23.6, flurry1: 24.6, tl1: 29.0, tl2: 29.6, down: 30.25,
            flurry2: 31.1, away: 35.6, comeback: 36.3, weave: 37.6, kameCharge: 38.2, kameFire: 41.2, end: 44.3 },
   barrageHits: 10,
-  dmg: { white: 0.6, flurry: 0.12, kick: 2, bounce: 3, weave: 3, beam: 0.2 },
-  final: { dmg: 8, base: 560, growth: 5.5, angle: 35 },
+  dmg: { white: 1.0, flurry: 0.2, kick: 3.5, bounce: 5, weave: 5, beam: 0.35 },   // (three full meters to get here: it hits HARD)
+  final: { dmg: 14, base: 700, growth: 6.5, angle: 35 },
   dodgeInvuln: 0.32, dodgeDist: 95 };
 const UI_STATS = { power: 1, speed: 1 };
 CHARACTERS.LANCE.uiTransform = true;
@@ -10699,7 +10742,7 @@ function startUltraInstinct(f) {
 function uiScream(f) {                                     // THE SCREAM: he transforms
   if (f.ui) return;
   f.transformed = true; f.ui = true;
-  f.baseStats = f.stats; f.stats = { ...f.stats };          // (no speed bonus)
+  setLanceForm(f, 3);                                       // (keeps Super Saiyan 2's power and speed)
   ultBanner = { t: 2.0, title: 'TRANSFORM', name: 'ULTRA INSTINCT', color: UI.color, who: f };
   burst(f.x, f.y - 55, ['#ffffff', UI.color, UI.glow], 90, 0, Math.PI, 1100, { grav: 0 });
   ring(f.x, f.y - 55); ring(f.x, f.y - 20); ring(f.x, f.y - 90);
@@ -11686,7 +11729,7 @@ function stepAction(f, inp, dt) {
   const a = f.action;
   a.t += dt * (a.type !== 'attack' ? 1
               : f.minion ? (f.owner && f.owner.transformed ? CLONE_RAGE.attackSpeed : 1)   // raging clones attack 30% faster
-              : (f.transformed ? tfStats(f).speed : 1) *                                     // transformed: attacks play 10% faster
+              : (f.transformed || f.lanceForm ? tfStats(f).speed : 1) *                                     // transformed: attacks play 10% faster
                 (f.weaponSpeed && f.weaponSpeed !== 1 && moveUsesScythe(a.move) ? f.weaponSpeed : 1));   // the rival's weapon (see RIVAL_WIELD)
 
   // skewered on Colbalias's Red Chidori - but he's not holding them any more (he got hit, KO'd...): they slip off
@@ -12030,7 +12073,7 @@ function freeControl(f, inp, dt) {
   } else if (f.ultBuf > 0) {
     if (f.transformed && f.ult > 0) { startUltimate(f, !!inp.down); return; }   // (holding DOWN = the second ultimate, if they have one)
     if (!f.transformed && f.ult >= ULT_MAX) {
-      if (inp.down && CHARACTERS[f.char].uiTransform) { startUltraInstinct(f); return; }   // Lance: DOWN + I = ULTRA INSTINCT
+      if (CHARACTERS[f.char].uiTransform) { lanceTransform(f); return; }   // Lance: Super Saiyan -> Super Saiyan 2 -> Ultra Instinct
       startTransform(f);
     }
   }
@@ -12392,7 +12435,7 @@ function updateFighter(f, inp, dt) {
       f.stocks--;
       if (f.stocks <= 0) { f.out = true; f.respawnTimer = Infinity; checkMatchEnd(); }
     }
-    endTransform(f);                                    // KO'd = you lose your transformation
+    endTransform(f, true);                              // KO'd = you lose your transformation (Lance: his whole form ladder)
     f.kaioken = false;                                  // ...and Kaioken
     endTotalConc(f);                                    // ...and Total Concentration
     resetWeapons(f);                                    // ...and every weapon goes back to its owner (his own to him)
@@ -14168,7 +14211,7 @@ function tickPose(f, dt) {
 
 function figureOf(p) {
   return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, face: p.face, pose: p.disp || getPose(p), squash: p.squash,
-           color: bodyColorOf(p), ink: inkOf(p), look: p.look, transformed: !!p.transformed, noScythe: !!p.noScythe, ui: !!p.ui };
+           color: bodyColorOf(p), ink: inkOf(p), look: p.look, transformed: !!p.transformed, noScythe: !!p.noScythe, ui: !!p.ui, lanceForm: p.lanceForm || 0 };
 }
 
 // Characters can have their own body color (Colby is red). If both players pick the same character,
@@ -14601,7 +14644,7 @@ function drawFigure(fig, opts = {}) {
     ctx.fillStyle = Math.sin(time * 9) > -0.3 ? '#ff6a1a' : '#ffb02e';
     ctx.fillRect(head.x + f * 19 - 1.5, head.y + 5.5, 3, 3);
   }
-  if (look.ssjHair && fig.transformed) {
+  if (look.ssjHair && (fig.transformed || fig.lanceForm)) {
     // SUPER SAIYAN: golden spikes shooting straight up, swept slightly back, with a fringe spike on the forehead
     const hairCol = sketch ? PAPER : opts.tint || (fig.ui ? UI.hair : look.ssjHair);   // (Ultra Instinct: white)
     const sway = Math.sin(time * 18) * 1.5;                    // hair crackles with power
@@ -15063,7 +15106,8 @@ function drawFighter(p) {
   if (p.minion) {                                                           // CLONES: a single cheap aura (not 2 full ones each)
     if (!sketch && ((p.owner && p.owner.transformed) || p.transformed)) drawAura(p, '#ff1a1a', false, 1.05, 0.55);
   } else {
-  if (p.transformed) drawAura(p, auraColor(p), true);
+  if (p.transformed || p.lanceForm) drawAura(p, auraColor(p), true);   // (Lance's forms stay on with an empty meter)
+  if (p.lanceForm === 2) drawSsj2Arcs(p);                           // SUPER SAIYAN 2: lightning round the aura
   if (p.transformed && p.ui) drawUiWisps(p);                       // TRANSFORMED: big, constant aura (everyone)
   if (godSpeed(p) && !sketch) drawGodSpeedArcs(p);                          // Colby's GOD SPEED: electricity crackling all over him
   else if (powered) drawAura(p);
@@ -17467,8 +17511,9 @@ const MOVESETS = {
       ['DOWN K', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (0.8% / 1.3% / 2.2% damage every second).'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
-      ['I (FULL METER)', 'SUPER SAIYAN', 'Golden hair and aura - faster.'],
-      ['DOWN + I (FULL METER)', 'ULTRA INSTINCT', 'A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms. He weaves their whole barrage, walks past as the hits land, teleport-combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. The meter only drains after. In it: no stat boost, but +1 Z vanish dot and AUTO DODGE.'],
+      ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out.'],
+      ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'Lightning crackles round his aura: +20% damage, +32% move speed, attacks 32% faster. Also stays on when the meter runs out.'],
+      ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out he drops back to base and climbs again.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
