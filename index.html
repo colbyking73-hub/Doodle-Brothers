@@ -1121,14 +1121,20 @@ const LANCE_MOVES = {
   // ---------- J in the air: arm strikes ----------
   // Spinning Backfist: arm sweeps all the way round him
   // 3 hits: front -> back -> front, the last one launches
-  nair: { name: 'Spinning Backfist', startup: 0.06, active: 0.21, endlag: 0.14, landLag: 0.08,
-    hitboxes: [{ x: 0, y: -60, r: 46, dmg: 3, base: 90, growth: 0, angle: 80, from: 0, to: 0.06, group: 0 },
-               { x: 0, y: -60, r: 46, dmg: 3, base: 90, growth: 0, angle: 80, from: 0.07, to: 0.13, group: 1 },
-               { x: 0, y: -60, r: 48, dmg: 5, base: 330, growth: 4.5, angle: 45, from: 0.14, to: 0.21, group: 2 }],
-    strike3: pose({ armA: [1.7, 0.2], legA: [0.9, 1.6], legB: [0.4, 1.3], lean: 0.15 }), strike3At: 0.14,
-    wind: pose({ armA: [0.5, -2.0], legA: [1.0, 1.8], legB: [0.6, 1.6] }),
-    strike: pose({ armA: [1.6, 0], legA: [0.9, 1.6], legB: [0.4, 1.3], lean: 0.1 }),
-    strike2: pose({ armA: [-1.6, 0], legA: [0.9, 1.6], legB: [0.4, 1.3], lean: -0.1 }), strike2At: 0.07 },
+  // Neutral air: AURA BURST - crowd control. His aura blows out all round him: it hits everyone close by on EVERY side
+  // (front, back, above, below), STUNS them for a moment and knocks them away from him. Light damage.
+  nair: { name: 'Aura Burst', startup: 0.08, active: 0.1, endlag: 0.2, landLag: 0.1, hitstunBonus: 0.25,
+    // (radial: one big sphere round him - each one it catches is blasted straight AWAY from him, whichever side they're on)
+    radial: true,
+    hitboxes: [{ x: 0, y: -56, r: 84, dmg: 5, base: 470, growth: 2.6, angle: 45 }],
+    wind: pose({ armA: [-0.8, -2.1], lean: 0.3, legA: [1.2, 1.9], legB: [0.8, 1.7] }),        // curls up, gathering it
+    strike: pose({ armA: [-1.9, 0.15], lean: -0.25, legA: [0.5, 0.2], legB: [-0.5, 0.2] }),   // ...and blows it out, limbs flung wide
+    fire(f) {
+      ring(f.x, f.y - 56); ring(f.x, f.y - 56);
+      burst(f.x, f.y - 56, [kiColor(f), '#ffffff'], 44, 0, Math.PI, 760, { grav: 0 });
+      for (let k = 0; k < 5; k++) bolt(f.x, f.y - 56, Math.random() * Math.PI * 2, 90, 0.12, kiColor(f));
+      shake = Math.max(shake, 8); sfx.blast();
+    } },
   // Side air (either way - he turns to face the side you hold): FLYING SCISSOR KICK - he lunges forward, one leg
   // scissors UP through them, then the other snaps DOWN across it. The first hit holds them, the second sends them.
   fair: { name: 'Scissor Kick', startup: 0.07, active: 0.2, endlag: 0.18, landLag: 0.1, turnAir: true,
@@ -1705,6 +1711,7 @@ function makeAxeKick(air) {
 // e.g. jab-kick, cross-punch, rising kick... His scythe J moves (cyclone, guillotine, wheel) become
 // punches too. Up K is still a recovery (a rising uppercut).
 const KICK_CHAIN = ['jab', 'jab2', 'jab3'], PUNCH_CHAIN = ['punch1', 'punch2', 'punch3'];
+const BARE_CHARGE_KB = 0.7;   // charged bare-handed hits: knockback = 70% of the UNCHARGED hit's (charging only adds damage)
 const COLBY_PUNCHES = {
   punch1: { name: 'Lead Jab', startup: 0.035, active: 0.05, endlag: 0.12, chain: 1,
     hitboxes: [{ x: 42, y: -70, r: 18, dmg: 2.5, base: 110, growth: 0.4, angle: 50 }],
@@ -12947,7 +12954,20 @@ function update(dt) {
         const crit = GC && a.groundStart && a.t <= GC.window && t.ground && Math.abs(t.x - f.x) <= GC.range && !t.shielding;
         const wieldPow = f.weaponPower && f.weaponPower !== 1 && moveUsesScythe(a.move) ? f.weaponPower : 1;   // rival's weapon (Colten + scythe hits harder)
         const ia0 = impactAt;                         // (to tell if this hit made a new impact frame)
-        if (applyHit(t, crit ? { ...GC.hit } : h, a.pushDir || f.face, a.mult * powerOf(f) * demonBoost * wieldPow, hx, hy, { fighter: f })) {   // (pushDir: Colby's blink string keeps driving them one way)
+        // SCYTHELESS CHARGED PUNCHES (Colby / Colten bare-handed): charging still adds damage, but NOT knockback -
+        // a charged punch launches BARE_CHARGE_KB x what the uncharged one would (they were far too strong up close)
+        let hh = crit ? { ...GC.hit } : h;
+        if (f.noScythe && a.mult > 1.001 && !crit) hh = { ...hh, base: hh.base * BARE_CHARGE_KB / a.mult, growth: hh.growth * BARE_CHARGE_KB / a.mult };
+        // RADIAL hits (Lance's Aura Burst): knocked straight away from his center - never pulled across him
+        let hitDir = a.pushDir || f.face;
+        if (a.move.radial) {
+          const rdx = t.x - f.x, rdy = (t.y - t.h / 2) - (f.y - 56);
+          hitDir = Math.sign(rdx) || f.face;
+          let deg = Math.atan2(-rdy, Math.abs(rdx)) * 180 / Math.PI;
+          if (deg > -25 && deg < 30) deg = 30;          // (level with him: a little pop, so they're sent off airborne)
+          hh = { ...hh, angle: deg };
+        }
+        if (applyHit(t, hh, hitDir, a.mult * powerOf(f) * demonBoost * wieldPow, hx, hy, { fighter: f })) {   // (pushDir: Colby's blink string keeps driving them one way)
           a.hit.add(key);
           if (t.damage > d0 && moveUsesScythe(a.move) && !f.noScythe) sfx.cut(0.5);   // a blade biting in
           if (crit) {
@@ -16970,7 +16990,7 @@ const COLBY_SECTIONS = {
     ['DOWN J', 'Inferno Axe Kick', 'A blazing axe kick.'],
     ['RUN + J', 'Superman Punch', 'Leaps into a flying punch.'],
     ['AIR J / FWD / BACK / UP / DOWN', 'Split Kick Spin / Air Dash Kick / Back Spin Kick / Dragon Bicycle / Meteor Punch', 'His bare-handed airs - Meteor Punch spikes.'],
-    ['SIDE K', 'Annihilator', 'A charged rush punch - hold K to wind it up.'],
+    ['SIDE K', 'Annihilator', 'A charged rush punch - hold K to wind it up. Charging (any bare-handed punch) adds damage, not knockback.'],
     ['UP K', 'Rising Uppercut', 'His bare-handed recovery.'],
     ['DOWN K', 'Time Stop / Dash Chokeslam', 'With a FULL time meter: a purple aura that freezes anyone it touches in time (knockback piles up and lands all at once). Otherwise a dashing chokeslam.'],
     ['K (NEAR THE SCYTHE)', 'Pick Up', 'Picks his scythe (or ANY weapon lying on the floor) back up.'] ] },
@@ -17018,7 +17038,7 @@ const MOVESETS = {
       ['DOWN J', 'Headspin', 'Flips onto his head and breakdance-spins, legs whirling - hits both sides over and over, the last spin launches. Hold left / right to creep along while spinning.'],
       ['RUN + J', 'Cartwheel Kick', 'Cartwheels in with his legs split wide: two hits, the second sends them flying.'] ] },
     { title: 'AIR J', rows: [
-      ['AIR J', 'Spinning Backfist', 'His arm sweeps all the way round him: front, back, front - the last one launches.'],
+      ['AIR J', 'Aura Burst', 'Crowd control: his aura blasts out all round him - hits everyone close on every side, stuns them for a moment and knocks each of them straight away from him.'],
       ['AIR SIDE J', 'Scissor Kick', 'A lunging flying scissor kick - he turns to face whichever side you hold. One leg scissors up, the other snaps down and sends them.'],
       ['AIR UP J', 'Upward Palm', 'A palm thrust straight up.'],
       ['AIR DOWN J', 'Spinning Axe Kick', 'A spinning heel brought down on them.'] ] },
