@@ -7116,6 +7116,9 @@ const SEVON_MOVES = {
     } },
 };
 
+// SAMURAI FLOW: his sword moves (and his K forms) can cancel into each other once they land - see the flow check in stepAction
+for (const k of ['jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair', 'sideRanged', 'upRanged']) SEVON_MOVES[k].flow = true;
+
 // ---------------- TOTAL CONCENTRATION (Sevon, down K) ----------------
 // Down K (ground or air) switches it on / off - instant, like Lance's Kaioken. While it's on:
 //  - he hits harder, moves faster and his attacks come out quicker
@@ -7493,14 +7496,35 @@ function drawOdmGear(hip, f, opts) {
   }
   ctx.restore();
 }
+// SWORD TRAIL: while one of his sword moves is out, the blade leaves a short-lived crescent of flame behind it
+// (each drawn frame records the blade's tip and a point near the hilt; the band between them fades out fast)
+const KATANA_TRAIL = { life: 0.13 };
+function katanaTrail(p, tip, base) {
+  const now = performance.now() / 1000, a = p.action;
+  const swinging = a && a.type === 'attack' && (a.phase === 'active' || (a.phase === 'startup' && a.t > a.move.startup * 0.45)) && a.move && a.move.strike && a.move.strike.sw !== undefined && a.move !== p.moveset.neutralRanged;
+  const tr = p.bladeTrail || (p.bladeTrail = []);
+  if (swinging) tr.unshift({ tx: tip.x, ty: tip.y, bx: base.x, by: base.y, t: now });
+  while (tr.length && now - tr[tr.length - 1].t > KATANA_TRAIL.life) tr.pop();
+  if (tr.length < 2 || sketch) return;
+  ctx.save();
+  for (let i = 0; i < tr.length - 1; i++) {
+    const q = tr[i], r = tr[i + 1], k = Math.min(1 - (now - q.t) / KATANA_TRAIL.life, 1 - i / tr.length);
+    if (k <= 0) continue;
+    ctx.globalAlpha = 0.85 * k;
+    ctx.fillStyle = k > 0.75 ? '#fff3a8' : k > 0.5 ? '#ffb02e' : k > 0.25 ? '#ff5a1a' : '#e0301e';
+    ctx.beginPath(); ctx.moveTo(q.bx, q.by); ctx.lineTo(q.tx, q.ty); ctx.lineTo(r.tx, r.ty); ctx.lineTo(r.bx, r.by); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
 // THE KATANA: a proper nichirin blade, shorter than before - long two-hand grip (wrapped, with diamonds), a flame
 // tsuba, a gold habaki collar, a gently curved blade with a wavy HAMON line and the burning red-orange edge
 const KATANA = { grip: 22, blade: 74 };
 function drawKatana(shoulder, pz, f, opts) {
   const { hand, ux, uy } = swordHold(shoulder, pz, f);
-  const nx = -uy, ny = ux;
+  const fs = f < 0 ? -1 : 1, nx = -uy * fs, ny = ux * fs;   // (mirrored with him: facing left the edge and curve stay the same way round, never upside down)
   const P = (along, across) => { const c = along > 0 ? -0.0016 * along * along : 0; return { x: hand.x + ux * along + nx * (across + c), y: hand.y + uy * along + ny * (across + c) }; };   // (curve: the edge side is the inside)
   const outline = opts.outline || 0, G = KATANA.grip, B = KATANA.blade;
+  if (opts.bladeOf && !opts.tint) katanaTrail(opts.bladeOf, P(B + 6, 0), P(B * 0.45, 0));   // the flaming arc his swings leave
   ctx.save();
   ctx.lineCap = 'round';
   if (opts.tint) {
@@ -8073,7 +8097,8 @@ CHARACTERS.COLTEN.ult = {
 CHARACTERS.COLTEN.transformName = 'WARLORD';
 // Sevon: NINTH FORM: RENGOKU - a lunge; whoever it catches takes a storm of flaming slashes from every side, then he
 // charges straight through them as a giant TIGER OF FIRE (see the flameFinal finisher in updateUlt)
-CHARACTERS.SEVON.ult = {
+// (his SECOND ultimate now: hold DOWN as you press ULT)
+CHARACTERS.SEVON.altUlt = {
   name: 'NINTH FORM: RENGOKU',
   slashes: [SEVON_MOVES.jab.strike, SEVON_MOVES.jab2.strike, SEVON_MOVES.jab3.strike, SEVON_MOVES.fair.strike, SEVON_MOVES.uair.strike, SEVON_MOVES.sideGround.strike],
   kicks: [SEVON_MOVES.dashAttack.strike, SEVON_MOVES.upGround.strike, SEVON_MOVES.downGround.strike],
@@ -8081,6 +8106,184 @@ CHARACTERS.SEVON.ult = {
   perHit: 1.0, flameFinal: true, cutscene: false,
   final: { dmg: 12, base: 520, growth: 6.4, angle: 38 },
 };
+// Sevon's MAIN ultimate: FLAME BREATHING - FLAME DRAGON (Rengoku). He plants his feet and breathes in; fire spirals up
+// round him and coils into a great serpent DRAGON OF FLAME. Then he cuts forward and it ROARS off his blade at the nearest
+// enemy, weaving after them. Whoever it bites is swallowed in fire and carried along (burning hits), then it EXPLODES and
+// launches them. Shields don't stop it - only a Z vanish at the right moment slips it. See stepFlameDragon / updateDragon.
+CHARACTERS.SEVON.ult = { name: 'FLAME BREATHING: FLAME DRAGON', dragon: true };
+const FLAME_DRAGON = {
+  summon: 0.85, endlag: 0.4,               // the coil round him / his follow-through after the cut
+  speed: 1150, turn: 3.2, life: 2.0, r: 56, // flight: speed, how hard it steers after them (rad/s), how long it lives, bite size
+  carry: 0.6, carrySpeed: 620, tickEvery: 0.1,
+  tick: { dmg: 2.2, base: 0, growth: 0, angle: 90, noStop: true },             // burning while it carries them
+  final: { dmg: 14, base: 560, growth: 7, angle: 42, ultFinal: true },          // the explosion
+  len: 34,                                 // body length (trail points)
+};
+function startFlameDragon(f) {
+  f.action = { type: 'flameDragon', t: 0, phase: 'summon' };
+  projectiles.push({ owner: f, kind: 'dragon', state: 'coil', t: 0, x: f.x, y: f.y - 30, dir: 0, trail: [], hit: new Set(),
+                     mult: (f.ultPower || 1) * powerOf(f), r: FLAME_DRAGON.r });
+  sfx.beam(0.5);
+}
+function stepFlameDragon(f, a, dt) {
+  f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = 0;          // he holds his ground (hangs in the air)
+  if (a.phase === 'summon') {
+    const v = nearestFoe(f);
+    if (v && v.respawnTimer <= 0) f.face = Math.sign(v.x - f.x) || f.face;
+    const k = a.t / FLAME_DRAGON.summon;
+    shake = Math.max(shake, 2 + 5 * k);
+    if (Math.random() < dt * 40) burst(f.x + (Math.random() - 0.5) * 50, f.y - 6, SEVON_FIRE, 2, -Math.PI / 2, 0.5, 260, { grav: -300 });   // fire rising off the floor
+    if (a.t >= FLAME_DRAGON.summon) {
+      a.phase = 'release'; a.t = 0;
+      flameSlash(f, 60, -70, 30); ring(f.x + f.face * 60, f.y - 70);
+      shake = Math.max(shake, 14); sfx.whoosh(true); sfx.beam(1);
+      impactFrame = Math.max(impactFrame, 0.06); impactAt = { x: f.x + f.face * 60, y: f.y - 70, ang: 0, all: false, focus: true, fire: true };
+    }
+    return;
+  }
+  if (a.t >= FLAME_DRAGON.endlag) f.action = null;
+}
+// returns true when it's gone
+function updateDragon(s, dt) {
+  const D = FLAME_DRAGON, o = s.owner;
+  s.t += dt;
+  if (s.state === 'coil') {
+    // it forms round him: spiralling up from his feet to over his head
+    if (!o || o.respawnTimer > 0 || !o.action || o.action.type !== 'flameDragon') return true;
+    const k = Math.min(1, s.t / D.summon), ang = s.t * 10;
+    s.x = o.x + Math.cos(ang) * (55 + 25 * k); s.y = o.y - 25 - k * 120 + Math.sin(ang) * 22;
+    if (o.action.phase === 'release') {                       // HE CUTS: it flies off his blade at them
+      s.state = 'fly'; s.t = 0;
+      s.x = o.x + o.face * 70; s.y = o.y - 80;
+      const v = nearestFoe(o);
+      s.target = v && v.respawnTimer <= 0 ? v : null;
+      s.dir = s.target ? Math.atan2(s.target.y - 50 - s.y, s.target.x - s.x) : (o.face > 0 ? 0 : Math.PI);
+      // (never fire it backwards: at worst straight up/down in front of him)
+      if (Math.cos(s.dir) * o.face < 0) s.dir = o.face > 0 ? clamp(s.dir, -Math.PI / 2, Math.PI / 2) : (Math.sin(s.dir) < 0 ? -Math.PI / 2 : Math.PI / 2);
+    }
+  } else if (s.state === 'fly') {
+    const v = s.target;
+    if (v && v.respawnTimer <= 0 && !v.dead) {                // steers after them (it can be outrun / dodged)
+      const want = Math.atan2(v.y - 50 - s.y, v.x - s.x);
+      let d = want - s.dir; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+      s.dir += clamp(d, -D.turn * dt, D.turn * dt);
+    }
+    s.x += Math.cos(s.dir) * D.speed * dt; s.y += Math.sin(s.dir) * D.speed * dt;
+    for (const t of fighters) {
+      if (t === o || allies(o, t) || s.hit.has(t) || t.respawnTimer > 0 || t.halo > 0 || t.dead || t.poofT > 0 || projPhase(t)) continue;
+      if (!circleHitsFighter(s.x, s.y, D.r, t)) continue;
+      if (isIntangible(t)) { t.dodgedFlash = 0.35; s.hit.add(t); continue; }   // slipped it with a Z vanish
+      s.hit.add(t);
+      if (t.minion) { knock(t, D.final, Math.sign(Math.cos(s.dir)) || 1, s.mult, s.x, s.y); continue; }   // clones just get torched on the way through
+      // BITTEN: swallowed in fire and carried along
+      t.shielding = false;
+      s.state = 'carry'; s.t = 0; s.victim = t; s.tickT = 0;
+      if (Math.cos(s.dir) * (o.face || 1) < 0.2) s.dir = Math.atan2(-0.35, o.face || 1);   // carries them away from him, rising
+      hitstop = Math.max(hitstop, 0.08); shake = Math.max(shake, 16); sfx.clash(true); sfx.huge();
+      burst(t.x, t.y - 50, SEVON_FIRE, 40, 0, Math.PI, 700, { grav: -250 });
+      break;
+    }
+    if (s.state === 'fly' && (s.t > D.life || s.x < -600 || s.x > W + 600 || s.y < -900 || s.y > H + 600)) {
+      burst(s.x, s.y, SEVON_FIRE, 30, 0, Math.PI, 500, { grav: -200 });
+      return true;
+    }
+  } else if (s.state === 'carry') {
+    const t = s.victim;
+    if (!t || t.respawnTimer > 0) return true;
+    { let d = Math.atan2(-0.5, Math.cos(s.dir) >= 0 ? 1 : -1) - s.dir;                       // curls up as it goes (the short way round)
+      while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+      s.dir += d * Math.min(1, dt * 4); }
+    s.x += Math.cos(s.dir) * D.carrySpeed * dt; s.y += Math.sin(s.dir) * D.carrySpeed * dt;
+    const dirSign = Math.cos(s.dir) >= 0 ? 1 : -1;
+    s.tickT -= dt;
+    if (s.tickT <= 0 && s.t < D.carry) { s.tickT += D.tickEvery; knock(t, D.tick, dirSign, s.mult, t.x, t.y - 50); burst(t.x, t.y - 50, SEVON_FIRE, 8, 0, Math.PI, 360, { grav: -250 }); }
+    t.x = s.x - Math.cos(s.dir) * 6; t.y = s.y + 46; t.vx = t.vy = 0; t.ground = false;   // held in its jaws
+    if (t.action && t.action.type === 'hitstun') t.action.dur = Math.max(t.action.dur, t.action.t + 0.2);
+    if (s.t >= D.carry) {                                     // ...and it EXPLODES
+      knock(t, D.final, dirSign, s.mult, s.x, s.y);
+      for (let k = 0; k < 6; k++) burst(s.x, s.y, SEVON_FIRE, 18, Math.random() * Math.PI * 2, 0.7, 900, { grav: -200 });
+      ring(s.x, s.y); ring(s.x, s.y - 30);
+      return true;
+    }
+  }
+  // its body follows the head; it sheds fire as it goes
+  s.trail.unshift({ x: s.x, y: s.y });
+  if (s.trail.length > D.len) s.trail.length = D.len;
+  if (Math.random() < dt * 60) { const p = s.trail[(Math.random() * s.trail.length) | 0]; burst(p.x, p.y, SEVON_FIRE, 1, -Math.PI / 2, 0.8, 140, { grav: -260 }); }
+  return false;
+}
+// THE DRAGON: a long serpent of flame - a tapering body with a burning core, flame frills down its back, and a horned head
+// with open jaws. (The head is mirrored, never rotated upside down, when it flies left.)
+function drawDragon(s) {
+  const tr = s.trail, n = tr.length;
+  if (n < 2) return;
+  const time = performance.now() / 1000;
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const width = i => { const k = 1 - i / n; return 6 + 30 * Math.sin(Math.min(1, k * 1.25) * Math.PI / 2); };   // thick near the head, thin tail
+  const passes = sketch ? [['#222', 1]] : [['#8a1a08', 1.3], ['#e0301e', 1.1], ['#ff7a1a', 0.85], ['#ffb02e', 0.55], ['#fff3a8', 0.22]];
+  for (const [col, m] of passes) {
+    ctx.strokeStyle = col;
+    for (let i = n - 1; i > 0; i--) {
+      ctx.lineWidth = width(i) * m;
+      ctx.beginPath(); ctx.moveTo(tr[i].x, tr[i].y); ctx.lineTo(tr[i - 1].x, tr[i - 1].y); ctx.stroke();
+    }
+  }
+  // flame frills along its back
+  if (!sketch) for (let i = 3; i < n - 2; i += 3) {
+    const a = tr[i], b = tr[i - 1], ang = Math.atan2(b.y - a.y, b.x - a.x), w = width(i);
+    const up = Math.cos(ang) >= 0 ? -1 : 1;                // (the "back" stays on top)
+    const nx = -Math.sin(ang) * up, ny = Math.cos(ang) * up, fl = 0.8 + 0.4 * Math.sin(time * 30 + i);
+    ctx.fillStyle = i % 2 ? '#ff5a1a' : '#ffb02e';
+    ctx.beginPath();
+    ctx.moveTo(a.x + nx * w * 0.4 - Math.cos(ang) * 8, a.y + ny * w * 0.4 - Math.sin(ang) * 8);
+    ctx.lineTo(a.x + nx * w * (0.9 + 0.5 * fl) - Math.cos(ang) * 14, a.y + ny * w * (0.9 + 0.5 * fl) - Math.sin(ang) * 14);
+    ctx.lineTo(a.x + nx * w * 0.4 + Math.cos(ang) * 6, a.y + ny * w * 0.4 + Math.sin(ang) * 6);
+    ctx.closePath(); ctx.fill();
+  }
+  // THE HEAD
+  const h = tr[0], h2 = tr[Math.min(3, n - 1)];
+  const ang = Math.atan2(h.y - h2.y, h.x - h2.x), flip = Math.cos(ang) < 0;
+  ctx.translate(h.x, h.y); ctx.rotate(ang); if (flip) ctx.scale(1, -1);
+  const S = 1.15, jaw = 0.25 + 0.15 * Math.sin(time * 18);
+  ctx.scale(S, S);
+  // mane of flame behind the head
+  if (!sketch) for (let k = 0; k < 5; k++) {
+    const fl = 1 + 0.3 * Math.sin(time * 25 + k * 2);
+    ctx.fillStyle = k % 2 ? '#ff5a1a' : '#e0301e';
+    ctx.beginPath(); ctx.moveTo(-14, -10 + k * 5); ctx.lineTo(-44 * fl - k * 3, -26 + k * 12); ctx.lineTo(-20, -2 + k * 5); ctx.closePath(); ctx.fill();
+  }
+  // horns
+  ctx.strokeStyle = sketch ? '#222' : '#ffe066'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(-8, -14); ctx.quadraticCurveTo(-26, -30, -46, -34); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(2, -15); ctx.quadraticCurveTo(-12, -34, -30, -44); ctx.stroke();
+  // lower jaw (open)
+  ctx.save(); ctx.rotate(jaw);
+  ctx.fillStyle = sketch ? '#ddd' : '#e0301e';
+  ctx.beginPath(); ctx.moveTo(-6, 4); ctx.lineTo(34, 8); ctx.lineTo(30, 15); ctx.lineTo(-8, 14); ctx.closePath(); ctx.fill();
+  if (!sketch) { ctx.fillStyle = '#fff3a8'; for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.moveTo(6 + k * 7, 7); ctx.lineTo(9 + k * 7, 2); ctx.lineTo(12 + k * 7, 7); ctx.fill(); } }
+  ctx.restore();
+  // fire in its throat
+  if (!sketch) { ctx.fillStyle = '#fff3a8'; ctx.beginPath(); ctx.ellipse(18, 6, 14, 5 + jaw * 10, jaw / 2, 0, Math.PI * 2); ctx.fill(); }
+  // skull + upper jaw / snout
+  ctx.fillStyle = sketch ? '#eee' : '#ff7a1a';
+  ctx.beginPath(); ctx.ellipse(-4, -2, 22, 15, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = sketch ? '#eee' : '#ffb02e';
+  ctx.beginPath(); ctx.moveTo(-2, -13); ctx.lineTo(40, -6); ctx.lineTo(44, 1); ctx.lineTo(36, 4); ctx.lineTo(0, 5); ctx.closePath(); ctx.fill();
+  if (!sketch) { ctx.fillStyle = '#fff3a8'; for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.moveTo(10 + k * 7, 4); ctx.lineTo(13 + k * 7, 10); ctx.lineTo(16 + k * 7, 4); ctx.fill(); } }
+  // brow ridge + glowing eye
+  ctx.strokeStyle = sketch ? '#222' : '#8a1a08'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(18, -9); ctx.stroke();
+  ctx.fillStyle = sketch ? '#222' : '#ffffff'; ctx.beginPath(); ctx.ellipse(11, -5, 4, 2.6, 0.15, 0, Math.PI * 2); ctx.fill();
+  if (!sketch) { ctx.fillStyle = '#e0301e'; ctx.beginPath(); ctx.arc(12, -5, 1.5, 0, Math.PI * 2); ctx.fill(); }
+  // whiskers trailing back
+  ctx.strokeStyle = sketch ? '#222' : '#ffe066'; ctx.lineWidth = 2;
+  for (const sy of [-1, 1]) {
+    ctx.beginPath(); ctx.moveTo(38, sy > 0 ? 3 : -3);
+    for (let k = 1; k <= 8; k++) ctx.lineTo(38 - k * 9, (sy > 0 ? 3 : -3) + sy * k * 2.5 + Math.sin(time * 14 + k) * 4);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 // SNAPPIER RUNNING ATTACKS (everyone): they come out ~35% faster and recover a bit faster
 {
   const done = new Set();
@@ -8799,7 +9002,7 @@ const projPhase = t => !!(t.char === 'AIDEN' && t.action && t.action.type === 'a
 function isIntangible(f) {
   if (f.invuln > 0) return true;
   const a = f.action;
-  if (a && ['thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'shipUlt', 'gazeSwap', 'swapped'].includes(a.type)) return true;   // nothing else can hit you mid-throw / ultimate (a CLASH can be broken up, though)
+  if (a && ['thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon', 'shipUlt', 'gazeSwap', 'swapped'].includes(a.type)) return true;   // nothing else can hit you mid-throw / ultimate (a CLASH can be broken up, though)
   return !!a && (a.type === 'spot' || a.type === 'roll' || a.type === 'air') && a.t >= a.iStart && a.t <= a.iEnd;
 }
 // CROUCHING: hold down on the ground to duck. Your hurtbox shrinks to ~60% height, so HIGH attacks
@@ -9369,7 +9572,7 @@ const painTexts = [];
 const SHOW_FIGHT_TEXT = false;
 // ...plus these, which always show: CLASH text (the clash and its power-bar duel) and CRITICAL hits
 const KEEP_TEXTS = new Set(['CRITICAL!', 'WIN!', 'CLASH WON!', 'BROKEN!', 'YARRKO!']);
-const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'ultStart', 'ultSeq'].includes(f.action.type));
+const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'flameDragon', 'ultStart', 'ultSeq'].includes(f.action.type));
 painTexts.push = function (...items) { for (const p of items) if (p && p.ult === undefined) p.ult = ultRunning(); return Array.prototype.push.apply(this, items); };
 function drawCracks() {
   for (const c of cracks) {
@@ -9837,6 +10040,7 @@ function startUltimate(f, alt = false) {          // alt = DOWN was held: the ch
   heelSay(f, 'roar');
   f.action = def.beamUlt ? { type: 'ultBeam', t: 0, phase: 'charge' }      // Lance: charge + full-screen Kamehameha
                          : { type: 'ultStart', t: 0, dur: def.rush ? 0.6 : 0.8, def };
+  if (def.dragon) startFlameDragon(f);             // Sevon: the Flame Dragon
   if (def.ship) startShipUlt(f);                   // Aiden: the pirate ship
   ultBanner = { t: 1.1, name: def.name || 'ULTIMATE', color: f.color, who: f };
   hitstop = Math.max(hitstop, 0.4);                // dramatic freeze as it starts
@@ -9882,7 +10086,7 @@ function stepUltStart(f, a, dt) {
   const hx = f.x + f.face * 40, hy = f.y - 50;
   for (const t of fighters) {
     if (t === f || allies(f, t) || t.respawnTimer > 0 || t.halo > 0 || isIntangible(t)) continue;
-    if (circleHitsFighter(hx, hy, 46, t)) { startUltSequence(f, t); return; }
+    if (circleHitsFighter(hx, hy, 46, t)) { startUltSequence(f, t, def); return; }
   }
 }
 
@@ -10510,6 +10714,7 @@ function updateProjectiles(dt) {
     const s = projectiles[i];
     if (s.kind === 'beam') { if (updateBeam(s, dt)) projectiles.splice(i, 1); continue; }
     if (s.kind === 'disc') { if (updateDisc(s, dt)) projectiles.splice(i, 1); continue; }   // Lance's Destructo Disc
+    if (s.kind === 'dragon') { if (updateDragon(s, dt)) projectiles.splice(i, 1); continue; }   // Sevon's Flame Dragon
     if (s.grav) s.vy += s.grav * dt;
     // STEERED (Colby's Thunder Bolt): turns toward wherever his stick points, while he's still concentrating on it
     if (s.steer) {
@@ -11101,6 +11306,7 @@ function stepAction(f, inp, dt) {
   }
   if (a.type === 'timeStop') return stepTimeStop(f, a, dt);
   if (a.type === 'ultBeam') return stepUltBeam(f, a, dt);
+  if (a.type === 'flameDragon') return stepFlameDragon(f, a, dt);   // Sevon: summoning / releasing the Flame Dragon
   if (a.type === 'shipUlt') return stepShipUlt(f, a, dt);
   if (a.type === 'kiBarrage') return stepKiBarrage(f, a, dt);    // Lance: It's My Turn's ki barrage
   if (a.type === 'ledge') return stepLedge(f, a, inp, dt);       // hanging off the edge of the stage
@@ -11137,6 +11343,27 @@ function stepAction(f, inp, dt) {
     // Moves with their own custom logic (Alolan Whip, Cross Chop...) - return true = it handled this frame
     if (m.step && m.step(f, a, dt, inp)) return;
 
+    // SAMURAI FLOW (Sevon): once a sword move LANDS, its follow-through can be cut short by a DIFFERENT move -
+    // J string > side J > up J > side K..., each move once per chain. (Neutral J during the J string still just
+    // carries on the string.)
+    if (m.flow && a.hit.size && (a.phase === 'end' || (a.phase === 'active' && a.t > m.active * 0.6)) && (f.atkBuf > 0 || f.spcBuf > 0)) {
+      const btn = f.atkBuf > 0 ? 'atk' : 'spc';
+      const neutralJ = btn === 'atk' && !inp.dir && !inp.up && !inp.down;
+      if (!(neutralJ && m.combo)) {
+        const chain = a.flowChain || [a.key], face0 = f.face;
+        const key = chooseMove(f, inp, btn);
+        if (!chain.includes(key) && f.moveset[key]) {
+          startAttack(f, inp, btn);
+          if (f.action && f.action.type === 'attack') {
+            f.action.flowChain = [...chain, f.action.key];
+            ghosts.push({ fig: figureOf(f), life: 0.18, max: 0.18, color: '#ff7a1a' });
+            flameSlash(f, 20, -60, 6);
+          }
+          return;
+        }
+        f.face = face0;
+      }
+    }
     // Combo chains: press the same button again during the move to flow into the next one
     if (m.combo && (a.phase === 'end' || (a.phase === 'active' && a.t > m.active * 0.5))) {
       const buf = a.btn === 'atk' ? f.atkBuf : f.spcBuf;
@@ -11578,7 +11805,7 @@ function updateFighter(f, inp, dt) {
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
   f.opening = Math.max(0, (f.opening || 0) - dt);               // the window to punish after a perfect block
   syncKame(f);
-  const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam'].includes(f.action.type);
+  const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam', 'flameDragon'].includes(f.action.type);
   if (f.transformed) {                                            // transformed: the meter slowly drains
     if (f.look && f.look.doubleUlt) {                            // Colbalias: only the bar he transformed on drains (same ~14s as anyone's)
       const fl = f.tfFloor || 0;
@@ -11655,7 +11882,7 @@ function updateFighter(f, inp, dt) {
   const a = f.action;
   const floating = a && ((a.type === 'air' && a.t < a.floatTime) || a.type === 'clash' || a.type === 'grabbed' || a.type === 'thrown' || a.type === 'whipped' ||
     (a.type === 'attack' && a.move.floatWhile && a.move.floatWhile(f, a)) ||
-    a.type === 'flydash' || a.type === 'ultBeam' || a.type === 'shipUlt' || a.type === 'kiBarrage' || a.type === 'impaled' || a.type === 'ledge' || a.type === 'gazeSwap' || a.type === 'swapped' || (a.type === 'hitstun' && a.crit) || a.type === 'timeStop' ||
+    a.type === 'flydash' || a.type === 'ultBeam' || a.type === 'flameDragon' || a.type === 'shipUlt' || a.type === 'kiBarrage' || a.type === 'impaled' || a.type === 'ledge' || a.type === 'gazeSwap' || a.type === 'swapped' || (a.type === 'hitstun' && a.crit) || a.type === 'timeStop' ||
     (a.type === 'hitstun' && (a.impaled || (a.flat && a.t < a.flat))) ||   // skewered on the Red Chidori / launched dead flat (Hundred Clone Rush)
     a.type === 'odmReel' || a.type === 'odmSpin' ||                  // Sevon flying on his ODM gear
     (a.type === 'attack' && a.phase === 'active' && a.move.hover && !f.ground) ||      // Shuriken Kick holds its height
@@ -12023,6 +12250,23 @@ function aiInput(f, level) {
       ai.dir = 0; ai.up = ai.down = false;
     }
   }
+  // SEVON'S SAMURAI FLOW: once a sword move lands (and it's not mid J string), cut straight into a DIFFERENT one
+  if (act && act.type === 'attack' && act.move.flow && !act.move.combo && act.hit.size > 0 && !act.flowRolled && o) {
+    act.flowRolled = true;
+    if (Math.random() < L.combo) {
+      const chain = act.flowChain || [act.key], toward = Math.sign(o.x - f.x) || f.face, dy = o.y - f.y;
+      const opts = f.ground
+        ? [{ dir: toward, btn: 'atk', key: 'sideGround' }, { up: true, btn: 'atk', key: 'upGround' }, { dir: toward, btn: 'spc', key: 'sideRanged' },
+           ...(dy < -60 ? [{ up: true, btn: 'spc', key: 'upRanged' }] : [])]
+        : [{ btn: 'atk', key: 'nair' }, { up: true, btn: 'atk', key: 'uair' }, { dir: toward, btn: 'atk', key: toward === f.face ? 'fair' : 'bair' }];
+      const pick = opts.filter(q => !chain.includes(q.key));
+      if (pick.length) {
+        const q = pick[(Math.random() * pick.length) | 0];
+        ai.dir = q.dir || 0; ai.up = !!q.up; ai.down = false;
+        if (q.btn === 'atk') ai.tapAtk = true; else ai.tapSpc = true;
+      }
+    }
+  }
   aiSafety(f, ai);
 
   // PARRY REFLEX (every frame, not just when it "thinks"): an attack is about to land on us - now and then snap the
@@ -12254,8 +12498,10 @@ function aiDecide(f, o, ai, L) {
   }
   // ULTIMATE while transformed: beam ults fire from any range when lined up; others need them right in front
   const beamUlt = (CHARACTERS[f.char].ult || {}).beamUlt;
-  const ultRange = beamUlt ? adx < 900 && Math.abs(dy) < 50 : adx < 140 && Math.abs(dy) < 40;
-  if (f.transformed && f.ult > 0 && ultRange && f.face === toward &&
+  const dragonUlt = (CHARACTERS[f.char].ult || {}).dragon;
+  if (dragonUlt && f.transformed && f.ult > 0 && adx < 140 && Math.abs(dy) < 40 && f.face === toward && Math.random() < 0.06) { ai.down = true; ai.tapUlt = true; return; }   // (point blank: Ninth Form)
+  const ultRange = dragonUlt ? adx < 950 : beamUlt ? adx < 900 && Math.abs(dy) < 50 : adx < 140 && Math.abs(dy) < 40;
+  if (f.transformed && f.ult > 0 && ultRange && (f.face === toward || dragonUlt) &&
       (f.ult < 25 || Math.random() < 0.08)) {          // mostly fights transformed, cashes the rest in before it runs out
     ai.tapUlt = true;
     return;
@@ -13338,6 +13584,10 @@ function basePose(p) {
     if (a.phase === 'charge') ps.lean += Math.sin(p.anim * 70) * 0.05;   // shaking with power
     return ps;
   }
+  if (a && a.type === 'flameDragon') {                 // Sevon: blade raised overhead, breathing in... then the cut
+    if (a.phase === 'summon') { const ps = { ...SEVON_MOVES.blazingUniverse.wind }; ps.lean += Math.sin(p.anim * 60) * 0.03; return ps; }
+    return { ...SEVON_MOVES.blazingUniverse.strike };
+  }
   if (a && a.type === 'ultStart') {
     const def = a.def || CHARACTERS[p.char].ult;
     return { ...(a.t < 0.12 ? def.finalWind : def.finalStrike) };
@@ -14365,7 +14615,7 @@ function drawFighter(p) {
     if (a.bones) { drawBonePile(p, a); return; }
   }
   const tired = a && a.level > 0;
-  const intangible = isIntangible(p) && p.invuln <= 0 && !(a && ['clash', 'thrown', 'ultSeq', 'ultVictim', 'ultBeam'].includes(a.type));   // not dodging
+  const intangible = isIntangible(p) && p.invuln <= 0 && !(a && ['clash', 'thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon'].includes(a.type));   // not dodging
   const blink = p.invuln > 0 && Math.floor(p.invuln * 12) % 2 === 0;
   const charging = a && a.type === 'attack' && a.phase === 'charge';
   const chargeFlash = charging && Math.floor(p.anim * 16) % 2 === 0;
@@ -14424,7 +14674,7 @@ function drawFighter(p) {
     // OUTLINE: a dark, slightly fatter silhouette behind the fighter so they always read clearly against
     // the background and each other (the thick-bodied, high-contrast look of an animated stick fight)
     if (!sketch && !pixelMode && !vanished) drawFigure(figureOf(p), { alpha: alpha * 0.95, tint: FIG_OUTLINE_COLOR, outline: FIG_OUTLINE });
-    drawFigure(figureOf(p), { alpha, tint: vanished ? (sketch ? '#8c8c8c' : p.energy) : tint,
+    drawFigure(figureOf(p), { alpha, tint: vanished ? (sketch ? '#8c8c8c' : p.energy) : tint, bladeOf: p,
       eye: charging || (a && a.type === 'attack' && a.mult > 1.3) ? '#fff3a8' : null });
   }
 
@@ -14837,11 +15087,11 @@ function drawProjectiles() {
     for (let k = 0; k < 6; k++) ctx.fillRect(snap(x - cannon.side * k * 3) - (cannon.side < 0 ? 0 : PIX), snap(cannon.y - 15 + k * 3), PIX, snap(30 - k * 6));
   }
   if (!sketch) drawKameCharge();                                // Lance's ultimate: the ki ball growing in his hand
-  for (const s of projectiles) if (s.kind === 'beam') drawBeam(s); else if (s.kind === 'disc') drawDisc(s);
+  for (const s of projectiles) if (s.kind === 'beam') drawBeam(s); else if (s.kind === 'disc') drawDisc(s); else if (s.kind === 'dragon') drawDragon(s);
   if (sketch) {                          // pen-drawn energy balls with a scribbled fill
     ctx.lineCap = 'round';
     for (const s of projectiles) {
-      if (s.kind === 'beam' || s.kind === 'disc') continue;
+      if (s.kind === 'beam' || s.kind === 'disc' || s.kind === 'dragon') continue;
       const ink = s.owner ? inkOf(s.owner) : '#7a4b00';
       ctx.strokeStyle = ink;
       if (s.kind === 'wave') {
@@ -14864,7 +15114,7 @@ function drawProjectiles() {
     return;
   }
   for (const s of projectiles) {
-    if (s.kind === 'beam' || s.kind === 'disc') continue;
+    if (s.kind === 'beam' || s.kind === 'disc' || s.kind === 'dragon') continue;
     if (s.electric) { drawThunderBolt(s); continue; }
     s.trail.forEach((t, i) => {
       const k = i / s.trail.length;
@@ -16917,13 +17167,15 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
       ['I (FULL METER)', 'FLAME HASHIRA', 'A burning aura - faster and stronger.'],
-      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'A flurry of flaming slashes ending in a roaring fire tiger.'] ] },
+      ['I (TRANSFORMED)', 'Flame Breathing: Flame Dragon', 'Fire spirals up round him into a great DRAGON OF FLAME - he cuts forward and it roars off his blade, chasing the nearest enemy anywhere on the stage. Whoever it bites is carried along burning, then it explodes. Shields do not stop it; a well-timed Z vanish does.'],
+      ['DOWN + I (TRANSFORMED)', 'Ninth Form: Rengoku', 'A lunge into a flurry of flaming slashes ending in a roaring fire tiger.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'TOTAL CONCENTRATION (down K): +12% damage, +18% speed, quicker attacks, and flames on every windup and hit - but it strains him: 1.5% damage every second.',
       'He CAN\'T enter Total Concentration at 200% or more.',
       'Out of it, every J hit that lands HEALS him 0.5% - fight your way back under 200% and go in again.',
       'The ODM cable snaps if he gets hit, if it times out (4s), or if they get too far apart.',
-      'FIRE: his hits burst into flames.' ] } ] },
+      'SAMURAI FLOW: once a sword move LANDS, cut its follow-through short with any DIFFERENT move - e.g. J J J > side J > up K. Each move once per chain.',
+      'FIRE: his hits burst into flames, and every swing leaves a crescent of flame behind the blade.' ] } ] },
 };
 const MS_TABS = () => ['BASICS', ...ROSTER.filter(c => c && MOVESETS[c])];
 const ms = { tab: 1, scroll: 0, maxScroll: 0 };
