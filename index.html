@@ -2668,7 +2668,7 @@ function stepDashChoke(f, a, dt, inp) {
 
 // Lance is the speedster: his physical moves come out ~15% quicker than they're written above,
 // but every hit does less damage and knockback than Colby's.
-const LANCE_SPEED = 0.85, LANCE_POWER = 0.82;
+const LANCE_SPEED = 0.85, LANCE_POWER = 0.78;   // (was 0.82: Colbalias stays the top tier)
 // His physical (J) moves reach farther than they're written above (pushed out a bit more again: +16px / +6 radius)
 const LANCE_PHYSICAL = ['jab', 'jab2', 'kick1', 'kick2', 'jab3', 'jab4', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair'];
 const _lanceReach = new Set();
@@ -7830,11 +7830,13 @@ CHARACTERS.COLBY.altUlt = {
   final: { dmg: 14, base: 560, growth: 6.6, angle: 32 },
 };
 // Lance: a full-power Kamehameha fired from wherever he is, straight ahead, across the whole stage
+const KAME_KO = { at: 100, kaioken: 70 };
 CHARACTERS.LANCE.ult = {
   name: 'FINAL KAMEHAMEHA',
   beamUlt: true,             // no grab/flurry - see stepUltBeam
   windTime: 1.15,            // charge-up (Kamehameha charge sound, can't be interrupted) - slow, so it KOs if it lands:
-                             // anyone above 0% when it hits them is finished; at 0% they survive - unless he's in KAIOKEN
+                             // anyone at 100%+ when it hits them is finished (70%+ in KAIOKEN); below that it's just a big hit
+                             // (it used to KO anyone above 0% - with his form ladder giving him meter after meter, that was too much)
   beamTime: 1.0,             // how long the beam lasts
   chargeSfx: 'kame',
 };
@@ -11038,7 +11040,7 @@ function stepUiTransform(f, a, dt) {
   }
   // ...the song ends: the last of it sends them flying. NOW the meter starts draining.
   v.action = null;
-  knock(v, { ...UI.final, ultFinal: true }, -1, powerOf(f), v.x, v.y - 55);
+  knock(v, { ...UI.final }, -1, powerOf(f), v.x, v.y - 55);   // (a strong hit - not ultimate-finisher knockback)
   f.action = { type: 'land', t: 0, dur: 0.2 };
 }
 // the cutscene's beam (drawn in the world, over the fighters) and the ki ball charging in his hand
@@ -11174,10 +11176,10 @@ function updateBeam(s, dt) {
         if (t.x + t.w / 2 < x0 || t.x - t.w / 2 > x1) continue;
         if (t.y < s.y - s.w / 2 || t.y - hurtH(t) > s.y + s.w / 2) continue;   // (crouching can duck a thin beam)
       }
-      // LANCE'S ULT: a guaranteed KO if they had any damage when it caught them (or always, in Kaioken)
+      // LANCE'S ULT: a guaranteed KO if they were already at KAME_KO.at % when it caught them (KAME_KO.kaioken % in Kaioken)
       if (s.final.lanceKO && !(s.startDmg || (s.startDmg = new Map())).has(t)) s.startDmg.set(t, t.damage);
       let h = last ? s.final : s.tick;
-      if (last && s.final.lanceKO && (s.startDmg.get(t) > 0 || o.kaioken)) h = { ...s.final, koAt: 0.001 };
+      if (last && s.final.lanceKO && s.startDmg.get(t) >= (o.kaioken ? KAME_KO.kaioken : KAME_KO.at)) h = { ...s.final, koAt: 0.001 };
       if (applyHit(t, h, s.dir, s.mult, s.vdir ? t.x : t.x - s.dir * 10, s.vdir ? t.y - 50 : s.y)) markKi(o, t, s);   // Lance's ki marks them (once per beam)
     }
   }
@@ -17585,7 +17587,7 @@ const MOVESETS = {
       ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out - and through KOs.'],
       ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'Lightning crackles round his aura: +15% damage, +25% move speed, attacks 25% faster. Also stays on when the meter runs out, and through KOs.'],
       ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
-      ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage.'],
+      ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage. A guaranteed KO on anyone already at 100%+ (70%+ in Kaioken).'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'KI MARKS: every separate ki attack that hits marks them (up to 3 marks, they last 6 seconds).',
