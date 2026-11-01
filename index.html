@@ -11,6 +11,7 @@
 <script src="sounds/teleport-sfx.js"></script>
 <script src="sounds/ui-note-sfx.js"></script>
 <script src="sounds/ui-awaken-sfx.js"></script>
+<script src="sounds/ki-charge-sfx.js"></script>
 <script src="sounds/shield-sfx.js"></script>
 <!-- Kamehameha charge-up sound, used for Lance's Kamehameha and ultimate charge -->
 <script src="sounds/kame-sfx.js"></script>
@@ -1127,7 +1128,7 @@ const LANCE_MOVES = {
   // 3 hits: front -> back -> front, the last one launches
   // Neutral air: AURA BURST - crowd control. His aura blows out all round him: it hits everyone close by on EVERY side
   // (front, back, above, below), STUNS them for a moment and knocks them away from him. Light damage.
-  nair: { name: 'Aura Burst', startup: 0.08, active: 0.1, endlag: 0.2, landLag: 0.1, hitstunBonus: 0.25,
+  nair: { name: 'Aura Burst', startup: 0.08, active: 0.1, endlag: 0.2, landLag: 0.1, hitstunBonus: 0.25, auraBurst: true,
     // (radial: one big sphere round him - each one it catches is blasted straight AWAY from him, whichever side they're on)
     radial: true,
     hitboxes: [{ x: 0, y: -56, r: 84, dmg: 5, base: 470, growth: 2.6, angle: 45 }],
@@ -1135,7 +1136,8 @@ const LANCE_MOVES = {
     strike: pose({ armA: [-1.9, 0.15], lean: -0.25, legA: [0.5, 0.2], legB: [-0.5, 0.2] }),   // ...and blows it out, limbs flung wide
     fire(f) {
       ring(f.x, f.y - 56); ring(f.x, f.y - 56);
-      burst(f.x, f.y - 56, [kiColor(f), '#ffffff'], 44, 0, Math.PI, 760, { grav: 0 });
+      for (let k = 0; k < 3; k++) auraWaves.push({ x: f.x, y: f.y - 56, t: -k * 0.06, dur: 0.4, max: 150 + k * 40, color: kiColorNow(f) });   // the DBZ aura blowing out
+      burst(f.x, f.y - 56, [kiColorNow(f), '#ffffff'], 44, 0, Math.PI, 760, { grav: 0 });
       for (let k = 0; k < 5; k++) bolt(f.x, f.y - 56, Math.random() * Math.PI * 2, 90, 0.12, kiColor(f));
       shake = Math.max(shake, 8); sfx.blast();
     } },
@@ -1244,10 +1246,18 @@ const LANCE_MOVES = {
     } },
   // Down (on the ground): KAIOKEN - see KAIOKEN below. Toggles it on/off.
   // (instant now, and works in the air too - so down K in the air is Kaioken, not Ki Burst)
+  // TAP it = Kaioken (switches the moment you let go). HOLD it on the ground = KI CHARGE (see KI_CHARGE).
   downRanged: { name: 'Kaioken', startup: 0.02, active: 0.03, endlag: 0.06,
     wind: pose({ bob: -14, lean: 0.3, armA: [-0.8, -2.1], legA: [0.95, 1.1], legB: [-0.9, 0.3] }),     // crouched, straining
     strike: pose({ bob: -6, lean: -0.25, armA: [-0.6, -2.0], legA: [1.0, 0.8], legB: [-1.0, 0.2] }),    // roars, power bursts out
-    fire(f) { toggleKaioken(f); } },
+    step(f, a, dt, inp) {
+      a.held = (a.held || 0) + dt;
+      const holding = inp && inp.spcHeld;
+      if (holding && a.held < KI_CHARGE.holdFor) { a.phase = 'startup'; a.t = 0; return true; }   // (waiting to see: tap or hold?)
+      if (holding && f.ground && !f.transformed && !f.minion) { startKiCharge(f); return true; }  // HELD: the ki charge
+      if (!a.toggled) { a.toggled = true; toggleKaioken(f); a.phase = 'end'; a.t = 0; }          // TAPPED: Kaioken
+      return false;
+    } },
   // (retired: down K in the air is Kaioken now)
   kiBurst: { name: 'Ki Burst', startup: 0.18, active: 0.1, endlag: 0.3, charge: true, landLag: 0.14,
     hitboxes: [{ x: 0, y: -45, r: 80, dmg: 9, base: 380, growth: 5, angle: 70 }],
@@ -1259,6 +1269,49 @@ const LANCE_MOVES = {
       sfx.beam(0.3);
     } },
 };
+
+// ---------------- KI CHARGE (Lance: HOLD down K on the ground) ----------------
+// The DBZ power-up: he plants his feet and SCREAMS, his aura swelling out round him bit by bit, and it slowly fills his
+// ultimate meter (a decent rate, not a fast one) so he can transform. Only while his meter isn't in use (not transformed).
+// He's WIDE OPEN while he does it: any hit knocks him out of it. The only ways out are letting go, or BLOCK / Z VANISH.
+const KI_CHARGE = { rate: 12, holdFor: 0.22, loopFrom: 2.0, vol: 0.8 };   // rate = meter per second (full in ~8s)
+let kiChargeBuf = null;
+function startKiCharge(f) {
+  f.action = { type: 'kiCharge', t: 0 };
+  f.vx = 0;
+  ring(f.x, f.y - 45); burst(f.x, f.y - 45, [kiColorNow(f), '#ffffff'], 18, 0, Math.PI, 500, { grav: 0 });
+  shake = Math.max(shake, 4);
+  stopKiChargeSound(f);
+  if (soundOn && actx && kiChargeBuf) {                       // the power-up: plays through, then loops its back half
+    const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
+    src.buffer = kiChargeBuf; src.loop = true; src.loopStart = KI_CHARGE.loopFrom; src.loopEnd = kiChargeBuf.duration;
+    g.gain.value = KI_CHARGE.vol; src.connect(g).connect(audioOut()); src.start(t);
+    f.kiSnd = { s: src, g };
+  }
+}
+function stopKiChargeSound(f) { if (f.kiSnd) { stopBuffer(f.kiSnd, 0.25); f.kiSnd = null; } }
+const kiColorNow = f => f.lanceForm ? '#ffe066' : kiColor(f);     // (gold once he's Super Saiyan)
+function stepKiCharge(f, a, inp, dt) {
+  f.vx = approach(f.vx, 0, FRICTION * dt);
+  f.atkBuf = f.spcBuf = f.jumpBuf = f.grabBuf = f.ultBuf = 0;   // (nothing else gets him out - no attacks / jumps saved up for after)
+  // BLOCK or Z VANISH: out of it straight into the shield / dodge (the only ways out, other than letting go)
+  if (inp.blockTap || inp.blockHeld || f.dodgeBuf > 0) { f.action = null; freeControl(f, inp, dt); return; }
+  if (!inp.spcHeld || !f.ground || f.transformed) { f.action = null; return; }
+  if (!f.transformed) f.ult = Math.min(ULT_MAX, (f.ult || 0) + KI_CHARGE.rate * dt);
+  const k = Math.min(1, a.t / 2.5);
+  shake = Math.max(shake, 1 + 2 * k);
+  if (Math.random() < dt * (10 + 20 * k)) dust(f.x + (Math.random() - 0.5) * 70, f.y, 1, 1.2);
+  a.waveT = (a.waveT || 0) - dt;
+  if (a.waveT <= 0) { a.waveT = 0.7 - 0.35 * k; auraWaves.push({ x: f.x, y: f.y - 50, t: 0, dur: 0.6, max: 110 + 70 * k, color: kiColorNow(f) }); }
+}
+// (drawing) the aura swelling out round him + ki rising off him
+function drawKiCharge(p) {
+  const a = p.action, k = Math.min(1, a.t / 2.5), col = kiColorNow(p);
+  drawAura(p, col, true, 1.2 + 0.7 * k + Math.sin(performance.now() / 60) * 0.04, 0.75 + 0.25 * k);
+  if (realRandom() < 0.7) particles.push({ x: p.x + (realRandom() - 0.5) * (60 + 60 * k), y: p.y - realRandom() * 30, vx: 0, vy: -300 - 300 * k,
+                                            life: 0.35, max: 0.35, size: 2, color: realRandom() < 0.4 ? '#ffffff' : col, type: 'bit', grav: 0 });
+  if (realRandom() < 0.1 + 0.2 * k) bolt(p.x + (realRandom() - 0.5) * 50, p.y - 20 - realRandom() * 80, realRandom() * Math.PI * 2, 20 + realRandom() * 30, 0.05, '#ffffff');
+}
 
 // ---------------- KAIOKEN (Lance, down-K on the ground) ----------------
 // A power-up he switches on and off. Stacks with his Super Saiyan transformation.
@@ -8799,7 +8852,8 @@ function loadNeteroSfx() {
   if (!neteroHitsBuf) dec(window.NETERO_HITS_B64, b => { neteroHitsBuf = b; });
   if (!clonePoofBuf) dec(window.CLONE_POOF_B64, b => { clonePoofBuf = b; });
   if (!uiNoteBuf) dec(window.UI_NOTE_B64, b => { uiNoteBuf = b; });
-  if (!uiAwakenBuf) dec(window.UI_AWAKEN_B64, b => { uiAwakenBuf = b; });   // Lance's Ultra Instinct theme ("are you finished?")   // Lance's Ultra Instinct auto-dodge note
+  if (!uiAwakenBuf) dec(window.UI_AWAKEN_B64, b => { uiAwakenBuf = b; });
+  if (!kiChargeBuf) dec(window.KI_CHARGE_B64, b => { kiChargeBuf = b; });   // Lance's ki charge (DBZ power-up)   // Lance's Ultra Instinct theme ("are you finished?")   // Lance's Ultra Instinct auto-dodge note
 }
 // ---- Naruto shadow clone jutsu "poof" (sounds/clone-poof.wav, 2.28-3.6s of your clip) - Colbalias's clone summon ----
 let clonePoofBuf = null, lastPoof = null;
@@ -11747,6 +11801,7 @@ function stepAction(f, inp, dt) {
   if (a.type === 'timeStop') return stepTimeStop(f, a, dt);
   if (a.type === 'ultBeam') return stepUltBeam(f, a, dt);
   if (a.type === 'flameDragon') return stepFlameDragon(f, a, dt);
+  if (a.type === 'kiCharge') return stepKiCharge(f, a, inp, dt);   // Lance: holding down K - the ki charge
   if (a.type === 'uiTransform') return stepUiTransform(f, a, dt);   // Lance: Ultra Instinct awakening + teleport combo   // Sevon: summoning / releasing the Flame Dragon
   if (a.type === 'shipUlt') return stepShipUlt(f, a, dt);
   if (a.type === 'kiBarrage') return stepKiBarrage(f, a, dt);    // Lance: It's My Turn's ki barrage
@@ -12249,6 +12304,7 @@ function updateFighter(f, inp, dt) {
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
   f.opening = Math.max(0, (f.opening || 0) - dt);               // the window to punish after a perfect block
   syncKame(f);
+  if (f.kiSnd && !(f.action && f.action.type === 'kiCharge')) stopKiChargeSound(f);
   const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam', 'flameDragon', 'uiTransform'].includes(f.action.type);
   if (f.transformed) {                                            // transformed: the meter slowly drains
     if (f.look && f.look.doubleUlt) {                            // Colbalias: only the bar he transformed on drains (same ~14s as anyone's)
@@ -12927,6 +12983,11 @@ function aiDecide(f, o, ai, L) {
   if (f.look && f.look.hype && f.ground && (f.hype || 0) < 60 && adx > 420 && !(oa && oa.type === 'attack') && Math.random() < 0.04) {
     ai.tapTaunt = 1 + Math.floor(Math.random() * 3); return;
   }
+  // LANCE: safely far away and his meter isn't full = hold down K for the KI CHARGE (it lets go when the hold runs out,
+  // and the shield reflex still pops him out of it if something's coming)
+  if (CHARACTERS[f.char].uiTransform && f.ground && !f.transformed && (f.ult || 0) < ULT_MAX && adx > 480 && !(oa && oa.type === 'attack') && Math.random() < 0.18) {
+    ai.down = true; ai.dir = 0; ai.tapSpc = true; ai.holdBtn = 'spc'; ai.hold = 1.2 + Math.random() * 2.3; return;
+  }
   // COLBALIAS (two bars): transforms as soon as a bar's full; transformed, his ults lock on by themselves, so any range will do
   if (f.look && f.look.doubleUlt) {
     const left = (f.ult || 0) - (f.tfFloor || 0);
@@ -12934,7 +12995,7 @@ function aiDecide(f, o, ai, L) {
     if (f.transformed && left > 0 && adx < 700 && (left < 12 || Math.random() < 0.05)) { if (Math.random() < 0.5) ai.down = true; ai.tapUlt = true; return; }
   }
   // TRANSFORM as soon as the meter is full
-  else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { if (CHARACTERS[f.char].uiTransform && Math.random() < 0.45) ai.down = true; ai.tapUlt = true; return; }
+  else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { ai.tapUlt = true; return; }
   // COLBY: his second ultimate (God Speed: Lightning Blade) locks on by itself - so from any range, now and then
   const alt = CHARACTERS[f.char].altUlt;
   if (alt && alt.godChidori && f.transformed && f.ult > 0 && adx < 1000 && (f.ult < 20 || Math.random() < 0.04) && Math.random() < 0.5) {
@@ -14045,6 +14106,10 @@ function basePose(p) {
     if (a.phase === 'charge') ps.lean += Math.sin(p.anim * 70) * 0.05;   // shaking with power
     return ps;
   }
+  if (a && a.type === 'kiCharge') {                   // Lance: the DBZ power-up scream - head back, fist clenched at his side, legs planted wide
+    const sh = Math.sin(p.anim * 70) * 0.04;
+    return { ...pose({ lean: -0.32 + sh, bob: -14, legA: [0.8, 0.55], legB: [-0.8, 0.45], armA: [0.45 + sh, -1.5] }) };
+  }
   if (a && a.type === 'uiTransform') {                 // Lance: arms out, rising in the aura... then the teleport strikes
     if (a.pose) return { ...a.pose };
     return { ...pose({ bob: -6, lean: -0.05, legA: [0.55, 0.3], legB: [-0.5, 0.2], armA: [0.3, -0.2] }) };   // standing over them
@@ -15108,6 +15173,11 @@ function drawFighter(p) {
   } else {
   if (p.transformed || p.lanceForm) drawAura(p, auraColor(p), true);   // (Lance's forms stay on with an empty meter)
   if (p.lanceForm === 2) drawSsj2Arcs(p);                           // SUPER SAIYAN 2: lightning round the aura
+  if (a && a.type === 'kiCharge' && !sketch) drawKiCharge(p);       // Lance's ki charge
+  if (a && a.type === 'attack' && a.move.auraBurst && a.phase !== 'end' && !sketch) {   // Lance's AURA BURST: the aura blows out round him
+    const k = a.phase === 'startup' ? 0.3 : 0.3 + 0.7 * clamp(a.t / a.move.active, 0, 1);
+    drawAura(p, kiColorNow(p), true, 1.3 + 1.6 * k, 1.0 - 0.3 * k);
+  }
   if (p.transformed && p.ui) drawUiWisps(p);                       // TRANSFORMED: big, constant aura (everyone)
   if (godSpeed(p) && !sketch) drawGodSpeedArcs(p);                          // Colby's GOD SPEED: electricity crackling all over him
   else if (powered) drawAura(p);
@@ -17500,7 +17570,7 @@ const MOVESETS = {
       ['DOWN J', 'Headspin', 'Flips onto his head and breakdance-spins, legs whirling - hits both sides over and over, the last spin launches. Hold left / right to creep along while spinning.'],
       ['RUN + J', 'Cartwheel Kick', 'Cartwheels in with his legs split wide: two hits, the second sends them flying.'] ] },
     { title: 'AIR J', rows: [
-      ['AIR J', 'Aura Burst', 'Crowd control: his aura blasts out all round him - hits everyone close on every side, stuns them for a moment and knocks each of them straight away from him.'],
+      ['AIR J', 'Aura Burst', 'Crowd control: his aura BLOWS OUT all round him like in DBZ - hits everyone close on every side, stuns them for a moment and knocks each of them straight away from him.'],
       ['AIR SIDE J', 'Scissor Kick', 'A lunging flying scissor kick - he turns to face whichever side you hold. One leg scissors up, the other snaps down and sends them.'],
       ['AIR UP J', 'Upward Palm', 'A palm thrust straight up.'],
       ['AIR DOWN J', 'Spinning Axe Kick', 'A spinning heel brought down on them.'] ] },
@@ -17508,7 +17578,8 @@ const MOVESETS = {
       ['K (HOLD)', 'Kamehameha', 'Hold to charge, let go to fire a beam that hits over and over. AIM IT while charging: the last direction you press decides where it fires - left / right / UP on the ground, and DOWN too in the air (up launches, down spikes). Z VANISH while charging = blink (up to 3 times, still charging). With someone MARKED = Instant Transmission behind them and fire at once.'],
       ['SIDE K', 'Destructo Disc', 'A spinning disc of ki that flies out and comes back like a boomerang - it cuts on the way out AND back (and can nick him).'],
       ['UP K', 'Rising Axe Kick', 'His recovery: flips upward driving his heel up - carries them up with him, then pops them higher to keep the combo going.'],
-      ['DOWN K', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (0.8% / 1.3% / 2.2% damage every second).'] ] },
+      ['DOWN K (TAP)', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (0.8% / 1.3% / 2.2% damage every second).'],
+      ['DOWN K (HOLD, GROUND)', 'Ki Charge', 'The DBZ power-up scream: his aura swells out round him and slowly fills his ultimate meter (full in about 8 seconds) so he can transform. He is wide open - any hit knocks him out of it, and only letting go, BLOCK or Z VANISH gets him out. Not while his meter is in use.'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out.'],
