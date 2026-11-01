@@ -8688,7 +8688,7 @@ function updateBattleMusic(dt) {
   }
   // turned down under an ultimate's own music / voice lines, and while the game's paused
   const ultMusic = ult || fighters.some(f => (f.action && f.action.type === 'shipUlt') || f.uiSong);   // (+ Lance's Ultra Instinct theme)
-  const duck = ultMusic ? 0.2 : paused ? 0.45 : 1;
+  const duck = fighters.some(f => f.uiSong) ? 0 : ultMusic ? 0.2 : paused ? 0.45 : 1;   // (Lance's UI theme: the battle music goes silent)
   el.volume = clamp(BATTLE_MUSIC.vol * battleMusic.level * duck * settings.master * settings.music * 1.6, 0, 1);
   if (el.paused && want) el.play().catch(() => {});
 }
@@ -10628,98 +10628,144 @@ function endTransform(f) {
 }
 
 // ---------------- ULTRA INSTINCT (Lance: DOWN + I on a full meter, instead of Super Saiyan) ----------------
-// 1. THE AWAKENING: he floats up as a storm of silver aura erupts round him, his hair turns WHITE.
-// 2. A FREE TELEPORT COMBO: he blinks round the nearest enemy (anywhere on the stage) and hits them from every side,
-//    then a last strike sends them flying. It can't be blocked or dodged - it's the transformation's payoff.
-// 3. Then he's in ULTRA INSTINCT like any transformation (the meter drains, I = his ultimates) - but NO stat bonus.
-//    What it gives: +1 Z vanish dot, and AUTO DODGE - when something would hit him, his body moves on its own: it
-//    spends a Z vanish dot and he blinks out of the way. Out of dots, he can be hit like anyone.
+// A cutscene that runs the WHOLE length of the theme ("Goku, are you finished?" - 44.5s), timed to the audio:
+//  0s -> 11.9s  THE BEATING: he grabs the nearest enemy with a teleport combo, still in his base form.
+//  11.9 -> 14s  "...ARE YOU FINISHED?": he stops, standing over them, his aura flickering.
+//  14s          THE SCREAM: he TRANSFORMS - white hair, the silver aura explodes.
+//  14s -> end   ULTRA INSTINCT: a blinding teleport combo from every side for the rest of the song...
+//  end          ...one last palm sends them flying. THEN he's in Ultra Instinct like any transformation (the meter
+//               starts draining) - no stat bonus, but +1 Z vanish dot and AUTO DODGE: when something would hit him his
+//               body moves on its own, spending a Z vanish dot. Out of dots, he can be hit like anyone.
+// The meter doesn't drain during any of it, and nobody else can touch him or them.
 const UI = { color: '#d8e2ff', glow: '#9fb6ff', hair: '#f4f6ff',
-  awaken: 1.7,                  // the aura erupting (seconds)
-  blinks: 8, blinkEvery: 0.11,  // the teleport combo
-  hit: { dmg: 2, base: 0, growth: 0, angle: 90, noStop: true },
+  lineAt: 11.9, screamAt: 14.0, songEnd: 44.3,            // (seconds into the clip)
+  vol: 2.6,                                                // the clip is played LOUD (through a limiter)
+  pre: { every: 0.5, dmg: 0.35 },                           // the base-form beating
+  ui:  { every: 0.13, dmg: 0.08, bigEvery: 3.0 },           // the Ultra Instinct flurry
   final: { dmg: 8, base: 520, growth: 5, angle: 40 },
   dodgeInvuln: 0.32, dodgeDist: 95 };
 const UI_STATS = { power: 1, speed: 1 };
 CHARACTERS.LANCE.uiTransform = true;
 let uiNoteBuf = null, uiAwakenBuf = null;
-// THE ULTRA INSTINCT THEME: the whole clip plays from the moment he transforms - over the awakening and the combo, and on
-// as his theme while he stays in it. It fades out when he drops out of the form (meter runs out / KO / match ends).
-function startUiSong(f) {
+// THE THEME: played loud, through a limiter so the scream doesn't crackle. Stops if he's KO'd / the match ends.
+function startUiSong(f, from = 0) {
   stopUiSong(f, 0.1);
-  const h = playBuffer(uiAwakenBuf, 0.9);
-  if (h) { f.uiSong = h; h.s.onended = () => { if (f.uiSong === h) f.uiSong = null; }; }
+  if (!soundOn || !actx || !uiAwakenBuf) return;
+  const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain(), lim = actx.createDynamicsCompressor();
+  lim.threshold.value = -8; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = 0.003; lim.release.value = 0.2;
+  src.buffer = uiAwakenBuf; g.gain.value = UI.vol; g.gain.setValueAtTime(UI.vol, t);
+  src.connect(g).connect(lim).connect(audioOut()); src.start(t, from);
+  const h = { s: src, g };
+  f.uiSong = h; src.onended = () => { if (f.uiSong === h) f.uiSong = null; };
 }
 function stopUiSong(f, fade = 1.0) { if (f && f.uiSong) { stopBuffer(f.uiSong, fade); f.uiSong = null; } }
+// game time runs faster than real time (GAME_SPEED / turbo / slow-mo) - the cutscene follows REAL seconds, like the song
+const uiRealRate = () => GAME_SPEED * timeScale * ((netActive() ? netTurbo : turbo) ? TURBO_SPEED : 1) * (slowmo > 0 ? SLOWMO_HIT_SCALE : 1);
 function startUltraInstinct(f) {
-  f.transformed = true; f.ui = true; f.ultBuf = 0;
-  f.baseStats = f.stats; f.stats = { ...f.stats };          // (no speed bonus)
-  f.action = { type: 'uiTransform', t: 0, phase: 'awaken', y0: f.y };
+  f.ultBuf = 0;
+  // the one he beats on: the nearest REAL fighter (not a clone)
+  let v = null, bd = Infinity;
+  for (const o of fighters) {
+    if (o === f || o.minion || allies(f, o) || o.respawnTimer > 0 || o.dead || o.out) continue;
+    const d = Math.hypot(o.x - f.x, o.y - f.y); if (d < bd) { bd = d; v = o; }
+  }
+  f.action = { type: 'uiTransform', t: 0, songT: 0, phase: 'pre', n: 0, blinkT: 0.25, bigT: 0 };
   f.vx = 0; f.vy = 0;
-  ultBanner = { t: 1.4, title: 'TRANSFORM', name: 'ULTRA INSTINCT', color: UI.color, who: f };
-  startUiSong(f);
-  hitstop = Math.max(hitstop, 0.2);
-  impactFrame = 0.1; impactAt = { x: f.x, y: f.y - 50, ang: 0, all: true, focus: true, invert: true };
-  shake = Math.max(shake, 14);
-  sfx.parry(); sfx.beam(0.8);
+  const a = f.action;
+  if (v) {
+    a.victim = v;
+    a.vx0 = clamp(v.x, STAGE.x + 60, STAGE.x + STAGE.w - 60);
+    a.vy0 = Math.min(v.y, STAGE.y) - 40;
+    v.shielding = false; v.action = { type: 'ultVictim', t: 0 };
+  } else a.songT = UI.screamAt - 0.6;                     // (nobody to beat on: straight to the scream)
+  startUiSong(f, a.songT);
+  ultBanner = { t: 1.2, title: 'POWER UP', name: 'LIMIT BREAKER', color: kiColor(f), who: f };
+  shake = Math.max(shake, 10);   // (no hitstop: the cutscene runs in step with the song)
+  sfx.parry();
+}
+function uiScream(f) {                                     // THE SCREAM: he transforms
+  f.transformed = true; f.ui = true;
+  f.baseStats = f.stats; f.stats = { ...f.stats };          // (no speed bonus)
+  ultBanner = { t: 2.0, title: 'TRANSFORM', name: 'ULTRA INSTINCT', color: UI.color, who: f };
+  burst(f.x, f.y - 55, ['#ffffff', UI.color, UI.glow], 90, 0, Math.PI, 1100, { grav: 0 });
+  ring(f.x, f.y - 55); ring(f.x, f.y - 20); ring(f.x, f.y - 90);
+  for (let k = 0; k < 10; k++) bolt(f.x, f.y - 55, Math.random() * Math.PI * 2, 120 + Math.random() * 80, 0.16, k % 2 ? '#ffffff' : UI.glow);
+  for (let k = 0; k < 3; k++) auraWaves.push({ x: f.x, y: f.y - 55, t: -k * 0.12, dur: 0.7, max: 260 + k * 60, color: UI.glow });
+  impactFrame = Math.max(impactFrame, 0.16); impactAt = { x: f.x, y: f.y - 55, ang: 0, all: true, focus: true, invert: true };
+  shake = Math.max(shake, 26); camPunch = 1; sfx.huge(); sfx.clash(true);
+}
+// one blink-strike of the combo
+function uiStrike(f, a, v, dmgPct, big) {
+  ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: f.ui ? UI.color : kiColor(f) });   // after-image where he was
+  const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 30;
+  f.x = v.x + Math.cos(ang) * r; f.y = Math.min(v.y + Math.sin(ang) * r * 0.8, v.y + 30);
+  if (f.y > STAGE.y && f.x > STAGE.x && f.x < STAGE.x + STAGE.w) f.y = STAGE.y;
+  f.face = Math.sign(v.x - f.x) || f.face;
+  const P = [LANCE_MOVES.jab.strike, LANCE_MOVES.kick2.strike, LANCE_MOVES.jab2.strike, LANCE_MOVES.kick1.strike, LANCE_MOVES.jab3.strike, LANCE_MOVES.uair.strike, LANCE_MOVES.highKick.strike];
+  a.pose = big ? LANCE_MOVES.jab4.strike : P[a.n % P.length];
+  const dmg = dmgPct * powerOf(f);
+  v.damage += dmg; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + dmg * ULT_GAIN);
+  v.hitFlash = 0.08; v.face = -f.face;
+  if (v.action) v.action.pose = pose({ lean: -0.4 - Math.random() * 0.3, bob: -4, legA: [0.6, 0.6], legB: [-0.3, 0.9], armA: [-2.2 + Math.random(), 0.4], armB: [2.4 - Math.random(), -0.4] });
+  const col = f.ui ? UI.glow : kiColor(f);
+  hitBits(v, (v.x + f.x) / 2, v.y - 55, f.face, 0, big ? 900 : 500, big ? 6 : 2);
+  burst(v.x, v.y - 55, ['#ffffff', col], big ? 24 : 6, 0, Math.PI, big ? 700 : 400, { grav: 0 });
+  if (big) { ring(v.x, v.y - 55); shake = Math.max(shake, 14); sfx.hit(1); sfx.clash(false); }
+  else { shake = Math.max(shake, 4); sfx.hit(0.25); if (a.n % 4 === 0 && sfx.vanish) sfx.vanish(0.3); }
+  a.n++;
 }
 function stepUiTransform(f, a, dt) {
   f.vx = 0; f.vy = 0;
-  if (a.phase === 'awaken') {
-    // rises a little off the ground as the aura storms round him
-    f.y = a.y0 - 40 * easeOut(Math.min(1, a.t / 0.6)); f.ground = false;
-    const k = a.t / UI.awaken;
-    shake = Math.max(shake, 3 + 9 * k);
-    if (Math.random() < dt * 70) {                            // silver wisps rushing IN to him
-      const ang = Math.random() * Math.PI * 2, d = 140 + Math.random() * 80;
-      particles.push({ x: f.x + Math.cos(ang) * d, y: f.y - 55 + Math.sin(ang) * d, vx: -Math.cos(ang) * d * 4, vy: -Math.sin(ang) * d * 4,
-                       life: 0.25, max: 0.25, size: 2.5, color: Math.random() < 0.5 ? '#ffffff' : UI.glow, type: 'bit', grav: 0 });
-    }
-    a.ringT = (a.ringT || 0) - dt;
-    if (a.ringT <= 0) { a.ringT = 0.28; ring(f.x, f.y - 55); auraWaves.push({ x: f.x, y: f.y - 55, t: 0, dur: 0.5, max: 150 + 60 * k, color: UI.glow }); }
-    if (Math.random() < dt * 8) bolt(f.x, f.y - 55, Math.random() * Math.PI * 2, 90 + Math.random() * 60, 0.1, '#ffffff');
-    if (a.t >= UI.awaken) {                                   // AWAKENED: the burst, then straight into the combo
-      burst(f.x, f.y - 55, ['#ffffff', UI.color, UI.glow], 70, 0, Math.PI, 1000, { grav: 0 });
-      ring(f.x, f.y - 55); ring(f.x, f.y - 20);
-      impactFrame = Math.max(impactFrame, 0.1); impactAt = { x: f.x, y: f.y - 55, ang: 0, all: true, focus: true };
-      shake = Math.max(shake, 18); sfx.clash(true);
-      const v = nearestFoe(f);
-      if (v && v.respawnTimer <= 0 && !v.dead && v.halo <= 0) {
-        a.phase = 'combo'; a.t = 0; a.n = 0; a.blinkT = 0.15; a.victim = v;
-        a.vx0 = v.x; a.vy0 = Math.min(v.y, STAGE.y) - (v.ground ? 30 : 0);
-        v.shielding = false; v.action = { type: 'ultVictim', t: 0 };
-      } else { f.action = null; }
-    }
-    return;
-  }
-  if (a.phase === 'combo') {
-    const v = a.victim;
-    if (!v || v.respawnTimer > 0) { f.action = null; return; }
-    v.x = a.vx0; v.y = a.vy0; v.vx = v.vy = 0; v.ground = false;   // held in place
+  const rdt = dt / uiRealRate();                             // (real seconds this frame)
+  a.songT += rdt;
+  const T = a.songT;
+  // the one he's beating on got knocked out some other way: skip to the end
+  if (a.victim && (a.victim.respawnTimer > 0 || a.victim.dead)) { a.victim = null; a.songT = Math.max(a.songT, UI.songEnd); }
+  const v = a.victim;
+  if (v) {                                                   // held in mid-air, helpless
+    v.x = a.vx0; v.y = a.vy0; v.vx = v.vy = 0; v.ground = false;
     if (!v.action || v.action.type !== 'ultVictim') v.action = { type: 'ultVictim', t: 0 };
-    a.blinkT -= dt;
-    if (a.blinkT <= 0 && a.n < UI.blinks) {
-      a.blinkT = UI.blinkEvery; a.n++;
-      ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: UI.color });   // after-image where he was
-      const spots = [[-70, 0], [70, -20], [-55, -70], [60, 30], [0, -110], [-80, 20], [75, -60], [-30, 40]];
-      const [dx, dy] = spots[(a.n - 1) % spots.length];
-      f.x = v.x + dx; f.y = v.y + dy; f.face = Math.sign(v.x - f.x) || f.face;
-      a.pose = (a.n % 2 ? LANCE_MOVES.jab.strike : LANCE_MOVES.kick2.strike);
-      const dmg = UI.hit.dmg * powerOf(f);
-      v.damage += dmg; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + dmg * ULT_GAIN);
-      v.hitFlash = 0.08;
-      hitBits(v, v.x - f.face * 10, v.y - 55, f.face, 0, 500, dmg);
-      burst(v.x, v.y - 55, ['#ffffff', UI.glow], 8, 0, Math.PI, 420, { grav: 0 });
-      shake = Math.max(shake, 6); sfx.hit(0.4); if (sfx.vanish) sfx.vanish(0.4);
-    }
-    if (a.n >= UI.blinks && a.blinkT <= 0) {                  // THE LAST ONE: from right in front, a palm that sends them flying
-      f.x = v.x - f.face * 50; f.y = v.y;
-      a.pose = LANCE_MOVES.jab4.strike;
+  }
+  if (!f.ui && a.songT >= UI.screamAt) uiScream(f);          // THE SCREAM
+  if (a.songT >= UI.songEnd || !v) {                         // 4) THE LAST ONE: from right in front, a palm that sends them flying
+    if (v) {
+      f.x = v.x - f.face * 50; f.y = v.y; a.pose = LANCE_MOVES.jab4.strike;
       v.action = null;
       knock(v, UI.final, f.face, powerOf(f), v.x, v.y - 55);
-      burst(v.x, v.y - 55, ['#ffffff', UI.color, UI.glow], 40, 0, Math.PI, 800, { grav: 0 }); ring(v.x, v.y - 55);
-      f.action = { type: 'land', t: 0, dur: 0.15 };
+      burst(v.x, v.y - 55, ['#ffffff', UI.color, UI.glow], 50, 0, Math.PI, 900, { grav: 0 }); ring(v.x, v.y - 55);
     }
+    if (!f.ui) uiScream(f);
+    f.action = { type: 'land', t: 0, dur: 0.15 };           // ...and NOW the meter starts to drain
+    return;
+  }
+  if (T < UI.lineAt) {                                       // 1) THE BEATING (base form)
+    a.blinkT -= rdt;
+    if (a.blinkT <= 0) { a.blinkT += UI.pre.every; uiStrike(f, a, v, UI.pre.dmg, a.n % 6 === 5); }
+    if (Math.random() < dt * 20) burst(f.x, f.y - 50, [kiColor(f), '#ffffff'], 1, Math.PI / 2, 1.2, 200, { grav: -200 });
+  } else if (T < UI.screamAt) {                              // 2) "ARE YOU FINISHED?" - standing over them, aura flickering
+    if (!a.standing) {
+      a.standing = true; ghosts.push({ fig: figureOf(f), life: 0.3, max: 0.3, color: kiColor(f) });
+      f.face = Math.sign(v.x - f.x) || f.face; f.x = v.x - f.face * 110; f.y = Math.min(v.y + 40, STAGE.y);
+      a.pose = null;
+      if (v.action) v.action.pose = pose({ lean: -0.5, bob: -10, legA: [0.3, 1.1], legB: [-0.2, 1.3], armA: [-0.4, 0.5], armB: [0.3, -0.5] });   // slumped
+    }
+    const k = (T - UI.lineAt) / (UI.screamAt - UI.lineAt);
+    shake = Math.max(shake, 1 + 5 * k);
+    if (Math.random() < dt * (20 + 80 * k)) {                // silver light starting to leak out of him
+      const an = Math.random() * Math.PI * 2, d = 120 + Math.random() * 60;
+      particles.push({ x: f.x + Math.cos(an) * d, y: f.y - 55 + Math.sin(an) * d, vx: -Math.cos(an) * d * 4, vy: -Math.sin(an) * d * 4,
+                       life: 0.25, max: 0.25, size: 2.5, color: Math.random() < 0.5 ? '#ffffff' : UI.glow, type: 'bit', grav: 0 });
+    }
+    if (Math.random() < dt * 6 * k) bolt(f.x, f.y - 55, Math.random() * Math.PI * 2, 60 + Math.random() * 60, 0.08, '#ffffff');
+  } else {                                                   // 3) ULTRA INSTINCT: the flurry, for the rest of the song
+    a.blinkT -= rdt; a.bigT -= rdt;
+    if (a.blinkT <= 0) {
+      a.blinkT = Math.max(a.blinkT + UI.ui.every, 0);
+      const big = a.bigT <= 0; if (big) a.bigT = UI.ui.bigEvery;
+      uiStrike(f, a, v, UI.ui.dmg * (big ? 6 : 1), big);
+    }
+    a.waveT = (a.waveT || 0) - dt;
+    if (a.waveT <= 0) { a.waveT = 0.6; auraWaves.push({ x: v.x, y: v.y - 55, t: 0, dur: 0.5, max: 170, color: UI.glow }); }
   }
 }
 // AUTO DODGE: called when a hit is about to land on him. Returns true if his body dodged it on its own.
@@ -13745,8 +13791,8 @@ function basePose(p) {
     return ps;
   }
   if (a && a.type === 'uiTransform') {                 // Lance: arms out, rising in the aura... then the teleport strikes
-    if (a.phase === 'awaken') return { ...pose({ bob: -4, lean: -0.1, legA: [0.35, 0.5], legB: [-0.3, 0.6], armA: [0.7, -0.3] }) };
-    return { ...(a.pose || LANCE_MOVES.jab.strike) };
+    if (a.pose) return { ...a.pose };
+    return { ...pose({ bob: -6, lean: -0.05, legA: [0.55, 0.3], legB: [-0.5, 0.2], armA: [0.3, -0.2] }) };   // standing over them
   }
   if (a && a.type === 'flameDragon') {                 // Sevon: blade raised overhead, breathing in... then the cut
     if (a.phase === 'summon') { const ps = { ...SEVON_MOVES.blazingUniverse.wind }; ps.lean += Math.sin(p.anim * 60) * 0.03; return ps; }
@@ -13757,6 +13803,7 @@ function basePose(p) {
     return { ...(a.t < 0.12 ? def.finalWind : def.finalStrike) };
   }
   if (a && a.type === 'ultSeq' && ult) return { ...ult.userPose, raw: true };
+  if (a && a.type === 'ultVictim' && a.pose) return { ...a.pose };                                   // (held in Lance's Ultra Instinct combo)
   if (a && a.type === 'ultVictim' && ult && ult.victimPose) return { ...ult.victimPose, raw: true };   // (wrestling ultimate)
   if (a && a.type === 'whipped') {                    // flung across into the ropes, limp
     const w = Math.sin(p.anim * 20) * 0.2;
@@ -17202,7 +17249,7 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER)', 'SUPER SAIYAN', 'Golden hair and aura - faster.'],
-      ['DOWN + I (FULL METER)', 'ULTRA INSTINCT', 'A storm of silver aura and WHITE hair - then a free teleport combo on the nearest enemy. In it: no stat boost, but +1 Z vanish dot and AUTO DODGE: when a hit would land, his body dodges it on its own and spends a Z vanish dot. Out of dots, he can be hit.'],
+      ['DOWN + I (FULL METER)', 'ULTRA INSTINCT', 'A 44-second cutscene to his theme: he grabs the nearest enemy in a teleport combo, stops for "are you finished?" - then SCREAMS and transforms (white hair, silver aura) and beats on them from every side for the rest of the song before launching them. The meter only starts draining after. In it: no stat boost, but +1 Z vanish dot and AUTO DODGE (his body dodges hits on its own, spending a Z vanish dot). Out of dots, he can be hit.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
