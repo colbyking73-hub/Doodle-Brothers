@@ -9,6 +9,7 @@
 <script src="sounds/fight-sfx.js"></script>
 <!-- DBZ teleport sound, used for Z vanishes -->
 <script src="sounds/teleport-sfx.js"></script>
+<script src="sounds/ui-note-sfx.js"></script>
 <script src="sounds/shield-sfx.js"></script>
 <!-- Kamehameha charge-up sound, used for Lance's Kamehameha and ultimate charge -->
 <script src="sounds/kame-sfx.js"></script>
@@ -345,8 +346,8 @@ const AIR_DODGES = 2;      // (old limit, no longer used - air dodges now spend 
 // Air dodge ("Z vanish") allowed while you have a blue dodge dot left: up to AIR_DODGE_MAX (5) in a row
 const AIR_DODGE_MAX = 5;
 // (per character: look.airDodges / look.groundDodges override them - Colbalias spends dots on his clones, so he gets more)
-const airDodgeMax = f => (f && f.look && f.look.airDodges) || AIR_DODGE_MAX;
-const dodgeFree = f => (f && f.look && f.look.groundDodges) || DODGE_FREE;
+const airDodgeMax = f => ((f && f.look && f.look.airDodges) || AIR_DODGE_MAX) + (f && f.ui && f.transformed ? 1 : 0);   // (Ultra Instinct: +1)
+const dodgeFree = f => ((f && f.look && f.look.groundDodges) || DODGE_FREE) + (f && f.ui && f.transformed ? 1 : 0);
 function canAirDodge(f) { return f.dodgeCount < airDodgeMax(f); }
 const WAVEDASH_FRICTION = 0.3;
 
@@ -5301,7 +5302,15 @@ function stepRedChidori(f, a, dt) {
     f.vx = 0; f.vy = 0;
     a.poseOverride = M.strike;
     if (!v || v.respawnTimer > 0 || !v.action || !v.action.impaled) { endRedChidori(f, a); return true; }
+    // held on his arm at his own height (never pushed down into the floor - that used to shove them out under the stage)
+    // (he counts as airborne during the move, so this checks the STAGE itself: if they'd be inside it, they sit on top)
     v.x = f.x + D * 38; v.y = f.y + 8; v.vx = v.vy = 0; v.face = -D;
+    if (R.ground) {                                               // started on the ground: they stay over it, never past the edge
+      const P = R.plat || STAGE;
+      v.x = clamp(v.x, P.x + 6, P.x + P.w - 6);
+      v.y = Math.min(v.y, P.y);
+    }
+    if (v.x > STAGE.x && v.x < STAGE.x + STAGE.w && v.y > STAGE.y && v.y < STAGE.y + STAGE.h) v.y = STAGE.y;
     if (gore && Math.random() < dt * 30) burst(v.x, v.y - 58, BLOOD, 1, Math.PI / 2, 0.6, 160, { stain: true });
     crackle(50);
     if (T >= RED_CHIDORI.impale) {                                // 4. ...then he RIPS his hand out
@@ -8323,7 +8332,7 @@ function setCharacter(f, charName) {
   f.stats = { ...DEFAULT_STATS, ...c.stats };
   f.look = c.look || {};
   f.w = 26 * (f.look.scale || 1); f.h = 90 * (f.look.scale || 1);   // bigger characters = bigger hurtbox
-  f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false;
+  f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false; f.ui = false;
   f.weapon = (c.look && c.look.weapon) || null;                // Colby / Colten start with their own weapon
 }
 function resetFighter(f, atSpawn) {
@@ -8780,6 +8789,7 @@ function loadNeteroSfx() {
   if (!neteroVoiceBuf) dec(window.NETERO_VOICE_B64, b => { neteroVoiceBuf = b; });
   if (!neteroHitsBuf) dec(window.NETERO_HITS_B64, b => { neteroHitsBuf = b; });
   if (!clonePoofBuf) dec(window.CLONE_POOF_B64, b => { clonePoofBuf = b; });
+  if (!uiNoteBuf) dec(window.UI_NOTE_B64, b => { uiNoteBuf = b; });   // Lance's Ultra Instinct auto-dodge note
 }
 // ---- Naruto shadow clone jutsu "poof" (sounds/clone-poof.wav, 2.28-3.6s of your clip) - Colbalias's clone summon ----
 let clonePoofBuf = null, lastPoof = null;
@@ -9009,7 +9019,7 @@ const projPhase = t => !!(t.char === 'AIDEN' && t.action && t.action.type === 'a
 function isIntangible(f) {
   if (f.invuln > 0) return true;
   const a = f.action;
-  if (a && ['thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon', 'shipUlt', 'gazeSwap', 'swapped'].includes(a.type)) return true;   // nothing else can hit you mid-throw / ultimate (a CLASH can be broken up, though)
+  if (a && ['thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon', 'uiTransform', 'shipUlt', 'gazeSwap', 'swapped'].includes(a.type)) return true;   // nothing else can hit you mid-throw / ultimate (a CLASH can be broken up, though)
   return !!a && (a.type === 'spot' || a.type === 'roll' || a.type === 'air') && a.t >= a.iStart && a.t <= a.iEnd;
 }
 // CROUCHING: hold down on the ground to duck. Your hurtbox shrinks to ~60% height, so HIGH attacks
@@ -9028,6 +9038,7 @@ function circleHitsFighter(x, y, r, f) {
 function applyHit(t, h, dirSign, mult, hx, hy, src = {}) {
   if (t.respawnTimer > 0) return false;
   if (isIntangible(t)) { t.dodgedFlash = 0.35; return false; }
+  if (uiAutoDodge(t, hx)) return false;                    // Lance in ULTRA INSTINCT: his body dodges it on its own (spends a Z vanish dot)
   const dmg = h.dmg * mult;
 
   // PERFECT BLOCK: shield went up just as the hit arrived
@@ -9579,7 +9590,7 @@ const painTexts = [];
 const SHOW_FIGHT_TEXT = false;
 // ...plus these, which always show: CLASH text (the clash and its power-bar duel) and CRITICAL hits
 const KEEP_TEXTS = new Set(['CRITICAL!', 'WIN!', 'CLASH WON!', 'BROKEN!', 'YARRKO!']);
-const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'flameDragon', 'ultStart', 'ultSeq'].includes(f.action.type));
+const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'flameDragon', 'uiTransform', 'ultStart', 'ultSeq'].includes(f.action.type));
 painTexts.push = function (...items) { for (const p of items) if (p && p.ult === undefined) p.ult = ultRunning(); return Array.prototype.push.apply(this, items); };
 function drawCracks() {
   for (const c of cracks) {
@@ -10553,7 +10564,7 @@ function spawnUltBeam(f) {
 // Meter runs out = you power back down.
 const TRANSFORM = { power: 1.2, speed: 1.1, drain: ULT_MAX / 14 };   // drain: full meter lasts ~14 seconds
 // Some characters' transformations are tuned differently (Lance's Super Saiyan: less power, more speed)
-const tfStats = f => (f.char && CHARACTERS[f.char] && CHARACTERS[f.char].transformStats) || TRANSFORM;
+const tfStats = f => f.ui ? UI_STATS : (f.char && CHARACTERS[f.char] && CHARACTERS[f.char].transformStats) || TRANSFORM;
 function powerOf(f) {
   if (!f) return 1;
   if (f.strikeClone) return powerOf(f.owner);                    // his J-string clones hit with HIS power (it's his combo)
@@ -10565,7 +10576,7 @@ function powerOf(f) {
          (f.revenge > 0 ? 1 + f.revenge : 1) *                                        // Aiden's stored REVENGE power
          hypePower(f);                                                                // Aiden's HYPE (weaker at low hype)
 }
-function auraColor(f) { return (f.look && f.look.transformAura) || f.energy; }
+function auraColor(f) { return f.ui ? UI.color : (f.look && f.look.transformAura) || f.energy; }
 // GOD SPEED (Colby transformed): every hit he lands zaps them with EXTRA lightning damage on top
 // (zap = % added per hit; tiny rapid hits add tickZap instead)
 const GOD_SPEED = { zap: 1.5, tickZap: 0.3, colors: ['#ffffff', '#7fd8ff', '#bfeaff'] };
@@ -10608,6 +10619,117 @@ function endTransform(f) {
   if (cage && cage.owner === f && !(f.action && f.action.type === 'shipUlt')) breakCage();
   if (f.baseStats) f.stats = f.baseStats;
   f.baseStats = null;
+  f.ui = false;
+}
+
+// ---------------- ULTRA INSTINCT (Lance: DOWN + I on a full meter, instead of Super Saiyan) ----------------
+// 1. THE AWAKENING: he floats up as a storm of silver aura erupts round him, his hair turns WHITE.
+// 2. A FREE TELEPORT COMBO: he blinks round the nearest enemy (anywhere on the stage) and hits them from every side,
+//    then a last strike sends them flying. It can't be blocked or dodged - it's the transformation's payoff.
+// 3. Then he's in ULTRA INSTINCT like any transformation (the meter drains, I = his ultimates) - but NO stat bonus.
+//    What it gives: +1 Z vanish dot, and AUTO DODGE - when something would hit him, his body moves on its own: it
+//    spends a Z vanish dot and he blinks out of the way. Out of dots, he can be hit like anyone.
+const UI = { color: '#d8e2ff', glow: '#9fb6ff', hair: '#f4f6ff',
+  awaken: 1.7,                  // the aura erupting (seconds)
+  blinks: 8, blinkEvery: 0.11,  // the teleport combo
+  hit: { dmg: 2, base: 0, growth: 0, angle: 90, noStop: true },
+  final: { dmg: 8, base: 520, growth: 5, angle: 40 },
+  dodgeInvuln: 0.32, dodgeDist: 95 };
+const UI_STATS = { power: 1, speed: 1 };
+CHARACTERS.LANCE.uiTransform = true;
+let uiNoteBuf = null;
+function startUltraInstinct(f) {
+  f.transformed = true; f.ui = true; f.ultBuf = 0;
+  f.baseStats = f.stats; f.stats = { ...f.stats };          // (no speed bonus)
+  f.action = { type: 'uiTransform', t: 0, phase: 'awaken', y0: f.y };
+  f.vx = 0; f.vy = 0;
+  ultBanner = { t: 1.4, title: 'TRANSFORM', name: 'ULTRA INSTINCT', color: UI.color, who: f };
+  hitstop = Math.max(hitstop, 0.2);
+  impactFrame = 0.1; impactAt = { x: f.x, y: f.y - 50, ang: 0, all: true, focus: true, invert: true };
+  shake = Math.max(shake, 14);
+  sfx.parry(); sfx.beam(0.8);
+}
+function stepUiTransform(f, a, dt) {
+  f.vx = 0; f.vy = 0;
+  if (a.phase === 'awaken') {
+    // rises a little off the ground as the aura storms round him
+    f.y = a.y0 - 40 * easeOut(Math.min(1, a.t / 0.6)); f.ground = false;
+    const k = a.t / UI.awaken;
+    shake = Math.max(shake, 3 + 9 * k);
+    if (Math.random() < dt * 70) {                            // silver wisps rushing IN to him
+      const ang = Math.random() * Math.PI * 2, d = 140 + Math.random() * 80;
+      particles.push({ x: f.x + Math.cos(ang) * d, y: f.y - 55 + Math.sin(ang) * d, vx: -Math.cos(ang) * d * 4, vy: -Math.sin(ang) * d * 4,
+                       life: 0.25, max: 0.25, size: 2.5, color: Math.random() < 0.5 ? '#ffffff' : UI.glow, type: 'bit', grav: 0 });
+    }
+    a.ringT = (a.ringT || 0) - dt;
+    if (a.ringT <= 0) { a.ringT = 0.28; ring(f.x, f.y - 55); auraWaves.push({ x: f.x, y: f.y - 55, t: 0, dur: 0.5, max: 150 + 60 * k, color: UI.glow }); }
+    if (Math.random() < dt * 8) bolt(f.x, f.y - 55, Math.random() * Math.PI * 2, 90 + Math.random() * 60, 0.1, '#ffffff');
+    if (a.t >= UI.awaken) {                                   // AWAKENED: the burst, then straight into the combo
+      burst(f.x, f.y - 55, ['#ffffff', UI.color, UI.glow], 70, 0, Math.PI, 1000, { grav: 0 });
+      ring(f.x, f.y - 55); ring(f.x, f.y - 20);
+      impactFrame = Math.max(impactFrame, 0.1); impactAt = { x: f.x, y: f.y - 55, ang: 0, all: true, focus: true };
+      shake = Math.max(shake, 18); sfx.clash(true);
+      const v = nearestFoe(f);
+      if (v && v.respawnTimer <= 0 && !v.dead && v.halo <= 0) {
+        a.phase = 'combo'; a.t = 0; a.n = 0; a.blinkT = 0.15; a.victim = v;
+        a.vx0 = v.x; a.vy0 = Math.min(v.y, STAGE.y) - (v.ground ? 30 : 0);
+        v.shielding = false; v.action = { type: 'ultVictim', t: 0 };
+      } else { f.action = null; }
+    }
+    return;
+  }
+  if (a.phase === 'combo') {
+    const v = a.victim;
+    if (!v || v.respawnTimer > 0) { f.action = null; return; }
+    v.x = a.vx0; v.y = a.vy0; v.vx = v.vy = 0; v.ground = false;   // held in place
+    if (!v.action || v.action.type !== 'ultVictim') v.action = { type: 'ultVictim', t: 0 };
+    a.blinkT -= dt;
+    if (a.blinkT <= 0 && a.n < UI.blinks) {
+      a.blinkT = UI.blinkEvery; a.n++;
+      ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: UI.color });   // after-image where he was
+      const spots = [[-70, 0], [70, -20], [-55, -70], [60, 30], [0, -110], [-80, 20], [75, -60], [-30, 40]];
+      const [dx, dy] = spots[(a.n - 1) % spots.length];
+      f.x = v.x + dx; f.y = v.y + dy; f.face = Math.sign(v.x - f.x) || f.face;
+      a.pose = (a.n % 2 ? LANCE_MOVES.jab.strike : LANCE_MOVES.kick2.strike);
+      const dmg = UI.hit.dmg * powerOf(f);
+      v.damage += dmg; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + dmg * ULT_GAIN);
+      v.hitFlash = 0.08;
+      hitBits(v, v.x - f.face * 10, v.y - 55, f.face, 0, 500, dmg);
+      burst(v.x, v.y - 55, ['#ffffff', UI.glow], 8, 0, Math.PI, 420, { grav: 0 });
+      shake = Math.max(shake, 6); sfx.hit(0.4); if (sfx.vanish) sfx.vanish(0.4);
+    }
+    if (a.n >= UI.blinks && a.blinkT <= 0) {                  // THE LAST ONE: from right in front, a palm that sends them flying
+      f.x = v.x - f.face * 50; f.y = v.y;
+      a.pose = LANCE_MOVES.jab4.strike;
+      v.action = null;
+      knock(v, UI.final, f.face, powerOf(f), v.x, v.y - 55);
+      burst(v.x, v.y - 55, ['#ffffff', UI.color, UI.glow], 40, 0, Math.PI, 800, { grav: 0 }); ring(v.x, v.y - 55);
+      f.action = { type: 'land', t: 0, dur: 0.15 };
+    }
+  }
+}
+// AUTO DODGE: called when a hit is about to land on him. Returns true if his body dodged it on its own.
+function uiAutoDodge(t, hx) {
+  if (!t.ui || !t.transformed || t.minion || t.respawnTimer > 0) return false;
+  if (t.action && t.action.type === 'uiTransform') return false;
+  if (t.dodgeCount >= airDodgeMax(t)) return false;           // out of Z vanish dots: he can be hit
+  t.dodgeCount = Math.min(airDodgeMax(t) + FATIGUE_MAX, t.dodgeCount + 1); t.dodgeRecover = DODGE_RECOVER;
+  const away = Math.sign(t.x - (hx ?? t.x)) || -t.face;
+  ghosts.push({ fig: figureOf(t), life: 0.3, max: 0.3, color: UI.color });
+  t.x += away * UI.dodgeDist;
+  if (t.ground && !t.onPlatform) t.x = clamp(t.x, STAGE.x + 12, STAGE.x + STAGE.w - 12);
+  t.invuln = Math.max(t.invuln || 0, UI.dodgeInvuln);
+  t.dodgedFlash = 0.35;
+  if (t.action && t.action.type !== 'attack') t.action = null;
+  burst(t.x, t.y - 55, ['#ffffff', UI.glow], 12, 0, Math.PI, 300, { grav: 0 });
+  painTexts.push({ x: t.x, y: t.y - 140, t: 0.6, max: 0.6, text: 'AUTO DODGE', big: false });
+  if (!playBuffer(uiNoteBuf, 0.9) && sfx.vanish) sfx.vanish(0.6);
+  return true;
+}
+// the white wisps and sparks that hang round him while he's in it
+function drawUiWisps(p) {
+  if (Math.random() < 0.6) particles.push({ x: p.x + (Math.random() - 0.5) * 50, y: p.y - 10 - Math.random() * 90, vx: (Math.random() - 0.5) * 40, vy: -120 - Math.random() * 100,
+                                             life: 0.4, max: 0.4, size: 2, color: Math.random() < 0.5 ? '#ffffff' : UI.glow, type: 'bit', grav: 0 });
 }
 
 function breakShield(f) {
@@ -11313,7 +11435,8 @@ function stepAction(f, inp, dt) {
   }
   if (a.type === 'timeStop') return stepTimeStop(f, a, dt);
   if (a.type === 'ultBeam') return stepUltBeam(f, a, dt);
-  if (a.type === 'flameDragon') return stepFlameDragon(f, a, dt);   // Sevon: summoning / releasing the Flame Dragon
+  if (a.type === 'flameDragon') return stepFlameDragon(f, a, dt);
+  if (a.type === 'uiTransform') return stepUiTransform(f, a, dt);   // Lance: Ultra Instinct awakening + teleport combo   // Sevon: summoning / releasing the Flame Dragon
   if (a.type === 'shipUlt') return stepShipUlt(f, a, dt);
   if (a.type === 'kiBarrage') return stepKiBarrage(f, a, dt);    // Lance: It's My Turn's ki barrage
   if (a.type === 'ledge') return stepLedge(f, a, inp, dt);       // hanging off the edge of the stage
@@ -11638,7 +11761,10 @@ function freeControl(f, inp, dt) {
     }
   } else if (f.ultBuf > 0) {
     if (f.transformed && f.ult > 0) { startUltimate(f, !!inp.down); return; }   // (holding DOWN = the second ultimate, if they have one)
-    if (!f.transformed && f.ult >= ULT_MAX) startTransform(f);
+    if (!f.transformed && f.ult >= ULT_MAX) {
+      if (inp.down && CHARACTERS[f.char].uiTransform) { startUltraInstinct(f); return; }   // Lance: DOWN + I = ULTRA INSTINCT
+      startTransform(f);
+    }
   }
 
   // 0) Grab (ground only - also works straight out of your shield)
@@ -11812,7 +11938,7 @@ function updateFighter(f, inp, dt) {
   f.tsCD = Math.max(0, (f.tsCD || 0) - dt);
   f.opening = Math.max(0, (f.opening || 0) - dt);               // the window to punish after a perfect block
   syncKame(f);
-  const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam', 'flameDragon'].includes(f.action.type);
+  const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam', 'flameDragon', 'uiTransform'].includes(f.action.type);
   if (f.transformed) {                                            // transformed: the meter slowly drains
     if (f.look && f.look.doubleUlt) {                            // Colbalias: only the bar he transformed on drains (same ~14s as anyone's)
       const fl = f.tfFloor || 0;
@@ -11889,7 +12015,7 @@ function updateFighter(f, inp, dt) {
   const a = f.action;
   const floating = a && ((a.type === 'air' && a.t < a.floatTime) || a.type === 'clash' || a.type === 'grabbed' || a.type === 'thrown' || a.type === 'whipped' ||
     (a.type === 'attack' && a.move.floatWhile && a.move.floatWhile(f, a)) ||
-    a.type === 'flydash' || a.type === 'ultBeam' || a.type === 'flameDragon' || a.type === 'shipUlt' || a.type === 'kiBarrage' || a.type === 'impaled' || a.type === 'ledge' || a.type === 'gazeSwap' || a.type === 'swapped' || (a.type === 'hitstun' && a.crit) || a.type === 'timeStop' ||
+    a.type === 'flydash' || a.type === 'ultBeam' || a.type === 'flameDragon' || a.type === 'uiTransform' || a.type === 'shipUlt' || a.type === 'kiBarrage' || a.type === 'impaled' || a.type === 'ledge' || a.type === 'gazeSwap' || a.type === 'swapped' || (a.type === 'hitstun' && a.crit) || a.type === 'timeStop' ||
     (a.type === 'hitstun' && (a.impaled || (a.flat && a.t < a.flat))) ||   // skewered on the Red Chidori / launched dead flat (Hundred Clone Rush)
     a.type === 'odmReel' || a.type === 'odmSpin' ||                  // Sevon flying on his ODM gear
     (a.type === 'attack' && a.phase === 'active' && a.move.hover && !f.ground) ||      // Shuriken Kick holds its height
@@ -12497,7 +12623,7 @@ function aiDecide(f, o, ai, L) {
     if (f.transformed && left > 0 && adx < 700 && (left < 12 || Math.random() < 0.05)) { if (Math.random() < 0.5) ai.down = true; ai.tapUlt = true; return; }
   }
   // TRANSFORM as soon as the meter is full
-  else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { ai.tapUlt = true; return; }
+  else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { if (CHARACTERS[f.char].uiTransform && Math.random() < 0.45) ai.down = true; ai.tapUlt = true; return; }
   // COLBY: his second ultimate (God Speed: Lightning Blade) locks on by itself - so from any range, now and then
   const alt = CHARACTERS[f.char].altUlt;
   if (alt && alt.godChidori && f.transformed && f.ult > 0 && adx < 1000 && (f.ult < 20 || Math.random() < 0.04) && Math.random() < 0.5) {
@@ -13604,6 +13730,10 @@ function basePose(p) {
     if (a.phase === 'charge') ps.lean += Math.sin(p.anim * 70) * 0.05;   // shaking with power
     return ps;
   }
+  if (a && a.type === 'uiTransform') {                 // Lance: arms out, rising in the aura... then the teleport strikes
+    if (a.phase === 'awaken') return { ...pose({ bob: -4, lean: -0.1, legA: [0.35, 0.5], legB: [-0.3, 0.6], armA: [0.7, -0.3] }) };
+    return { ...(a.pose || LANCE_MOVES.jab.strike) };
+  }
   if (a && a.type === 'flameDragon') {                 // Sevon: blade raised overhead, breathing in... then the cut
     if (a.phase === 'summon') { const ps = { ...SEVON_MOVES.blazingUniverse.wind }; ps.lean += Math.sin(p.anim * 60) * 0.03; return ps; }
     return { ...SEVON_MOVES.blazingUniverse.strike };
@@ -13765,7 +13895,7 @@ function tickPose(f, dt) {
 
 function figureOf(p) {
   return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, face: p.face, pose: p.disp || getPose(p), squash: p.squash,
-           color: bodyColorOf(p), ink: inkOf(p), look: p.look, transformed: !!p.transformed, noScythe: !!p.noScythe };
+           color: bodyColorOf(p), ink: inkOf(p), look: p.look, transformed: !!p.transformed, noScythe: !!p.noScythe, ui: !!p.ui };
 }
 
 // Characters can have their own body color (Colby is red). If both players pick the same character,
@@ -14200,7 +14330,7 @@ function drawFigure(fig, opts = {}) {
   }
   if (look.ssjHair && fig.transformed) {
     // SUPER SAIYAN: golden spikes shooting straight up, swept slightly back, with a fringe spike on the forehead
-    const hairCol = sketch ? PAPER : opts.tint || look.ssjHair;
+    const hairCol = sketch ? PAPER : opts.tint || (fig.ui ? UI.hair : look.ssjHair);   // (Ultra Instinct: white)
     const sway = Math.sin(time * 18) * 1.5;                    // hair crackles with power
     const spikes = [ // [base angle (0 = up, + = toward his face), length, width]
       [-1.35, 20, 0.45], [-0.95, 27, 0.4], [-0.5, 34, 0.38], [-0.05, 38, 0.36], [0.4, 31, 0.36], [0.85, 22, 0.4], [1.25, 14, 0.42]];
@@ -14635,7 +14765,7 @@ function drawFighter(p) {
     if (a.bones) { drawBonePile(p, a); return; }
   }
   const tired = a && a.level > 0;
-  const intangible = isIntangible(p) && p.invuln <= 0 && !(a && ['clash', 'thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon'].includes(a.type));   // not dodging
+  const intangible = isIntangible(p) && p.invuln <= 0 && !(a && ['clash', 'thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon', 'uiTransform'].includes(a.type));   // not dodging
   const blink = p.invuln > 0 && Math.floor(p.invuln * 12) % 2 === 0;
   const charging = a && a.type === 'attack' && a.phase === 'charge';
   const chargeFlash = charging && Math.floor(p.anim * 16) % 2 === 0;
@@ -14657,7 +14787,8 @@ function drawFighter(p) {
   const powered = p.look && p.look.aura && a && (a.type === 'flydash' || charging || a.type === 'ultBeam' ||
     (a.type === 'attack' && (a.move.rapid || a.move.beam) && a.phase !== 'end') ||
     (ult && ult.user === p && ult.phase === 'final'));                      // ultimate charge-up
-  if (p.transformed) drawAura(p, auraColor(p), true);                       // TRANSFORMED: big, constant aura (everyone)
+  if (p.transformed) drawAura(p, auraColor(p), true);
+  if (p.transformed && p.ui) drawUiWisps(p);                       // TRANSFORMED: big, constant aura (everyone)
   if (godSpeed(p) && !sketch) drawGodSpeedArcs(p);                          // Colby's GOD SPEED: electricity crackling all over him
   else if (powered) drawAura(p);
   else if (p.look && p.look.bossAura) {                                     // the final boss always smoulders
@@ -17050,6 +17181,7 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER)', 'SUPER SAIYAN', 'Golden hair and aura - faster.'],
+      ['DOWN + I (FULL METER)', 'ULTRA INSTINCT', 'A storm of silver aura and WHITE hair - then a free teleport combo on the nearest enemy. In it: no stat boost, but +1 Z vanish dot and AUTO DODGE: when a hit would land, his body dodges it on its own and spends a Z vanish dot. Out of dots, he can be hit.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
