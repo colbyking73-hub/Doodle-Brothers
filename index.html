@@ -1274,7 +1274,7 @@ const LANCE_MOVES = {
 // The DBZ power-up: he plants his feet and SCREAMS, his aura swelling out round him bit by bit, and it slowly fills his
 // ultimate meter (a decent rate, not a fast one) so he can transform. Only while his meter isn't in use (not transformed).
 // He's WIDE OPEN while he does it: any hit knocks him out of it. The only ways out are letting go, or BLOCK / Z VANISH.
-const KI_CHARGE = { rate: 12, holdFor: 0.22, loopFrom: 2.0, vol: 0.8 };   // rate = meter per second (full in ~8s)
+const KI_CHARGE = { rate: 8.3, holdFor: 0.22, loopFrom: 2.0, vol: 0.8 };  // rate = meter per second (full in ~12s)
 let kiChargeBuf = null;
 function startKiCharge(f) {
   f.action = { type: 'kiCharge', t: 0 };
@@ -10685,8 +10685,8 @@ function startTransform(f) {
 // out he drops all the way back to base and starts climbing again. KOs DON'T reset it - he keeps his form through deaths.
 const LANCE_FORMS = [null,
   { name: 'SUPER SAIYAN',   power: 1.1,  speed: 1.18 },
-  { name: 'SUPER SAIYAN 2', power: 1.2,  speed: 1.32, lightning: true },
-  { name: 'ULTRA INSTINCT', power: 1.2,  speed: 1.32 }];
+  { name: 'SUPER SAIYAN 2', power: 1.15, speed: 1.25, lightning: true },   // (was +20% / +32%: too much once it lasts all match)
+  { name: 'ULTRA INSTINCT', power: 1.15, speed: 1.25 }];
 const SSJ2_ARCS = ['#ffffff', '#bfeaff', '#ffe066'];
 function setLanceForm(f, n) {
   if (!f.formBase) f.formBase = { ...f.stats };              // (his own base speed, before any form)
@@ -10751,8 +10751,8 @@ const UI = { color: '#d8e2ff', glow: '#9fb6ff', hair: '#f4f6ff',
   beats: { bell: 11.9, scream: 14.0, barrage: 16.5, walk: 22.5, past: 23.6, flurry1: 24.6, tl1: 29.0, tl2: 29.6, down: 30.25,
            flurry2: 31.1, away: 35.6, comeback: 36.3, weave: 37.6, kameCharge: 38.2, kameFire: 41.2, end: 44.3 },
   barrageHits: 10,
-  dmg: { white: 1.0, flurry: 0.2, kick: 3.5, bounce: 5, weave: 5, beam: 0.35 },   // (three full meters to get here: it hits HARD)
-  final: { dmg: 14, base: 700, growth: 6.5, angle: 35 },
+  dmg: { white: 0.6, flurry: 0.12, kick: 2.2, bounce: 3, weave: 3, beam: 0.22 },   // (about 55% all told - it can't be dodged)
+  final: { dmg: 9, base: 620, growth: 6, angle: 35 },
   dodgeInvuln: 0.32, dodgeDist: 95 };
 const UI_STATS = { power: 1, speed: 1 };
 CHARACTERS.LANCE.uiTransform = true;
@@ -17579,11 +17579,11 @@ const MOVESETS = {
       ['SIDE K', 'Destructo Disc', 'A spinning disc of ki that flies out and comes back like a boomerang - it cuts on the way out AND back (and can nick him).'],
       ['UP K', 'Rising Axe Kick', 'His recovery: flips upward driving his heel up - carries them up with him, then pops them higher to keep the combo going.'],
       ['DOWN K (TAP)', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (0.8% / 1.3% / 2.2% damage every second).'],
-      ['DOWN K (HOLD, GROUND)', 'Ki Charge', 'The DBZ power-up scream: his aura swells out round him and slowly fills his ultimate meter (full in about 8 seconds) so he can transform. He is wide open - any hit knocks him out of it, and only letting go, BLOCK or Z VANISH gets him out. Not while his meter is in use.'] ] },
+      ['DOWN K (HOLD, GROUND)', 'Ki Charge', 'The DBZ power-up scream: his aura swells out round him and slowly fills his ultimate meter (full in about 12 seconds) so he can transform. He is wide open - any hit knocks him out of it, and only letting go, BLOCK or Z VANISH gets him out. Not while his meter is in use.'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out - and through KOs.'],
-      ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'Lightning crackles round his aura: +20% damage, +32% move speed, attacks 32% faster. Also stays on when the meter runs out, and through KOs.'],
+      ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'Lightning crackles round his aura: +15% damage, +25% move speed, attacks 25% faster. Also stays on when the meter runs out, and through KOs.'],
       ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
