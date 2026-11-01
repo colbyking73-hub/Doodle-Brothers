@@ -12,6 +12,7 @@
 <script src="sounds/ui-note-sfx.js"></script>
 <script src="sounds/ui-awaken-sfx.js"></script>
 <script src="sounds/ki-charge-sfx.js"></script>
+<script src="sounds/ssj2-song-sfx.js"></script>
 <script src="sounds/shield-sfx.js"></script>
 <!-- Kamehameha charge-up sound, used for Lance's Kamehameha and ultimate charge -->
 <script src="sounds/kame-sfx.js"></script>
@@ -2668,7 +2669,7 @@ function stepDashChoke(f, a, dt, inp) {
 
 // Lance is the speedster: his physical moves come out ~15% quicker than they're written above,
 // but every hit does less damage and knockback than Colby's.
-const LANCE_SPEED = 0.85, LANCE_POWER = 0.82;
+const LANCE_SPEED = 0.85, LANCE_POWER = 0.75;   // (base form hits softer: Super Saiyan's +10% brings him back to ~0.82)
 // His physical (J) moves reach farther than they're written above (pushed out a bit more again: +16px / +6 radius)
 const LANCE_PHYSICAL = ['jab', 'jab2', 'kick1', 'kick2', 'jab3', 'jab4', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair'];
 const _lanceReach = new Set();
@@ -7784,7 +7785,7 @@ const CHARACTERS = {
   LANCE: {
     moves: LANCE_MOVES,
     // Faster than Colby everywhere (run, air, jumps), a bit lighter
-    stats: { runSpeed: 770, airSpeed: 650, jumpVel: 1270, doubleJumpVel: 1180, weight: 0.93 },
+    stats: { runSpeed: 650, airSpeed: 550, jumpVel: 1270, doubleJumpVel: 1180, weight: 0.93 },   // (base form is SLOW: Super Saiyan gets him back to ~770 / 650)
     look: {
       body: '#2a6fd1',        // blue
       bowl: '#f2c94c',        // blonde bowl cut
@@ -8852,7 +8853,7 @@ function startBattleSong() {
 }
 function updateBattleMusic(dt) {
   const fighting = scene === 'fight' && !matchOver;
-  if (!fighting) for (const f of fighterPool) stopUiSong(f);   // (Lance's UI theme doesn't follow you out of the fight)
+  if (!fighting) for (const f of fighterPool) { stopUiSong(f); stopSsj2Song(f); }   // (Lance's UI theme doesn't follow you out of the fight)
   if (fighting && !battleMusic.el && soundOn && menuMusic.unlocked) startBattleSong();   // a new fight: a new song
   const el = battleMusic.el;
   if (!el) return;
@@ -8865,7 +8866,7 @@ function updateBattleMusic(dt) {
   }
   // turned down under an ultimate's own music / voice lines, and while the game's paused
   const ultMusic = ult || fighters.some(f => (f.action && f.action.type === 'shipUlt') || f.uiSong);   // (+ Lance's Ultra Instinct theme)
-  const duck = fighters.some(f => f.uiSong) ? 0 : ultMusic ? 0.2 : paused ? 0.45 : 1;   // (Lance's UI theme: the battle music goes silent)
+  const duck = fighters.some(f => f.uiSong || f.ssj2Song) ? 0 : ultMusic ? 0.2 : paused ? 0.45 : 1;   // (Lance's UI theme: the battle music goes silent)
   el.volume = clamp(BATTLE_MUSIC.vol * battleMusic.level * duck * settings.master * settings.music * 1.6, 0, 1);
   if (el.paused && want) el.play().catch(() => {});
 }
@@ -8883,14 +8884,18 @@ function loadRkoSfx() {
 //   light / medium / heavy / huge hits, slashes (bright cracks - weapon hits), slams (deep booms), KO blasts.
 // [start, length] in seconds.
 let smashBuf = null;
+const LAUNCH_SFX_SPEED = 1300;   // knockback this hard (or a throw) plays the launch sound
 const SMASH_CLIPS = {
-  light:  [[1.08, 0.26], [5.58, 0.37], [32.15, 0.33], [48.08, 0.14], [64.24, 0.18]],          // short punchy pops
+  light:  [[1.08, 0.26], [5.58, 0.37], [32.15, 0.33], [64.24, 0.18]],                        // short punchy pops
   medium: [[1.92, 0.52], [14.75, 0.37], [27.82, 0.57], [33.0, 0.6], [42.61, 0.42]],            // solid smacks
   heavy:  [[29.02, 0.68], [30.42, 0.96], [34.11, 0.75], [15.78, 1.0]],                         // big booming hits
   huge:   [[17.38, 1.35], [7.53, 1.32]],                                                       // the biggest blasts (criticals, ult finishers)
-  slash:  [[9.93, 0.29], [19.47, 0.34], [20.42, 0.44], [23.73, 0.36], [25.12, 0.32], [65.0, 0.39]],   // bright sharp cracks
-  slam:   [[43.59, 0.69], [44.74, 1.05], [6.42, 0.53]],                                        // deep thuds
-  ko:     [[53.3, 1.7], [60.64, 1.6]],                                                         // launched off the stage
+  slash:  [[9.93, 0.29]],                                                                      // bright sharp crack
+  slam:   [[43.59, 0.69]],                                                                     // deep thud
+  ko:     [[53.3, 1.7]],                                                                       // launched off the stage
+  launch: [[44.74, 1.05], [6.42, 0.53], [60.64, 1.6]],                                         // being THROWN / knocked back far
+  parry:  [[65.0, 0.39]],                                                                      // perfect blocks only
+  // (removed: the Mario-shell-hit sounds that had crept in - old light 48.08 and slashes 19.47 / 20.42 / 23.73 / 25.12)
 };
 function loadSmashSfx() {
   if (!window.SMASH_HITS_B64 || smashBuf || !actx) return;
@@ -8971,7 +8976,8 @@ function loadNeteroSfx() {
   if (!clonePoofBuf) dec(window.CLONE_POOF_B64, b => { clonePoofBuf = b; });
   if (!uiNoteBuf) dec(window.UI_NOTE_B64, b => { uiNoteBuf = b; });
   if (!uiAwakenBuf) dec(window.UI_AWAKEN_B64, b => { uiAwakenBuf = b; });
-  if (!kiChargeBuf) dec(window.KI_CHARGE_B64, b => { kiChargeBuf = b; });   // Lance's ki charge (DBZ power-up)   // Lance's Ultra Instinct theme ("are you finished?")   // Lance's Ultra Instinct auto-dodge note
+  if (!kiChargeBuf) dec(window.KI_CHARGE_B64, b => { kiChargeBuf = b; });
+  if (!ssj2SongBuf) dec(window.SSJ2_SONG_B64, b => { ssj2SongBuf = b; });   // Lance's Super Saiyan 2 (Day of Fate)   // Lance's ki charge (DBZ power-up)   // Lance's Ultra Instinct theme ("are you finished?")   // Lance's Ultra Instinct auto-dodge note
 }
 // ---- Naruto shadow clone jutsu "poof" (sounds/clone-poof.wav, 2.28-3.6s of your clip) - Colbalias's clone summon ----
 let clonePoofBuf = null, lastPoof = null;
@@ -9186,6 +9192,7 @@ const sfx = {
   },
   // a bone SNAPPING (Captain Heel's arm bar): a dry crack + a crunch
   snap() { if (!soundOn || !actx) return; noise('highpass', 2600, 0.9, 0.05, 0.6); tone('square', 900, 180, 0.04, 0.2); noise('bandpass', 1100, 3, 0.09, 0.4, 0.03); },
+  launch(vol = 0.85) { if (!soundOn || !actx) return; smashClip('launch', vol); },   // thrown / sent flying
   ko() { if (!soundOn || !actx) return; if (smashClip('ko', 1)) return; tone('sine', 90, 25, 0.8, 0.8); noise('lowpass', 900, 0.5, 0.6, 0.5, 0, 150); tone('sawtooth', 300, 60, 0.4, 0.12); },
 };
 
@@ -9201,7 +9208,7 @@ const projPhase = t => !!(t.char === 'AIDEN' && t.action && t.action.type === 'a
 function isIntangible(f) {
   if (f.invuln > 0) return true;
   const a = f.action;
-  if (a && ['thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon', 'uiTransform', 'shipUlt', 'gazeSwap', 'swapped'].includes(a.type)) return true;   // nothing else can hit you mid-throw / ultimate (a CLASH can be broken up, though)
+  if (a && ['thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon', 'uiTransform', 'ssj2Cut', 'shipUlt', 'gazeSwap', 'swapped'].includes(a.type)) return true;   // nothing else can hit you mid-throw / ultimate (a CLASH can be broken up, though)
   return !!a && (a.type === 'spot' || a.type === 'roll' || a.type === 'air') && a.t >= a.iStart && a.t <= a.iEnd;
 }
 // CROUCHING: hold down on the ground to duck. Your hurtbox shrinks to ~60% height, so HIGH attacks
@@ -9323,6 +9330,7 @@ function knock(t, h, dirSign, mult, hx, hy) {
   Object.assign(t, { squat: 0, flip: 0, airDodges: AIR_DODGES, airJumps: AIR_JUMPS, upSpecialUsed: false, halo: 0, slide: 0, comboTimer: 0, flyUsed: false });
   t.action = { type: 'hitstun', t: 0, dur: HITSTUN_BASE + speed * HITSTUN_PER_SPEED };
   t.hitFlash = 0.1;
+  if (speed >= LAUNCH_SFX_SPEED && !h.noStop) sfx.launch(clamp(speed / 2400, 0.55, 1));   // sent flying: the launch sound
   if (!h.noStop) {                              // tiny rapid hits (ki storm, beam ticks) don't freeze the game
     hitstop = Math.max(hitstop, Math.min(0.2, 0.045 + dmg * 0.004 * mult));
     shake = Math.max(shake, Math.min(20, 3 + speed * 0.007));
@@ -9772,7 +9780,7 @@ const painTexts = [];
 const SHOW_FIGHT_TEXT = false;
 // ...plus these, which always show: CLASH text (the clash and its power-bar duel) and CRITICAL hits
 const KEEP_TEXTS = new Set(['CRITICAL!', 'WIN!', 'CLASH WON!', 'BROKEN!', 'YARRKO!']);
-const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'flameDragon', 'uiTransform', 'ultStart', 'ultSeq'].includes(f.action.type));
+const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'flameDragon', 'uiTransform', 'ssj2Cut', 'ultStart', 'ultSeq'].includes(f.action.type));
 painTexts.push = function (...items) { for (const p of items) if (p && p.ult === undefined) p.ult = ultRunning(); return Array.prototype.push.apply(this, items); };
 function drawCracks() {
   for (const c of cracks) {
@@ -9872,6 +9880,7 @@ function stepThrow(f, a, dt) {
     v.drawZ = 0;
     v.action = null;
     const own = CHARACTERS[f.char].throwStats || {};
+    sfx.launch(0.8);                                   // thrown: the launch sound
     knock(v, own[a.kind] || THROWS[a.kind], a.face0, f.revenge > 0 ? powerOf(f) : hypePower(f), v.x, v.y - 50);   // (Revenge powers up throws too)      // angles are relative to the starting facing
     godSpeedZap(f, v, THROWS[a.kind], v.x, v.y - 50);
     if (f.look && f.look.fireHits) { burst(v.x, v.y - 50, FIRE, 18, Math.PI / 2, 1.2, 450, { grav: -250 }); if (f.revenge > 0) consumeRevenge(f, v.x, v.y - 50); }
@@ -9944,6 +9953,7 @@ function stepFlyDash(f, a, dt) {
 function perfectBlock(def, src, hx, hy) {
   def.parryFlash = 0.6;
   if (!playPerfectShield()) sfx.parry();      // your Smash perfect shield sound (synth fallback if it isn't loaded)
+  if (soundOn && actx) smashClip('parry', 0.75);   // + its own crack (that sound is ONLY for perfect blocks)
   def.shieldHP = SHIELD_MAX;
   hitstop = Math.max(hitstop, 0.22);
   shake = Math.max(shake, 10);
@@ -10802,9 +10812,9 @@ function startTransform(f) {
 // he just can't use his ultimate until the next full meter, which takes him a step up. When Ultra Instinct's meter runs
 // out he drops all the way back to base and starts climbing again. KOs DON'T reset it - he keeps his form through deaths.
 const LANCE_FORMS = [null,
-  { name: 'SUPER SAIYAN',   power: 1.1,  speed: 1.18 },
-  { name: 'SUPER SAIYAN 2', power: 1.15, speed: 1.25, lightning: true },   // (was +20% / +32%: too much once it lasts all match)
-  { name: 'ULTRA INSTINCT', power: 1.15, speed: 1.25 }];
+  { name: 'SUPER SAIYAN',   power: 1.1,  speed: 1.18 },                    // = roughly where base Lance used to be
+  { name: 'SUPER SAIYAN 2', power: 1.2,  speed: 1.32, lightning: true },    // the real step up
+  { name: 'ULTRA INSTINCT', power: 1.2,  speed: 1.32 }];                    // (keeps Super Saiyan 2's power)
 const SSJ2_ARCS = ['#ffffff', '#bfeaff', '#ffe066'];
 function setLanceForm(f, n) {
   if (!f.formBase) f.formBase = { ...f.stats };              // (his own base speed, before any form)
@@ -10814,10 +10824,151 @@ function setLanceForm(f, n) {
   f.baseStats = null;                                        // (ending the meter never puts his old speed back)
   if (!n) f.formBase = null;
 }
+
+// ---------------- SUPER SAIYAN 2: THE CUTSCENE (Lance's second transform) ----------------
+// Timed to "Day of Fate" (0:52 - 1:10 of the song, sounds/ssj2-song-sfx.js). The whole match stops to watch:
+//   0 - 2.6     a hard cut to BLACK: just Lance, in black and white, glaring
+//   2.6 - 3.3   the RED LINE streaks across the screen behind him
+//   3.3 - 7     the cut tears wider and wider until a LAVA-like sea of ki fills the whole screen
+//   7 - 16.4    he powers up in front of it - the aura swelling, lightning starting to crack round him
+//   16.4        the BURST (on the swell in the music): white flash - he's SUPER SAIYAN 2
+//   16.4 - 18   him in Super Saiyan 2, lightning crackling - then it fades back into the fight
+// Like Ultra Instinct, it runs in REAL seconds (not game time), so it stays on the music.
+const SSJ2_CUT = { len: 18.0, line: 2.6, lineDone: 3.3, fill: 7.0, burst: 16.4, vol: 1.0 };
+let ssj2SongBuf = null;
+function startSsj2Cut(f) {
+  f.ultBuf = 0; f.vx = f.vy = 0;
+  f.action = { type: 'ssj2Cut', t: 0, songT: 0 };
+  stopSsj2Song(f);
+  if (soundOn && actx && ssj2SongBuf) {
+    const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
+    src.buffer = ssj2SongBuf; g.gain.value = SSJ2_CUT.vol;
+    g.gain.setValueAtTime(SSJ2_CUT.vol, t + SSJ2_CUT.len - 0.8); g.gain.linearRampToValueAtTime(0.0001, t + SSJ2_CUT.len);
+    src.connect(g).connect(audioOut()); src.start(t);
+    const h = { s: src, g }; f.ssj2Song = h; src.onended = () => { if (f.ssj2Song === h) f.ssj2Song = null; };
+  }
+}
+function stopSsj2Song(f, fade = 0.4) { if (f && f.ssj2Song) { stopBuffer(f.ssj2Song, fade); f.ssj2Song = null; } }
+function stepSsj2Cut(f, a, dt) {
+  f.vx = 0; f.vy = 0;
+  a.songT += dt / uiRealRate();
+  if (!a.burst && a.songT >= SSJ2_CUT.burst) {           // THE BURST: he's Super Saiyan 2
+    a.burst = true;
+    setLanceForm(f, 2); f.transformed = true;
+    ultBanner = { t: 1.6, title: 'TRANSFORM', name: 'SUPER SAIYAN 2', color: '#ffe066', who: f };
+    shake = Math.max(shake, 22); camPunch = 1; sfx.huge(); sfx.clash(true);
+    burst(f.x, f.y - 55, ['#ffe066', '#ffffff', '#bfeaff'], 70, 0, Math.PI, 1000, { grav: 0 }); ring(f.x, f.y - 55); ring(f.x, f.y - 90);
+  }
+  if (a.songT >= SSJ2_CUT.len) f.action = { type: 'land', t: 0, dur: 0.1 };
+}
+// (drawing - full screen, over everything)
+function drawSsj2Cut(f) {
+  const a = f.action, T = a.songT, C = SSJ2_CUT, now = performance.now() / 1000;
+  const sc = sctx;
+  sc.save();
+  const fadeOut = clamp((C.len - T) / 0.7, 0, 1);            // the last moments fade back into the fight
+  sc.globalAlpha = fadeOut;
+  sc.fillStyle = '#000'; sc.fillRect(0, 0, W, H);
+  // ---- the red line, then the lava pouring out of it ----
+  const x0 = -80, y0 = H * 0.30, x1 = W + 80, y1 = H * 0.64, ang = Math.atan2(y1 - y0, x1 - x0), len = Math.hypot(x1 - x0, y1 - y0);
+  if (T >= C.line) {
+    const pLine = easeOut(clamp((T - C.line) / (C.lineDone - C.line), 0, 1));
+    const kFill = T < C.lineDone ? 0 : clamp((T - C.lineDone) / (C.fill - C.lineDone), 0, 1);
+    const thick = 12 + kFill * kFill * Math.hypot(W, H) * 1.3;
+    sc.save(); sc.translate(x0, y0); sc.rotate(ang);
+    if (kFill > 0) {                                         // the cut tearing open: molten ki inside it
+      sc.save(); sc.beginPath(); sc.rect(0, -thick / 2, len, thick); sc.clip();
+      const g = sc.createLinearGradient(0, -thick / 2, 0, thick / 2);
+      g.addColorStop(0, '#5a0a00'); g.addColorStop(0.3, '#d8320c'); g.addColorStop(0.5, '#ff9a2a'); g.addColorStop(0.7, '#d8320c'); g.addColorStop(1, '#5a0a00');
+      sc.fillStyle = g; sc.fillRect(0, -thick / 2, len, thick);
+      for (let i = 0; i < 46; i++) {                       // bubbling, flowing blobs of lava
+        const bx = ((i * 137.5 + now * (60 + (i % 7) * 25)) % (len + 200)) - 100;
+        const by = Math.sin(i * 12.9 + now * (0.6 + (i % 5) * 0.2)) * thick * 0.42;
+        const br = 20 + (i % 6) * 14 + Math.sin(now * 2 + i) * 6;
+        sc.globalAlpha = fadeOut * (0.25 + 0.2 * Math.sin(now * 3 + i));
+        sc.fillStyle = i % 3 === 0 ? '#ffe066' : i % 3 === 1 ? '#ff7a1a' : '#a01a05';
+        sc.beginPath(); sc.ellipse(bx, by, br * 1.8, br, 0, 0, Math.PI * 2); sc.fill();
+      }
+      sc.globalAlpha = fadeOut;
+      sc.restore();
+    }
+    // the line itself (glowing red-orange), riding the lip of the cut
+    const lw = len * pLine;
+    for (const [w, col, al] of [[38, '#ff2a10', 0.35], [16, '#ff5a1a', 0.9], [5, '#ffe0a0', 1]]) {
+      sc.globalAlpha = fadeOut * al * (kFill > 0.95 ? 1 - (kFill - 0.95) * 20 : 1);
+      sc.fillStyle = col;
+      for (const edge of kFill > 0 ? [-1, 1] : [0]) sc.fillRect(0, edge * thick / 2 - w / 2, lw, w);
+    }
+    sc.globalAlpha = fadeOut;
+    sc.restore();
+  }
+  // ---- Lance, big, in the middle ----
+  const powering = T >= C.fill, burstK = T >= C.burst ? clamp((T - C.burst) / 0.5, 0, 1) : 0;
+  const pk = powering ? clamp((T - C.fill) / (C.burst - C.fill), 0, 1) : 0;
+  const cx = W * 0.5 + (powering ? (realRandom() - 0.5) * (2 + 8 * pk) : 0), cy = H * 1.22;   // (a close-up: chest up)
+  const S = 6.2 + 0.4 * pk;
+  if (powering) {                                            // his aura swelling out round him
+    const auraCol = T >= C.burst ? '#ffe066' : '#ffd23f';
+    sc.save(); sc.globalAlpha = fadeOut * (0.35 + 0.35 * pk);
+    sc.fillStyle = auraCol; spikyAuraPathOn(sc, cx, cy - 60 * S, 34 * S * (1 + 0.5 * pk), 58 * S * (1 + 0.3 * pk), 30 * S, now * 6); sc.fill();
+    sc.globalAlpha = fadeOut * (0.25 + 0.3 * pk); sc.fillStyle = '#fff6c2';
+    spikyAuraPathOn(sc, cx, cy - 56 * S, 24 * S * (1 + 0.4 * pk), 44 * S * (1 + 0.3 * pk), 18 * S, now * 9 + 1); sc.fill();
+    sc.restore();
+    // lightning: a little at first, crackling all over him once he's Super Saiyan 2
+    const nb = T >= C.burst ? 5 : (pk > 0.5 ? 2 : 0);
+    sc.save(); sc.globalAlpha = fadeOut; sc.lineWidth = 3; sc.strokeStyle = '#ffffff'; sc.shadowColor = '#bfeaff'; sc.shadowBlur = 10;
+    for (let b = 0; b < nb; b++) if (realRandom() < 0.6) {
+      let bx = cx + (realRandom() - 0.5) * 130 * S * 0.3, by = cy - realRandom() * 110 * S;
+      sc.beginPath(); sc.moveTo(bx, by);
+      for (let q = 0; q < 6; q++) { bx += (realRandom() - 0.5) * 50; by += (realRandom() - 0.5) * 50; sc.lineTo(bx, by); }
+      sc.stroke();
+    }
+    sc.restore();
+    // rocks and ki rising off the ground
+    sc.save(); sc.globalAlpha = fadeOut;
+    for (let i = 0; i < 14; i++) {
+      const rx = cx + Math.sin(i * 7.3) * 420, ry = H - ((now * (90 + i * 13) + i * 97) % (H * 0.9));
+      sc.fillStyle = i % 2 ? '#3a2a22' : '#ffd23f'; sc.fillRect(rx, ry, 6 + (i % 3) * 4, 6 + (i % 3) * 4);
+    }
+    sc.restore();
+  }
+  // the figure (drawn with the world's figure code, onto the screen)
+  const ctx0 = ctx; ctx = sc;
+  sc.save();
+  if (T < C.line) sc.filter = 'grayscale(1) contrast(1.35) brightness(1.15)';    // the black-and-white first shot
+  sc.translate(cx, cy); sc.scale(S, S);
+  const shakeP = powering ? Math.sin(now * 70) * 0.04 * (0.4 + pk) : 0;
+  const pz = powering && T < C.burst
+    ? pose({ lean: -0.32 + shakeP, bob: -14, legA: [0.8, 0.55], legB: [-0.8, 0.45], armA: [0.45 + shakeP, -1.5] })   // the scream
+    : T >= C.burst ? pose({ lean: 0.05, bob: -6, legA: [0.5, 0.35], legB: [-0.45, 0.3], armA: [0.3, -0.5] })        // calm, SS2
+    : pose({ lean: 0.12, bob: -5, legA: [0.45, 0.3], legB: [-0.4, 0.35], armA: [0.25, -0.6] });                     // head down, glaring
+  drawFigure({ x: 0, y: 0, vx: 0, vy: 0, face: 1, pose: pz, squash: 0, color: bodyColorOf(f), ink: inkOf(f), look: f.look,
+               transformed: true, lanceForm: T >= C.burst ? 2 : 1, ui: false }, { alpha: fadeOut });
+  sc.restore();
+  ctx = ctx0;
+  // the burst: a white flash
+  if (T >= C.burst && burstK < 1) { sc.globalAlpha = fadeOut * (1 - burstK); sc.fillStyle = '#ffffff'; sc.fillRect(0, 0, W, H); }
+  // letterbox
+  sc.globalAlpha = fadeOut; sc.fillStyle = '#000'; sc.fillRect(0, 0, W, 54); sc.fillRect(0, H - 54, W, 54);
+  sc.restore();
+}
+// (spikyAuraPath, but onto any canvas)
+function spikyAuraPathOn(c, cx, cy, w, h, n, ph) {
+  c.beginPath();
+  for (let j = 0; j <= 36; j++) {
+    const an = j / 36 * Math.PI * 2, spike = (j % 2 ? 1 : 0.72) * (1 + 0.08 * Math.sin(ph + j * 1.7));
+    const up = Math.sin(an) < 0 ? 1.25 : 0.9;
+    const px = cx + Math.cos(an) * w * spike, py = cy + Math.sin(an) * h * spike * up;
+    j ? c.lineTo(px, py) : c.moveTo(px, py);
+  }
+  c.closePath();
+}
+
 function lanceTransform(f) {
   const next = Math.min(3, (f.lanceForm || 0) + 1);
   f.ultBuf = 0;
   if (next >= 3) { startUltraInstinct(f); return; }          // the third: ULTRA INSTINCT (the cutscene)
+  if (next === 2) { startSsj2Cut(f); return; }               // the second: SUPER SAIYAN 2 (its own cutscene)
   setLanceForm(f, next);
   f.transformed = true;                                      // (a full meter to spend on his ultimates)
   ultBanner = { t: 1.2, title: 'TRANSFORM', name: LANCE_FORMS[next].name, color: '#ffe066', who: f };
@@ -11922,7 +12073,8 @@ function stepAction(f, inp, dt) {
   if (a.type === 'ultBeam') return stepUltBeam(f, a, dt);
   if (a.type === 'flameDragon') return stepFlameDragon(f, a, dt);
   if (a.type === 'kiCharge') return stepKiCharge(f, a, inp, dt);   // Lance: holding down K - the ki charge
-  if (a.type === 'uiTransform') return stepUiTransform(f, a, dt);   // Lance: Ultra Instinct awakening + teleport combo   // Sevon: summoning / releasing the Flame Dragon
+  if (a.type === 'uiTransform') return stepUiTransform(f, a, dt);
+  if (a.type === 'ssj2Cut') return stepSsj2Cut(f, a, dt);   // Lance: the Super Saiyan 2 cutscene   // Lance: Ultra Instinct awakening + teleport combo   // Sevon: summoning / releasing the Flame Dragon
   if (a.type === 'shipUlt') return stepShipUlt(f, a, dt);
   if (a.type === 'kiBarrage') return stepKiBarrage(f, a, dt);    // Lance: It's My Turn's ki barrage
   if (a.type === 'ledge') return stepLedge(f, a, inp, dt);       // hanging off the edge of the stage
@@ -12425,7 +12577,7 @@ function updateFighter(f, inp, dt) {
   f.opening = Math.max(0, (f.opening || 0) - dt);               // the window to punish after a perfect block
   syncKame(f);
   if (f.kiSnd && !(f.action && f.action.type === 'kiCharge')) stopKiChargeSound(f);
-  const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam', 'flameDragon', 'uiTransform'].includes(f.action.type);
+  const inUlt = f.action && ['ultStart', 'ultSeq', 'ultBeam', 'flameDragon', 'uiTransform', 'ssj2Cut'].includes(f.action.type);
   if (f.transformed) {                                            // transformed: the meter slowly drains
     if (f.look && f.look.doubleUlt) {                            // Colbalias: only the bar he transformed on drains (same ~14s as anyone's)
       const fl = f.tfFloor || 0;
@@ -12502,7 +12654,7 @@ function updateFighter(f, inp, dt) {
   const a = f.action;
   const floating = a && ((a.type === 'air' && a.t < a.floatTime) || a.type === 'clash' || a.type === 'grabbed' || a.type === 'thrown' || a.type === 'whipped' ||
     (a.type === 'attack' && a.move.floatWhile && a.move.floatWhile(f, a)) ||
-    a.type === 'flydash' || a.type === 'ultBeam' || a.type === 'flameDragon' || a.type === 'uiTransform' || a.type === 'shipUlt' || a.type === 'kiBarrage' || a.type === 'impaled' || a.type === 'ledge' || a.type === 'gazeSwap' || a.type === 'swapped' || (a.type === 'hitstun' && a.crit) || a.type === 'timeStop' ||
+    a.type === 'flydash' || a.type === 'ultBeam' || a.type === 'flameDragon' || a.type === 'uiTransform' || a.type === 'ssj2Cut' || a.type === 'shipUlt' || a.type === 'kiBarrage' || a.type === 'impaled' || a.type === 'ledge' || a.type === 'gazeSwap' || a.type === 'swapped' || (a.type === 'hitstun' && a.crit) || a.type === 'timeStop' ||
     (a.type === 'hitstun' && (a.impaled || (a.flat && a.t < a.flat))) ||   // skewered on the Red Chidori / launched dead flat (Hundred Clone Rush)
     a.type === 'odmReel' || a.type === 'odmSpin' ||                  // Sevon flying on his ODM gear
     (a.type === 'attack' && a.phase === 'active' && a.move.hover && !f.ground) ||      // Shuriken Kick holds its height
@@ -13562,7 +13714,7 @@ function update(dt) {
   updateCannons(dt);
 
   // LANCE'S ULTRA INSTINCT: the whole match stops to watch - everyone but him and the one he's beating on is frozen
-  const uiCut = fighters.find(f => f.action && f.action.type === 'uiTransform');
+  const uiCut = fighters.find(f => f.action && (f.action.type === 'uiTransform' || f.action.type === 'ssj2Cut'));
   for (const f of fighters) f.uiFrozen = !!uiCut && f !== uiCut && f !== uiCut.action.victim;
   for (const f of fighters.slice()) {
     if (f.uiFrozen) continue;
@@ -16059,6 +16211,8 @@ function drawHUD() {
     if (ultBanner) drawUltHUD();
     return;
   }
+  const ss2F = fighters.find(f => f.action && f.action.type === 'ssj2Cut');
+  if (ss2F) { drawSsj2Cut(ss2F); if (ultBanner) drawUltHUD(); return; }   // Lance's Super Saiyan 2 cutscene: the whole screen
   if (fighters.some(f => f.action && f.action.type === 'uiTransform')) {   // Lance's Ultra Instinct: letterbox + his speech bubble
     sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, 54); sctx.fillRect(0, H - 54, W, 54);
     drawUiBubble();
@@ -16940,7 +17094,7 @@ function showResults() {
 }
 
 function startMatch() {
-  for (const f of fighterPool) { endShipSong(f); stopUiSong(f, 0.3); }    // (a pirate-ship song / UI theme still playing from the last match)
+  for (const f of fighterPool) { endShipSong(f); stopUiSong(f, 0.3); stopSsj2Song(f, 0.3); }    // (a pirate-ship song / UI theme still playing from the last match)
   removeAllMinions();
   cage = null;
   kbTaps.l = kbTaps.r = -9;                       // (no double-tap carried over from the last match - everyone starts STILL)
@@ -17750,7 +17904,7 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out - and through KOs.'],
-      ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'Lightning crackles round his aura: +15% damage, +25% move speed, attacks 25% faster. Also stays on when the meter runs out, and through KOs.'],
+      ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'A full cutscene to Day of Fate (the red line, the lava sea of ki) - then lightning crackles round his aura: +20% damage, +32% move speed, attacks 32% faster. Also stays on when the meter runs out, and through KOs.'],
       ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage. A one-hit KO on anyone above 0% - but it is slow to charge: jump it, get behind him or Z vanish through it.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
