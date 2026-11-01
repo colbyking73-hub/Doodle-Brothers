@@ -5281,6 +5281,7 @@ const GLASS_JAW = { mult: 1.12, add: 240, dmgBonus: 1.15 };   // dmgBonus: his o
 const RED_CHIDORI = { spin: 0.16, fly: 0.3, speed: 1250, perCharge: 900, lift: 360, impale: 0.28, r: 30,
                       stab: { dmg: 2.5, base: 0, growth: 0, angle: 0, noStop: true },
                       rip: { dmg: 3, base: 230, growth: 0.9, angle: 38 }, ripStun: 0.42,
+                      throwTime: 0.22, throwHit: { dmg: 4, base: 430, growth: 4.2, angle: 42 },   // the throw at the end
                       block: { dmg: 3, base: 300, growth: 1, angle: 30 },
                       colors: ['#ff2a2a', '#ff8080', '#ffffff', '#b30000'] };
 COLBALIAS_MOVES.hellMissile = COLBALIAS_MOVES.sideRanged;          // (the old side K - his clones' ranged attack now)
@@ -5341,6 +5342,10 @@ function stepRedChidori(f, a, dt) {
       if (!t.action || t.action.type !== 'hitstun') { endRedChidori(f, a); return true; }   // (perfect-blocked / armored)
       // IMPALED
       R.phase = 'impale'; R.t0 = a.t; R.v = t;
+      // they stay EXACTLY where the Chidori caught them (no snapping them onto his arm - that looked like a teleport, and
+      // near a ledge it dragged them off the stage); HE stops at them instead
+      R.ix = t.x; R.iy = t.y;
+      if (t.x > STAGE.x && t.x < STAGE.x + STAGE.w && t.y > STAGE.y) R.iy = STAGE.y;   // (never inside the floor)
       t.action = { type: 'hitstun', t: 0, dur: 9, locked: true, impaled: true, by: f };
       t.vx = t.vy = 0; f.vx = f.vy = 0;
       impactFrame = Math.max(impactFrame, 0.1); impactAt = { x: fist.x, y: fist.y, ang: 0, all: false, focus: true, invert: true };
@@ -5358,24 +5363,29 @@ function stepRedChidori(f, a, dt) {
     f.vx = 0; f.vy = 0;
     a.poseOverride = M.strike;
     if (!v || v.respawnTimer > 0 || !v.action || !v.action.impaled) { endRedChidori(f, a); return true; }
-    // held on his arm at his own height (never pushed down into the floor - that used to shove them out under the stage)
-    // (he counts as airborne during the move, so this checks the STAGE itself: if they'd be inside it, they sit on top)
-    v.x = f.x + D * 38; v.y = f.y + 8; v.vx = v.vy = 0; v.face = -D;
-    if (R.ground) {                                               // started on the ground: they stay over it, never past the edge
-      const P = R.plat || STAGE;
-      v.x = clamp(v.x, P.x + 6, P.x + P.w - 6);
-      v.y = Math.min(v.y, P.y);
-    }
-    if (v.x > STAGE.x && v.x < STAGE.x + STAGE.w && v.y > STAGE.y && v.y < STAGE.y + STAGE.h) v.y = STAGE.y;
+    v.x = R.ix; v.y = R.iy; v.vx = v.vy = 0; v.face = -D;        // skewered right where he caught them...
+    f.x = v.x - D * 38;                                            // ...with him stood at the end of his arm
+    if (R.ground) f.y = R.gy; else f.y = v.y - 8;
     if (realRandom() < dt * 30 && gore) burst(v.x, v.y - 58, BLOOD, 1, Math.PI / 2, 0.6, 160, { stain: true });
     crackle(50);
-    if (T >= RED_CHIDORI.impale) {                                // 4. ...then he RIPS his hand out
+    if (T >= RED_CHIDORI.impale) { R.phase = 'throw'; R.t0 = a.t; }   // 4. ...then he hauls them up on his arm and THROWS them
+    return true;
+  }
+  if (R.phase === 'throw') {
+    const v = R.v, k = clamp(T / RED_CHIDORI.throwTime, 0, 1);
+    f.vx = 0; f.vy = 0;
+    if (!v || v.respawnTimer > 0 || !v.action || !v.action.impaled) { endRedChidori(f, a); return true; }
+    // still skewered: swung up over his shoulder in an arc...
+    const ang = Math.PI * 0.15 + k * Math.PI * 0.55, r = 40;
+    v.x = f.x + D * Math.cos(ang) * r; v.y = f.y + 8 - Math.sin(ang) * 70; v.vx = v.vy = 0;
+    a.poseOverride = pose({ lean: -0.25 * k, bob: -8, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [1.6 + k * 1.2, 0.1], armB: [0.4, -1.4] });
+    crackle(60);
+    if (k >= 1) {                                                  // ...and HURLED off his hand
       v.action = null;
-      knock(v, RED_CHIDORI.rip, D, powerOf(f), v.x, v.y - 58);
-      if (v.action && v.action.type === 'hitstun' && !v.action.crit) { v.action.dur = Math.max(v.action.dur, RED_CHIDORI.ripStun); v.action.locked = true; }   // (stunned even if they land - time to combo or GRAB)
-      burst(v.x, v.y - 58, gore ? BLOOD : SWEAT, 26, D > 0 ? Math.PI : 0, 0.9, 560, { stain: gore });
-      hellBurst(v.x, v.y - 58, 12, 420); shake = Math.max(shake, 10);
-      a.poseOverride = pose({ lean: -0.3, bob: -6, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [-0.8, -0.8], armB: [0.4, -1.4] });   // hand yanked back
+      knock(v, RED_CHIDORI.throwHit, D, powerOf(f), v.x, v.y - 58);
+      burst(v.x, v.y - 58, gore ? BLOOD : SWEAT, 26, D > 0 ? 0 : Math.PI, 0.9, 560, { stain: gore });
+      hellBurst(v.x, v.y - 58, 12, 420); shake = Math.max(shake, 12); sfx.slam && sfx.slam();
+      a.poseOverride = pose({ lean: 0.45, bob: -6, legA: [0.9, 0.6], legB: [-0.7, 0.2], armA: [1.3, 0.05], armB: [0.4, -1.4] });   // arm flung out after it
       R.phase = 'done'; a.phase = 'end'; a.t = 0;
       if (f.look && f.look.demonMeter) gainDemon(f);
     }
@@ -7089,11 +7099,24 @@ const SEVON_MOVES = {
     strike: pose({ lean: 0.5, bob: -14, legA: [1.0, 0.8], legB: [-0.8, 0.1], armA: [1.3, 0.1], armB: [1.15, 0.2], sw: 1.1 }),
     fire(f) { flameSlash(f, 70, -50, 14); shake = Math.max(shake, 6); sfx.slash && sfx.slash(); } },
   // ---------- J + direction ----------
-  sideGround: { name: 'Flame Thrust', startup: 0.12, active: 0.08, endlag: 0.3, charge: true, lunge: 620, lungeFriction: 0.4,
-    hitboxes: [{ x: 92, y: -66, r: 32, dmg: 12, base: 430, growth: 6.6, angle: 35 }, { x: 52, y: -66, r: 28, dmg: 11, base: 410, growth: 6.4, angle: 35 }],
-    wind: pose({ lean: -0.3, bob: -10, legA: [0.9, 0.8], legB: [-0.7, 0.3], armA: [0.6, -0.4], armB: [0.5, -0.3], sw: 1.5 }),
-    strike: pose({ lean: 0.6, bob: -12, legA: [1.1, 0.6], legB: [-0.9, 0.1], armA: [1.6, 0], armB: [1.5, 0.05], sw: 1.6 }),
-    fire(f) { flameSlash(f, 90, -66, 16); sfx.whoosh(true); } },
+  // SIDE J: FLAME SLASH - one wide cut, and the flames off the blade ROLL OUTWARD: the hit reaches further and further
+  // through the swing (point blank -> ~190px out), so it's good from close up and from mid range
+  sideGround: { name: 'Flame Slash', startup: 0.11, active: 0.3, endlag: 0.28, charge: true, lunge: 260, lungeFriction: 0.4,
+    hitboxes: [{ x: 52,  y: -64, r: 34, dmg: 10, base: 400, growth: 6, angle: 36, from: 0,    to: 0.08 },
+               { x: 98,  y: -60, r: 38, dmg: 10, base: 400, growth: 6, angle: 36, from: 0.06, to: 0.16 },
+               { x: 146, y: -56, r: 44, dmg: 9,  base: 390, growth: 5.8, angle: 36, from: 0.14, to: 0.24 },
+               { x: 180, y: -52, r: 44, dmg: 9,  base: 390, growth: 5.8, angle: 36, from: 0.22, to: 0.3 }],   // (one hit per swing)
+    wind: pose({ lean: -0.3, bob: -10, legA: [0.9, 0.8], legB: [-0.7, 0.3], armA: [2.6, 0.4], armB: [2.4, 0.5], sw: 2.9 }),    // blade drawn back high
+    strike: pose({ lean: 0.55, bob: -12, legA: [1.1, 0.6], legB: [-0.9, 0.1], armA: [1.35, 0.05], armB: [1.2, 0.1], sw: 1.25 }), // swept through
+    fire(f) { flameSlash(f, 50, -64, 14); sfx.whoosh(true); sfx.slash && sfx.slash(); },
+    step(f, a, dt) {
+      if (a.phase === 'active') {                      // the wall of flame rolling out ahead of the cut
+        const front = 50 + 145 * clamp(a.t / 0.3, 0, 1), grow = 0.7 + 0.6 * clamp(a.t / 0.3, 0, 1);
+        if (Math.random() < dt * 80) burst(f.x + f.face * (front + (Math.random() - 0.5) * 30), f.y - 40 - Math.random() * 40 * grow, SEVON_FIRE, 3, Math.PI / 2, 1.0, 220 * grow, { grav: -420 });
+        if (Math.random() < dt * 40) burst(f.x + f.face * front * 0.6, f.y - 55, SEVON_FIRE, 2, f.face > 0 ? 0 : Math.PI, 0.4, 500, { grav: -200 });
+      }
+      return false;
+    } },
   upGround: { name: 'Sun Arc', startup: 0.09, active: 0.14, endlag: 0.26, charge: true,
     hitboxes: [{ x: 56, y: -40, r: 34, dmg: 10, base: 400, growth: 6, angle: 85, from: 0, to: 0.06, group: 0 },
                { x: 30, y: -110, r: 42, dmg: 11, base: 420, growth: 6.2, angle: 88, from: 0.05, to: 0.14, group: 0 },
@@ -7145,8 +7168,8 @@ const SEVON_MOVES = {
     wind: pose({ lean: -0.1, bob: -8, legA: [0.75, 0.6], legB: [-0.6, 0.2], armA: [0.4, -0.3], armB: [1.1, -0.9], sw: 2.2 }),   // hand on the trigger at his hip
     strike: pose({ lean: 0.1, bob: -8, legA: [0.75, 0.6], legB: [-0.6, 0.2], armA: [1.5, 0.05], armB: [1.1, -0.9], sw: 2.2 }),
     fire(f) { fireOdmHook(f); } },
-  // SIDE K: FIRST FORM - UNKNOWING FIRE: a blazing dash cut straight through them
-  sideRanged: { name: 'First Form: Unknowing Fire', startup: 0.12, active: 0.18, endlag: 0.26, landLag: 0.14, lunge: 1500, lungeFriction: 0.22, travel: true,
+  // (his old side K - FIRST FORM: UNKNOWING FIRE, a blazing dash cut - now only the Ninth Form ultimate's lunge uses its poses)
+  unknowingFire: { name: 'First Form: Unknowing Fire', startup: 0.12, active: 0.18, endlag: 0.26, landLag: 0.14, lunge: 1500, lungeFriction: 0.22, travel: true,
     hitboxes: [{ x: 60, y: -60, r: 42, dmg: 11, base: 430, growth: 6.4, angle: 36 }, { x: 10, y: -60, r: 36, dmg: 11, base: 430, growth: 6.4, angle: 36 }],
     wind: pose({ lean: 0.3, bob: -22, legA: [1.3, 1.6], legB: [-0.6, 0.9], armA: [-0.7, -0.2], armB: [-0.6, -0.1], sw: 0.2 }),   // low, hand on the hilt
     strike: pose({ lean: 0.7, bob: -14, legA: [1.3, 0.6], legB: [-1.0, 0.2], armA: [1.7, 0], armB: [-1.3, -0.3], sw: 1.7 }),
@@ -7160,17 +7183,40 @@ const SEVON_MOVES = {
       }
       return false;
     } },
-  // UP K: SECOND FORM - RISING SCORCHING SUN: a rising slash that carries him up (recovery)
-  upRanged: { name: 'Second Form: Rising Scorching Sun', startup: 0.08, active: 0.28, endlag: 0.28, landLag: 0.18, flip: true, flipTurns: 1,
-    hitboxes: [{ x: 40, y: -60, r: 44, dmg: 3, base: 1100, growth: 0, angle: 86, from: 0, to: 0.12, group: 0 },
-               { x: 26, y: -100, r: 46, dmg: 7, base: 440, growth: 5.8, angle: 84, from: 0.14, to: 0.28, group: 1 }],
-    wind: pose({ bob: -20, lean: 0.3, legA: [1.0, 1.6], legB: [-0.5, 1.1], armA: [0.6, 0.3], armB: [0.5, 0.4], sw: 0.7 }),
-    strike: pose({ lean: -0.1, legA: [0.6, 1.4], legB: [0.2, 1.0], armA: [3.0, 0.05], armB: [2.9, 0.1], sw: 3.1 }),
+  // UP K (recovery): SECOND FORM - FLAME WHEEL. Like Link's spin attack in Smash: he spins with the katana held straight out,
+  // RISING as he goes (a little hop on the ground, a real climb in the air), the blade sweeping round both sides and catching
+  // them over and over, then one last wide swing launches them. The whole twirl is wreathed in a ring of fire.
+  upRanged: { name: 'Second Form: Flame Wheel', startup: 0.07, active: 0.5, endlag: 0.3, landLag: 0.2,
+    hitboxes: (() => {
+      const hb = [];
+      for (let i = 0; i < 5; i++) hb.push({ x: (i % 2 ? -1 : 1) * 46, y: -66, r: 52, dmg: 2.2, base: 900, growth: 0, angle: 87, from: i * 0.08, to: i * 0.08 + 0.07, group: i });   // (carries them up WITH him)
+      for (const sx of [1, -1]) hb.push({ x: sx * 44, y: -70, r: 56, dmg: 5, base: 440, growth: 5.2, angle: sx > 0 ? 62 : 118, from: 0.42, to: 0.5, group: 5 });
+      return hb;
+    })(),
+    wind: pose({ bob: -14, lean: 0.25, legA: [0.9, 1.0], legB: [-0.6, 0.6], armA: [-0.9, -0.2], armB: [-0.8, -0.1], sw: 4.3 }),   // blade held back low
+    strike: pose({ lean: 0, bob: -4, legA: [0.4, 0.5], legB: [-0.4, 0.7], armA: [1.57, 0], armB: [1.45, 0.05], sw: 1.57 }),       // blade straight out
     fire(f, mult, c, a) {
-      if (!f.upSpecialUsed) { f.upSpecialUsed = true; f.vy = -1450; f.vx = f.face * 220; f.ground = false; f.y -= 2; a.air = true; }
-      flameSlash(f, 20, -80, 20); sfx.whoosh(true);
+      if (!f.upSpecialUsed) {
+        f.upSpecialUsed = true; a.rise = f.ground ? 640 : 1350;           // (a hop on the ground, a real climb in the air)
+        f.vy = -a.rise; f.ground = false; f.y -= 2; a.air = true;
+      }
+      ring(f.x, f.y - 60); sfx.whoosh(true);
     },
-    step(f, a, dt) { if (a.phase === 'active' && Math.random() < dt * 60) burst(f.x, f.y - 40, SEVON_FIRE, 2, Math.PI / 2, 1, 260, { grav: -200 }); return false; } },
+    step(f, a, dt) {
+      if (a.phase !== 'active') { a.poseOverride = null; return false; }
+      const k = a.t / 0.5;
+      if (a.rise) f.vy = Math.min(f.vy, -a.rise * (1 - 0.8 * k));       // keeps climbing (slowing) through the spin
+      const w = a.t * 32, c = Math.cos(w);                               // spinning round - the blade sweeps both sides
+      a.poseOverride = { ...pose({ lean: 0, bob: -4, legA: [0.4, 0.5], legB: [-0.4, 0.7], armA: [1.57, 0], armB: [1.45, 0.05], sw: 1.57 }), turnX: c };
+      // the ring of fire round the spin
+      for (let q = 0; q < 2; q++) {
+        const an = w + q * Math.PI, rx = 62, ry = 18;
+        if (Math.random() < dt * 70) burst(f.x + Math.cos(an) * rx, f.y - 62 + Math.sin(an) * ry, SEVON_FIRE, 2, Math.PI / 2, 1.2, 160, { grav: -380 });
+      }
+      if (Math.random() < dt * 25) ghosts.push({ fig: figureOf(f), life: 0.12, max: 0.12, color: '#ff7a1a' });
+      if (a.t >= 0.42 && !a.burst) { a.burst = true; burst(f.x, f.y - 66, SEVON_FIRE, 30, 0, Math.PI, 560, { grav: -250 }); ring(f.x, f.y - 66); }
+      return false;
+    } },
   // DOWN K: THIRD FORM - BLAZING UNIVERSE: a hop, then a huge flaming crescent brought down in front of him
   blazingUniverse: { name: 'Third Form: Blazing Universe',     // (his old down K - retired for Total Concentration) startup: 0.14, active: 0.2, endlag: 0.3, landLag: 0.16, hop: 420, charge: true,
     hitboxes: [{ x: 50, y: -90, r: 46, dmg: 8, base: 300, growth: 3, angle: 70, from: 0, to: 0.08, group: 0 },
@@ -7187,6 +7233,78 @@ const SEVON_MOVES = {
       return false;
     } },
 };
+
+// ---------------- BATARANG (Sevon, side K) ----------------
+// He whips a bat-shaped blade out of his haori: hold any of the 8 directions while he winds up and that's where it goes
+// (it starts the way he's facing). It flies out, slows, and BOOMERANGS back to his hand - cutting anyone on the way out
+// AND on the way back. One out at a time. Trails embers. See spawnBatarang / updateBatarang / drawBatarang.
+const BATARANG = { speed: 1150, out: 0.4, back: 1250, r: 22, catchR: 46, life: 2.4,
+  hit:     { dmg: 6, base: 330, growth: 3.4, angle: 40 },
+  backHit: { dmg: 4, base: 260, growth: 2.4, angle: 50 } };
+SEVON_MOVES.sideRanged = { name: 'Batarang', startup: 0.12, active: 0.06, endlag: 0.2, landLag: 0.1,
+  wind: pose({ lean: -0.25, bob: -8, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [-1.6, -0.6], armB: [0.6, -0.7], sw: 2.2 }),   // throwing arm cocked back
+  strike: pose({ lean: 0.4, bob: -8, legA: [0.9, 0.6], legB: [-0.7, 0.2], armA: [1.7, 0.05], armB: [0.6, -0.7], sw: 2.2 }),   // whipped out
+  step(f, a, dt, inp) {                                       // AIM: the last direction held before it flies (8 ways)
+    if (a.phase === 'startup' || a.phase === 'charge') {
+      const ax = inp.dir || 0, ay = inp.up ? -1 : inp.down ? 1 : 0;
+      if (ax || ay) { a.ax = ax; a.ay = ay; if (ax) f.face = ax; }
+    }
+    return false;
+  },
+  fire(f, mult, c, a) {
+    if (projectiles.some(q => q.kind === 'batarang' && q.owner === f)) { burst(f.x + f.face * 30, f.y - 62, ['#555555', '#ff7a1a'], 6, 0, Math.PI, 200, { grav: 0 }); return; }   // (one at a time)
+    spawnBatarang(f, a.ax ?? f.face, a.ay ?? 0);
+  } };
+function spawnBatarang(f, ax, ay) {
+  const L = Math.hypot(ax, ay) || 1;
+  projectiles.push({ owner: f, kind: 'batarang', x: f.x + f.face * 24, y: f.y - 66, vx: ax / L * BATARANG.speed, vy: ay / L * BATARANG.speed,
+                     t: 0, phase: 'out', hit: new Set(), spin: 0, mult: powerOf(f) });
+  sfx.whoosh(true);
+}
+function updateBatarang(s, dt) {                              // returns true when it's gone
+  const o = s.owner;
+  s.t += dt; s.spin += dt * 30;
+  if (!o || o.respawnTimer > 0 || s.t > BATARANG.life) return true;
+  if (s.phase === 'out') {
+    const k = s.t / BATARANG.out;
+    s.x += s.vx * dt * (1 - 0.6 * k); s.y += s.vy * dt * (1 - 0.6 * k);   // (slows as it reaches the end of its throw)
+    if (s.t >= BATARANG.out) { s.phase = 'back'; s.hit = new Set(); }   // turns round - and can cut them again
+  } else {
+    const tx = o.x, ty = o.y - 62, dx = tx - s.x, dy = ty - s.y, d = Math.hypot(dx, dy) || 1;
+    if (d < BATARANG.catchR) { burst(o.x + o.face * 10, o.y - 62, ['#ffb02e', '#ffffff'], 6, 0, Math.PI, 160, { grav: 0 }); return true; }   // caught
+    s.vx = dx / d * BATARANG.back; s.vy = dy / d * BATARANG.back;
+    s.x += s.vx * dt; s.y += s.vy * dt;
+  }
+  if (Math.random() < dt * 40) burst(s.x, s.y, SEVON_FIRE, 1, Math.PI / 2, 1.2, 80, { grav: -200 });   // embers off it
+  for (const t of fighters) {
+    if (t === o || allies(o, t) || s.hit.has(t) || t.respawnTimer > 0 || projPhase(t) || cloneShielded(o, t)) continue;
+    if (!circleHitsFighter(s.x, s.y, BATARANG.r, t)) continue;
+    s.hit.add(t);
+    const h = s.phase === 'out' ? BATARANG.hit : BATARANG.backHit;
+    applyHit(t, h, Math.sign(s.vx) || o.face, s.mult, s.x, s.y, { fighter: o });
+    burst(s.x, s.y, ['#ffffff', '#ff7a1a'], 8, 0, Math.PI, 360, { grav: 0 });
+  }
+  return false;
+}
+function drawBatarang(s) {
+  ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.spin);
+  const S = 1.1;
+  ctx.beginPath();                                            // the bat: a body with two scalloped wings
+  ctx.moveTo(0, -5 * S);
+  ctx.lineTo(4 * S, -9 * S); ctx.lineTo(6 * S, -4 * S);
+  ctx.quadraticCurveTo(14 * S, -8 * S, 24 * S, -2 * S);
+  ctx.quadraticCurveTo(19 * S, 1 * S, 18 * S, 6 * S);
+  ctx.quadraticCurveTo(14 * S, 2 * S, 10 * S, 6 * S);
+  ctx.quadraticCurveTo(6 * S, 3 * S, 0, 8 * S);
+  ctx.quadraticCurveTo(-6 * S, 3 * S, -10 * S, 6 * S);
+  ctx.quadraticCurveTo(-14 * S, 2 * S, -18 * S, 6 * S);
+  ctx.quadraticCurveTo(-19 * S, 1 * S, -24 * S, -2 * S);
+  ctx.quadraticCurveTo(-14 * S, -8 * S, -6 * S, -4 * S);
+  ctx.lineTo(-4 * S, -9 * S); ctx.closePath();
+  ctx.fillStyle = sketch ? '#222' : '#1c1c22'; ctx.fill();
+  if (!sketch) { ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 1.6; ctx.stroke(); }
+  ctx.restore();
+}
 
 // SAMURAI FLOW: his sword moves (and his K forms) can cancel into each other once they land - see the flow check in stepAction
 for (const k of ['jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair', 'sideRanged', 'upRanged']) SEVON_MOVES[k].flow = true;
@@ -8174,7 +8292,7 @@ CHARACTERS.SEVON.altUlt = {
   name: 'NINTH FORM: RENGOKU',
   slashes: [SEVON_MOVES.jab.strike, SEVON_MOVES.jab2.strike, SEVON_MOVES.jab3.strike, SEVON_MOVES.fair.strike, SEVON_MOVES.uair.strike, SEVON_MOVES.sideGround.strike],
   kicks: [SEVON_MOVES.dashAttack.strike, SEVON_MOVES.upGround.strike, SEVON_MOVES.downGround.strike],
-  finalWind: SEVON_MOVES.sideRanged.wind, finalStrike: SEVON_MOVES.sideRanged.strike,
+  finalWind: SEVON_MOVES.unknowingFire.wind, finalStrike: SEVON_MOVES.unknowingFire.strike,
   perHit: 1.0, flameFinal: true, cutscene: false,
   final: { dmg: 12, base: 520, growth: 6.4, angle: 38 },
 };
@@ -11210,6 +11328,7 @@ function updateProjectiles(dt) {
     if (s.kind === 'beam') { if (updateBeam(s, dt)) projectiles.splice(i, 1); continue; }
     if (s.kind === 'disc') { if (updateDisc(s, dt)) projectiles.splice(i, 1); continue; }   // Lance's Destructo Disc
     if (s.kind === 'dragon') { if (updateDragon(s, dt)) projectiles.splice(i, 1); continue; }   // Sevon's Flame Dragon
+    if (s.kind === 'batarang') { if (updateBatarang(s, dt)) projectiles.splice(i, 1); continue; }   // Sevon's batarang
     if (s.grav) s.vy += s.grav * dt;
     // STEERED (Colby's Thunder Bolt): turns toward wherever his stick points, while he's still concentrating on it
     if (s.steer) {
@@ -15681,11 +15800,11 @@ function drawProjectiles() {
   }
   if (!sketch) drawKameCharge();                                // Lance's ultimate: the ki ball growing in his hand
   for (const f of fighters) if (f.action && f.action.type === 'uiTransform') drawUiKame(f);   // Lance's UI cutscene Kamehameha
-  for (const s of projectiles) if (s.kind === 'beam') drawBeam(s); else if (s.kind === 'disc') drawDisc(s); else if (s.kind === 'dragon') drawDragon(s);
+  for (const s of projectiles) if (s.kind === 'beam') drawBeam(s); else if (s.kind === 'disc') drawDisc(s); else if (s.kind === 'dragon') drawDragon(s); else if (s.kind === 'batarang') drawBatarang(s);
   if (sketch) {                          // pen-drawn energy balls with a scribbled fill
     ctx.lineCap = 'round';
     for (const s of projectiles) {
-      if (s.kind === 'beam' || s.kind === 'disc' || s.kind === 'dragon') continue;
+      if (s.kind === 'beam' || s.kind === 'disc' || s.kind === 'dragon' || s.kind === 'batarang') continue;
       const ink = s.owner ? inkOf(s.owner) : '#7a4b00';
       ctx.strokeStyle = ink;
       if (s.kind === 'wave') {
@@ -15708,7 +15827,7 @@ function drawProjectiles() {
     return;
   }
   for (const s of projectiles) {
-    if (s.kind === 'beam' || s.kind === 'disc' || s.kind === 'dragon') continue;
+    if (s.kind === 'beam' || s.kind === 'disc' || s.kind === 'dragon' || s.kind === 'batarang') continue;
     if (s.electric) { drawThunderBolt(s); continue; }
     s.trail.forEach((t, i) => {
       const k = i / s.trail.length;
@@ -17702,7 +17821,7 @@ const MOVESETS = {
   COLBALIAS: { blurb: 'The final boss: a shadow-clone ninja. His clones fight beside him, throw him around, become his weapons and explode. Two meter bars.', sections: [
     { title: 'GROUND J', rows: [
       ['J J J J', 'Clone Catapult > Slingshot Sweep > Clone Vault > Twin Crush', 'He and his clones throw each other around: a clone is hurled into a flying kick, a clone shoves him into a slide, a clone vaults over them into an axe kick - then TWO clones punch their head from both sides at once.'],
-      ['SIDE J (HOLD)', 'Red Chidori', 'Charge red lightning, then a clone spins him and HURLS him. On the ground he skims the floor and stops at the edge; in the air it is a huge rising throw. A hit IMPALES them - he rips his hand out for a stun you can combo or grab.'],
+      ['SIDE J (HOLD)', 'Red Chidori', 'Charge red lightning, then a clone spins him and HURLS him. On the ground he skims the floor and stops at the edge; in the air it is a huge rising throw. A hit IMPALES them right where it catches them - then he swings them up on his arm and THROWS them.'],
       ['UP J', 'Clone Launch Headbutt', 'A clone crouches, he steps into its hands and it heaves him skyward into a giant headbutt.'],
       ['DOWN J', 'Clone Detonation', 'KATSU! Every one of his clones on the stage EXPLODES. No clones out = a small burst round himself.'],
       ['RUN + J', 'Demon Scissors', 'A flying flip that comes down on them legs-first, scissoring.'] ] },
@@ -17749,7 +17868,7 @@ const MOVESETS = {
   SEVON: { blurb: 'The Flame Hashira: a fast samurai with flaming sword forms, ODM gear to grapple onto you, and Total Concentration breathing.', sections: [
     { title: 'GROUND J', rows: [
       ['J J J', 'Flame Cut > Rising Flame > Flame Crash', 'A three-hit flaming sword string.'],
-      ['SIDE J', 'Flame Thrust', 'A burning thrust straight ahead.'],
+      ['SIDE J', 'Flame Slash', 'One wide cut - the flames off the blade roll outward, so it reaches further and further through the swing (about 3 body-lengths at the end). Hold to charge.'],
       ['UP J', 'Sun Arc', 'A rising arc of flame over his head.'],
       ['DOWN J', 'Flame Sweep', 'A low flaming sweep.'],
       ['RUN + J', 'Burning Draw', 'A running draw-cut.'] ] },
@@ -17764,8 +17883,8 @@ const MOVESETS = {
       ['K (TETHERED)', 'Reel In', 'Fires the gas and yanks himself straight to them.'],
       ['K (AGAIN)', 'Levi Spin', 'Whirls at them like a saw blade. While the cable holds it ALWAYS reaches them - only a last-second shield or Z vanish stops it.'],
       ['Z VANISH (TETHERED)', 'Cut the Line', 'At ANY point while the cable is connected: cut it and vanish - the hook is ready to fire again straight away.'],
-      ['SIDE K', 'First Form: Unknowing Fire', 'A blazing dash cut straight through them.'],
-      ['UP K', 'Second Form: Rising Scorching Sun', 'His recovery: a rising slash that carries him up.'],
+      ['SIDE K', 'Batarang', 'Throws a bat-shaped blade - hold any of the 8 directions as he winds up to aim it. It flies out and BOOMERANGS back to his hand, cutting on the way out and on the way back. One at a time.'],
+      ['UP K', 'Second Form: Flame Wheel', 'His recovery, like Link\'s spin attack: he spins with the katana held out in a ring of fire, rising as he goes, hitting both sides over and over - the last swing launches them.'],
       ['DOWN K', 'Total Concentration', 'Switches his breathing form on / off (ground or air). See below.'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
