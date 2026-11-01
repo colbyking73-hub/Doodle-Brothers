@@ -465,6 +465,8 @@ function updateCamera(dt) {
   if (shipF) {                                       // Aiden's pirate ship: pull out to show the whole ship
     const a = shipF.action; tx = a.x + a.dir * (a.t < SHIP.holdEnd ? 0 : SHIP.L * 0.45); ty = a.gy - 210; tz = 0.72; speed = 3;
   }
+  const uiF = alive.find(f => f.action && f.action.type === 'uiTransform' && f.action.cam);
+  if (uiF) { const c = uiF.action.cam; tx = c.x; ty = c.y; tz = c.z; speed = c.speed; }   // Lance's Ultra Instinct: the cutscene's own camera
   if (typeof ult !== 'undefined' && ult) {          // ultimate: push in close on the action
     const u = ult.user, v = ult.target;
     if (ult.def.deck && ult.cam) { tx = ult.cam.x; ty = ult.cam.y; tz = ult.cam.z; speed = ult.cam.fast ? 28 : ult.scene ? 6 : 4; }   // the pirate ship ring
@@ -1457,8 +1459,8 @@ function updateBleed(f, dt) {
   f.damage += BLEED.perSec * f.bleed.length * dt;
   for (let i = 0; i < f.bleed.length; i++) f.bleed[i] -= dt;
   f.bleed = f.bleed.filter(s => s > 0);
-  if (gore && Math.random() < dt * (2 + f.bleed.length)) {        // dripping
-    burst(f.x + (Math.random() - 0.5) * 16, f.y - 30 - Math.random() * 40, BLOOD, 1, -Math.PI / 2, 0.5, 90, { stain: true });
+  if (realRandom() < dt * (2 + f.bleed.length) && gore) {        // dripping
+    burst(f.x + (realRandom() - 0.5) * 16, f.y - 30 - realRandom() * 40, BLOOD, 1, -Math.PI / 2, 0.5, 90, { stain: true });
   }
 }
 // red drop + stack count over a bleeding fighter
@@ -3776,7 +3778,7 @@ function stepHarvest(f, a, dt) {
     thrownSpin(a, F * (0.5 + 0.9 * Math.abs(Math.sin(yaw / 2))));   // flung out wide by the swing
     if (Math.floor(yaw / Math.PI) !== (a.half || 0)) { a.half = Math.floor(yaw / Math.PI); sfx.whoosh(true); }
     if (Math.random() < dt * 28) ghosts.push({ fig: figureOf(v), life: 0.1, max: 0.1, color: '#ff4a3a' });
-    if (gore && Math.random() < dt * 30) burst(v.x, v.y - 58, BLOOD, 1, -Math.PI / 2, 0.8, 200, { stain: true });
+    if (realRandom() < dt * 30 && gore) burst(v.x, v.y - 58, BLOOD, 1, -Math.PI / 2, 0.8, 200, { stain: true });
     return;
   }
   // 4. FLICKS them up off the blade, high into the air
@@ -5312,7 +5314,7 @@ function stepRedChidori(f, a, dt) {
       v.y = Math.min(v.y, P.y);
     }
     if (v.x > STAGE.x && v.x < STAGE.x + STAGE.w && v.y > STAGE.y && v.y < STAGE.y + STAGE.h) v.y = STAGE.y;
-    if (gore && Math.random() < dt * 30) burst(v.x, v.y - 58, BLOOD, 1, Math.PI / 2, 0.6, 160, { stain: true });
+    if (realRandom() < dt * 30 && gore) burst(v.x, v.y - 58, BLOOD, 1, Math.PI / 2, 0.6, 160, { stain: true });
     crackle(50);
     if (T >= RED_CHIDORI.impale) {                                // 4. ...then he RIPS his hand out
       v.action = null;
@@ -7337,7 +7339,7 @@ function stepOdm(f, a, dt, inp) {
       applyHit(t, ODM.spinHit, f.face, powerOf(f), t.x, t.y - 50, { fighter: f });
       slashLine(t.x, t.y - 50, Math.random() * Math.PI, 140, 0.12);
       burst(t.x, t.y - 50, SEVON_FIRE, 8, Math.PI / 2, 1.2, 380, { grav: -250 });
-      if (gore) burst(t.x, t.y - 50, BLOOD, 14, Math.random() * Math.PI * 2, Math.PI, 520, { stain: true });   // (a spray of blood off the spinning blades)
+      if (gore) burst(t.x, t.y - 50, BLOOD, 14, realRandom() * Math.PI * 2, Math.PI, 520, { stain: true });   // (a spray of blood off the spinning blades)
     }
     if (T >= ODM.hits * ODM.every) {                           // ...and the last one sends them flying
       if (t.action) t.action.locked = false;
@@ -8383,10 +8385,14 @@ let gore = true;
 let showHitboxes = false;
 let showControls = true;
 
+// ONLINE SAFETY: these effect helpers (dust / ring / burst / cinders / bolt / hitBits) only make particles - pure
+// visuals - so they roll their randomness with realRandom, NOT the fight's shared generator. That way how many
+// particles a machine makes (gore on/off, quality, busy-screen thinning, effects spawned while drawing) can never
+// make two players' fights drift apart.
 function dust(x, y, n, spread = 1) {
   for (let i = 0; i < n; i++) {
-    particles.push({ x, y, vx: (Math.random() - 0.5) * 260 * spread, vy: -Math.random() * 120,
-      life: 0.4 + Math.random() * 0.25, max: 0.6, r: 3 + Math.random() * 4, type: 'dust' });
+    particles.push({ x, y, vx: (realRandom() - 0.5) * 260 * spread, vy: -realRandom() * 120,
+      life: 0.4 + realRandom() * 0.25, max: 0.6, r: 3 + realRandom() * 4, type: 'dust' });
   }
 }
 function ring(x, y) {
@@ -8396,11 +8402,11 @@ function ring(x, y) {
 function burst(x, y, colors, n, ang = 0, spread = Math.PI, speed = 400, opts = {}) {
   if (particles.length > MAX_PARTICLES * 0.5) n = Math.ceil(n * (particles.length > MAX_PARTICLES * 0.8 ? 0.35 : 0.6));   // busy screen: fewer per burst
   for (let i = 0; i < n; i++) {
-    const a = ang + (Math.random() - 0.5) * 2 * spread;
-    const s = speed * (0.3 + Math.random() * 0.9);
+    const a = ang + (realRandom() - 0.5) * 2 * spread;
+    const s = speed * (0.3 + realRandom() * 0.9);
     particles.push({ x, y, vx: Math.cos(a) * s, vy: -Math.sin(a) * s,
-      life: 0.4 + Math.random() * 0.6, max: 1, size: Math.random() < 0.3 ? 2 : 1,
-      color: colors[(Math.random() * colors.length) | 0], type: 'bit',
+      life: 0.4 + realRandom() * 0.6, max: 1, size: realRandom() < 0.3 ? 2 : 1,
+      color: colors[(realRandom() * colors.length) | 0], type: 'bit',
       grav: opts.grav ?? 1400, stain: !!opts.stain });
   }
 }
@@ -8410,19 +8416,19 @@ const SWEAT = ['#b4b4bb', '#ffffff', '#a8ecff'];
 const CINDER = ['#ff7a1a', '#ffb02e', '#ffe066', '#ff4a10', '#3a2a22'];
 function cinders(x, y, n, spread = 60) {
   for (let i = 0; i < n; i++) {
-    const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2, s = 40 + Math.random() * 160;
-    particles.push({ x: x + (Math.random() - 0.5) * spread * 0.4, y: y + (Math.random() - 0.5) * spread * 0.4,
-      vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.7 + Math.random() * 0.9, max: 1.6, size: Math.random() < 0.35 ? 2 : 1,
-      color: CINDER[(Math.random() * CINDER.length) | 0], type: 'bit', grav: -90 });
+    const a = -Math.PI / 2 + (realRandom() - 0.5) * 2.2, s = 40 + realRandom() * 160;
+    particles.push({ x: x + (realRandom() - 0.5) * spread * 0.4, y: y + (realRandom() - 0.5) * spread * 0.4,
+      vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.7 + realRandom() * 0.9, max: 1.6, size: realRandom() < 0.35 ? 2 : 1,
+      color: CINDER[(realRandom() * CINDER.length) | 0], type: 'bit', grav: -90 });
   }
 }
 
 // A jagged lightning bolt that lasts a moment
 function bolt(x, y, ang, len, life = 0.12, color = '#ffd23f') {
   const pts = [[x, y]];
-  const segs = 5 + (Math.random() * 4 | 0);
+  const segs = 5 + (realRandom() * 4 | 0);
   for (let i = 1; i <= segs; i++) {
-    const d = len * i / segs, off = (Math.random() - 0.5) * len * 0.35;
+    const d = len * i / segs, off = (realRandom() - 0.5) * len * 0.35;
     pts.push([x + Math.cos(ang) * d - Math.sin(ang) * off, y - Math.sin(ang) * d - Math.cos(ang) * off]);
   }
   particles.push({ x, y, vx: 0, vy: 0, pts, life, max: life, color, type: 'bolt' });
@@ -8439,14 +8445,14 @@ function hitBits(t, x, y, dirSign, ang, speed, dmg) {
   const n = Math.min(40, 6 + dmg * 2);
   if (gore) burst(x, y, BLOOD, n, launchAng, 0.7, 520 * power, { stain: true });
   burst(x, y, SWEAT, Math.ceil(n * (gore ? 0.25 : 0.6)), launchAng, 0.9, 420 * power);
-  particles.push({ x, y, vx: 0, vy: 0, life: 0.13, max: 0.13, r: 13 + dmg * 1.7, type: 'impact', rot: Math.random() * Math.PI });
+  particles.push({ x, y, vx: 0, vy: 0, life: 0.13, max: 0.13, r: 13 + dmg * 1.7, type: 'impact', rot: realRandom() * Math.PI });
   const nl = 2 + Math.min(3, dmg / 5 | 0);
   for (let i = 0; i < nl; i++) {
-    const ang = launchAng + (Math.random() - 0.5) * 0.7;
+    const ang = launchAng + (realRandom() - 0.5) * 0.7;
     particles.push({ x: x + Math.cos(ang) * 10, y: y - Math.sin(ang) * 10, vx: Math.cos(ang) * 900 * power, vy: -Math.sin(ang) * 900 * power,
-                     ang: -ang, len: 50 + dmg * 6 + Math.random() * 30, life: 0.12, max: 0.12, type: 'hitline' });
+                     ang: -ang, len: 50 + dmg * 6 + realRandom() * 30, life: 0.12, max: 0.12, type: 'hitline' });
   }
-  if (dmg >= 9) bolt(x, y, launchAng + (Math.random() - 0.5) * 1.2, 50 + dmg * 5, 0.08, '#ffffff');   // only big hits crackle
+  if (dmg >= 9) bolt(x, y, launchAng + (realRandom() - 0.5) * 1.2, 50 + dmg * 5, 0.08, '#ffffff');   // only big hits crackle
   camPunch = Math.max(camPunch, clamp((speed - 500) / 1200, 0, 1));                                 // big hits punch the camera in
   if (speed > 1000) hitstop = Math.max(hitstop, 0.13);            // strong hit: a heavy freeze...
   if (speed > 1650) {                                                // ...but the black & white IMPACT FRAME only for the
@@ -8885,7 +8891,7 @@ function unlockAudio() {
     try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
     noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
     const d = noiseBuf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < d.length; i++) d[i] = realRandom() * 2 - 1;   // (never the fight's shared random numbers)
     loadFightSfx();
     loadTeleportSfx();
     loadKameSfx();
@@ -10141,7 +10147,7 @@ function ultStrike(U) {
     burst(hx, hy, SWEAT, 6, Math.atan2(-(hy - u.y + 50), hx - u.x), 0.6, 450);
   } else {
     slashLine(hx, hy, Math.random() * Math.PI, 150 + Math.random() * 80, 0.16);
-    if (gore) burst(hx, hy, BLOOD, 10, Math.random() * Math.PI * 2, 1.2, 420, { stain: true });
+    if (gore) burst(hx, hy, BLOOD, 10, realRandom() * Math.PI * 2, 1.2, 420, { stain: true });
   }
   burst(hx, hy, ['#ffffff', '#ffd23f'], 6, 0, Math.PI, 600, { grav: 0 });
   // LEGION OF HELL (Colbalias): two of his shadow clones strike from other angles at the same moment
@@ -10265,8 +10271,8 @@ function updateUlt(dt) {
     if (U.t >= 0.5 && once('shing')) sfx.shing();
     if (U.t >= 0.9 && once('split')) { sfx.slam(); sfx.hit(0.7); }
     // Blood pouring from the cut while the halves come apart
-    if (gore && U.t > 0.9 && U.t < 2.4 && Math.random() < dt * 60) {
-      burst(v.x + (Math.random() - 0.5) * 16, cutY + 6, BLOOD, 2, Math.PI / 2 + (Math.random() - 0.5) * 0.8, 0.3, 380, { stain: true });
+    if (U.t > 0.9 && U.t < 2.4 && realRandom() < dt * 60 && gore) {
+      burst(v.x + (realRandom() - 0.5) * 16, cutY + 6, BLOOD, 2, Math.PI / 2 + (realRandom() - 0.5) * 0.8, 0.3, 380, { stain: true });
     }
     if (U.t >= CUT_TIME) endUlt(U);
   }
@@ -10299,7 +10305,7 @@ function swordUltSwing(U, k) {
   slashLine(hx, hy, k === 1 ? -0.5 : k === 2 ? 0.3 : -1.0, 420, 0.4);
   slashLine(hx, hy, k === 1 ? -0.45 : k === 2 ? 0.35 : -0.95, 320, 0.3);
   burst(hx, hy, ['#ffffff', AURA_ARMOR.color, '#ffd23f'], 30, 0, Math.PI, 800, { grav: 0 });
-  if (gore) burst(hx, hy, BLOOD, 18, Math.random() * Math.PI * 2, 1.2, 520, { stain: true });
+  if (gore) burst(hx, hy, BLOOD, 18, realRandom() * Math.PI * 2, 1.2, 520, { stain: true });
   particles.push({ x: hx, y: hy, vx: 0, vy: 0, life: 0.16, max: 0.16, r: 40, type: 'impact' });
   painTexts.push({ x: v.x, y: v.y - 150 - k * 22, t: 0.8, max: 0.8, text: 'CRITICAL!', big: true });
   impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: hx, y: hy, ang: 0, all: true, focus: true, invert: k % 2 === 1 };
@@ -10628,25 +10634,33 @@ function endTransform(f) {
 }
 
 // ---------------- ULTRA INSTINCT (Lance: DOWN + I on a full meter, instead of Super Saiyan) ----------------
-// A cutscene that runs the WHOLE length of the theme ("Goku, are you finished?" - 44.5s), timed to the audio:
-//  0s -> 11.9s  THE BEATING: he grabs the nearest enemy with a teleport combo, still in his base form.
-//  11.9 -> 14s  "...ARE YOU FINISHED?": he stops, standing over them, his aura flickering.
-//  14s          THE SCREAM: he TRANSFORMS - white hair, the silver aura explodes.
-//  14s -> end   ULTRA INSTINCT: a blinding teleport combo from every side for the rest of the song...
-//  end          ...one last palm sends them flying. THEN he's in Ultra Instinct like any transformation (the meter
-//               starts draining) - no stat bonus, but +1 Z vanish dot and AUTO DODGE: when something would hit him his
-//               body moves on its own, spending a Z vanish dot. Out of dots, he can be hit like anyone.
-// The meter doesn't drain during any of it, and nobody else can touch him or them.
+// A choreographed cutscene that runs the WHOLE theme ("Goku, are you finished?" - 44.3s), every beat timed to the clip
+// (times below are seconds into the clip - see UI.beats):
+//   0 - 11.9   BEATEN DOWN: he's in a bad way - arm hanging limp, heaving with every breath, blood dripping from his head
+//   11.9 - 14  "REF, I DIDN'T HEAR NO BELL."
+//   14         THE SCREAM: he TRANSFORMS - white hair, the silver aura erupts
+//   16.5       they come at him with a BARRAGE - he weaves every single one (the Ultra Instinct note on each) as he walks in
+//   22.5       ...walks straight PAST them - and a storm of white hits lands on them all at once
+//   24.6       a teleport FLURRY
+//   29         hit to the top left -> teleport, KICKED further -> teleport, caught and kicked DOWN into the stage - they bounce
+//   31.1       another flurry on them as they come off the floor
+//   35.6       blasted away - they come flying back in swinging... he WEAVES under it and hits them on the way past
+//   38         KAMEHAMEHA - charged... fired... and the last of it sends them flying right as the song ends.
+// THEN he's in Ultra Instinct like any transformation (the meter starts draining) - no stat bonus, but +1 Z vanish dot
+// and AUTO DODGE: when something would hit him his body moves on its own, spending a Z vanish dot (+ the note).
+// The meter doesn't drain during any of it, and nobody else can touch either of them.
 const UI = { color: '#d8e2ff', glow: '#9fb6ff', hair: '#f4f6ff',
-  lineAt: 11.9, screamAt: 14.0, songEnd: 44.3,            // (seconds into the clip)
   vol: 2.6,                                                // the clip is played LOUD (through a limiter)
-  pre: { every: 0.5, dmg: 0.35 },                           // the base-form beating
-  ui:  { every: 0.13, dmg: 0.08, bigEvery: 3.0 },           // the Ultra Instinct flurry
-  final: { dmg: 8, base: 520, growth: 5, angle: 40 },
+  beats: { bell: 11.9, scream: 14.0, barrage: 16.5, walk: 22.5, past: 23.6, flurry1: 24.6, tl1: 29.0, tl2: 29.6, down: 30.25,
+           flurry2: 31.1, away: 35.6, comeback: 36.3, weave: 37.6, kameCharge: 38.2, kameFire: 41.2, end: 44.3 },
+  barrageHits: 10,
+  dmg: { white: 0.6, flurry: 0.12, kick: 2, bounce: 3, weave: 3, beam: 0.2 },
+  final: { dmg: 8, base: 560, growth: 5.5, angle: 35 },
   dodgeInvuln: 0.32, dodgeDist: 95 };
 const UI_STATS = { power: 1, speed: 1 };
 CHARACTERS.LANCE.uiTransform = true;
 let uiNoteBuf = null, uiAwakenBuf = null;
+const uiNote = (vol = 0.9) => { if (!playBuffer(uiNoteBuf, vol) && sfx.vanish) sfx.vanish(0.5); };
 // THE THEME: played loud, through a limiter so the scream doesn't crackle. Stops if he's KO'd / the match ends.
 function startUiSong(f, from = 0) {
   stopUiSong(f, 0.1);
@@ -10663,27 +10677,27 @@ function stopUiSong(f, fade = 1.0) { if (f && f.uiSong) { stopBuffer(f.uiSong, f
 const uiRealRate = () => GAME_SPEED * timeScale * ((netActive() ? netTurbo : turbo) ? TURBO_SPEED : 1) * (slowmo > 0 ? SLOWMO_HIT_SCALE : 1);
 function startUltraInstinct(f) {
   f.ultBuf = 0;
-  // the one he beats on: the nearest REAL fighter (not a clone)
+  // the one it's all against: the nearest REAL fighter (not a clone)
   let v = null, bd = Infinity;
   for (const o of fighters) {
     if (o === f || o.minion || allies(f, o) || o.respawnTimer > 0 || o.dead || o.out) continue;
     const d = Math.hypot(o.x - f.x, o.y - f.y); if (d < bd) { bd = d; v = o; }
   }
-  f.action = { type: 'uiTransform', t: 0, songT: 0, phase: 'pre', n: 0, blinkT: 0.25, bigT: 0 };
-  f.vx = 0; f.vy = 0;
+  // the scene plays out in the middle of the stage: Lance on the right, them on the left (they get sent to the top left)
+  const cx = clamp((f.x + (v ? v.x : f.x)) / 2, STAGE.x + 470, STAGE.x + STAGE.w - 470), gy = STAGE.y;
+  f.action = { type: 'uiTransform', t: 0, songT: 0, cx, gy, ev: new Set(), n: 0 };
   const a = f.action;
+  f.x = cx + 35; f.y = gy; f.face = -1; f.vx = f.vy = 0; f.ground = true; f.onPlatform = null;
   if (v) {
-    a.victim = v;
-    a.vx0 = clamp(v.x, STAGE.x + 60, STAGE.x + STAGE.w - 60);
-    a.vy0 = Math.min(v.y, STAGE.y) - 40;
-    v.shielding = false; v.action = { type: 'ultVictim', t: 0 };
-  } else a.songT = UI.screamAt - 0.6;                     // (nobody to beat on: straight to the scream)
+    a.victim = v; v.shielding = false;
+    v.x = cx - 80; v.y = gy; v.face = 1; v.vx = v.vy = 0; v.ground = true;
+    v.action = { type: 'ultVictim', t: 0, pose: (v.look && v.look.idle) || null };
+  } else a.songT = UI.beats.scream - 0.6;                  // (nobody here: straight to the scream)
   startUiSong(f, a.songT);
-  ultBanner = { t: 1.2, title: 'POWER UP', name: 'LIMIT BREAKER', color: kiColor(f), who: f };
-  shake = Math.max(shake, 10);   // (no hitstop: the cutscene runs in step with the song)
-  sfx.parry();
+  shake = Math.max(shake, 6);
 }
 function uiScream(f) {                                     // THE SCREAM: he transforms
+  if (f.ui) return;
   f.transformed = true; f.ui = true;
   f.baseStats = f.stats; f.stats = { ...f.stats };          // (no speed bonus)
   ultBanner = { t: 2.0, title: 'TRANSFORM', name: 'ULTRA INSTINCT', color: UI.color, who: f };
@@ -10694,78 +10708,272 @@ function uiScream(f) {                                     // THE SCREAM: he tra
   impactFrame = Math.max(impactFrame, 0.16); impactAt = { x: f.x, y: f.y - 55, ang: 0, all: true, focus: true, invert: true };
   shake = Math.max(shake, 26); camPunch = 1; sfx.huge(); sfx.clash(true);
 }
-// one blink-strike of the combo
-function uiStrike(f, a, v, dmgPct, big) {
-  ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: f.ui ? UI.color : kiColor(f) });   // after-image where he was
+// ---- helpers ----
+const uiDamage = (f, v, pct) => { const d = pct * powerOf(f); v.damage += d; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + d * ULT_GAIN); v.hitFlash = 0.08; };
+const uiHurtPose = (k = Math.random()) => pose({ lean: -0.4 - k * 0.3, bob: -4, legA: [0.6, 0.6], legB: [-0.3, 0.9], armA: [-2.2 + k, 0.4], armB: [2.4 - k, -0.4] });
+const uiFlyPose = spin => ({ ...pose({ lean: -0.3, legA: [0.5, 0.3], legB: [-0.4, 0.5], armA: [-2.4, 0.3], armB: [2.3, -0.3] }), spin });
+function uiHitFx(v, x, y, big, col = '#ffffff') {
+  burst(x, y, ['#ffffff', col], big ? 24 : 6, 0, Math.PI, big ? 750 : 420, { grav: 0 });
+  particles.push({ x, y, vx: 0, vy: 0, life: big ? 0.18 : 0.1, max: big ? 0.18 : 0.1, r: big ? 34 : 16, type: 'impact', rot: Math.random() * Math.PI });
+  if (big) { ring(x, y); shake = Math.max(shake, 16); sfx.hit(1); sfx.clash(false); }
+  else { shake = Math.max(shake, 4); sfx.hit(0.3); }
+}
+// a teleport strike from a random side (the flurries)
+function uiBlinkStrike(f, a, v, big) {
+  ghosts.push({ fig: figureOf(f), life: 0.2, max: 0.2, color: UI.color });
   const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 30;
-  f.x = v.x + Math.cos(ang) * r; f.y = Math.min(v.y + Math.sin(ang) * r * 0.8, v.y + 30);
-  if (f.y > STAGE.y && f.x > STAGE.x && f.x < STAGE.x + STAGE.w) f.y = STAGE.y;
+  f.x = v.x + Math.cos(ang) * r; f.y = Math.min(v.y + Math.sin(ang) * r * 0.7, a.gy);
   f.face = Math.sign(v.x - f.x) || f.face;
   const P = [LANCE_MOVES.jab.strike, LANCE_MOVES.kick2.strike, LANCE_MOVES.jab2.strike, LANCE_MOVES.kick1.strike, LANCE_MOVES.jab3.strike, LANCE_MOVES.uair.strike, LANCE_MOVES.highKick.strike];
-  a.pose = big ? LANCE_MOVES.jab4.strike : P[a.n % P.length];
-  const dmg = dmgPct * powerOf(f);
-  v.damage += dmg; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + dmg * ULT_GAIN);
-  v.hitFlash = 0.08; v.face = -f.face;
-  if (v.action) v.action.pose = pose({ lean: -0.4 - Math.random() * 0.3, bob: -4, legA: [0.6, 0.6], legB: [-0.3, 0.9], armA: [-2.2 + Math.random(), 0.4], armB: [2.4 - Math.random(), -0.4] });
-  const col = f.ui ? UI.glow : kiColor(f);
-  hitBits(v, (v.x + f.x) / 2, v.y - 55, f.face, 0, big ? 900 : 500, big ? 6 : 2);
-  burst(v.x, v.y - 55, ['#ffffff', col], big ? 24 : 6, 0, Math.PI, big ? 700 : 400, { grav: 0 });
-  if (big) { ring(v.x, v.y - 55); shake = Math.max(shake, 14); sfx.hit(1); sfx.clash(false); }
-  else { shake = Math.max(shake, 4); sfx.hit(0.25); if (a.n % 4 === 0 && sfx.vanish) sfx.vanish(0.3); }
-  a.n++;
+  a.pose = big ? LANCE_MOVES.jab4.strike : P[a.n++ % P.length];
+  uiDamage(f, v, UI.dmg.flurry * (big ? 6 : 1));
+  v.face = -f.face; v.action.pose = uiHurtPose();
+  uiHitFx(v, (v.x + f.x) / 2, v.y - 55, big, UI.glow);
 }
+// move someone along a path: from (x0,y0) to (x1,y1) over [t0, t1] (eased)
+const uiTween = (T, t0, t1, x0, y0, x1, y1, e = easeOut) => { const k = e(clamp((T - t0) / (t1 - t0), 0, 1)); return { x: lerp(x0, x1, k), y: lerp(y0, y1, k), k }; };
 function stepUiTransform(f, a, dt) {
   f.vx = 0; f.vy = 0;
-  const rdt = dt / uiRealRate();                             // (real seconds this frame)
+  const rdt = dt / uiRealRate();                              // (real seconds this frame)
   a.songT += rdt;
-  const T = a.songT;
-  // the one he's beating on got knocked out some other way: skip to the end
-  if (a.victim && (a.victim.respawnTimer > 0 || a.victim.dead)) { a.victim = null; a.songT = Math.max(a.songT, UI.songEnd); }
-  const v = a.victim;
-  if (v) {                                                   // held in mid-air, helpless
-    v.x = a.vx0; v.y = a.vy0; v.vx = v.vy = 0; v.ground = false;
-    if (!v.action || v.action.type !== 'ultVictim') v.action = { type: 'ultVictim', t: 0 };
-  }
-  if (!f.ui && a.songT >= UI.screamAt) uiScream(f);          // THE SCREAM
-  if (a.songT >= UI.songEnd || !v) {                         // 4) THE LAST ONE: from right in front, a palm that sends them flying
-    if (v) {
-      f.x = v.x - f.face * 50; f.y = v.y; a.pose = LANCE_MOVES.jab4.strike;
-      v.action = null;
-      knock(v, UI.final, f.face, powerOf(f), v.x, v.y - 55);
-      burst(v.x, v.y - 55, ['#ffffff', UI.color, UI.glow], 50, 0, Math.PI, 900, { grav: 0 }); ring(v.x, v.y - 55);
+  const T = a.songT, B = UI.beats, v = a.victim, cx = a.cx, gy = a.gy;
+  const once = k => !a.ev.has(k) && a.ev.add(k);
+  if (v && (v.respawnTimer > 0 || v.dead)) { a.victim = null; uiScream(f); f.action = { type: 'land', t: 0, dur: 0.15 }; return; }   // (gone some other way)
+  if (v && (!v.action || v.action.type !== 'ultVictim')) v.action = { type: 'ultVictim', t: 0, pose: null };
+  if (v) { v.vx = v.vy = 0; }
+  a.beam = null; a.charge = 0;
+  a.cam = { x: cx, y: gy - 110, z: 1.25, speed: 3 };
+  if (T >= B.scream) uiScream(f);
+
+  if (T < B.scream) {
+    // 1) BEATEN DOWN: hunched, arm hanging, HEAVING; blood dripping from his head
+    const br = Math.abs(Math.sin(T * Math.PI / 1.1));        // one heave every 1.1s
+    a.pose = pose({ lean: 0.55 + 0.1 * br, bob: -9 + 5 * br, legA: [0.3, 0.45], legB: [-0.18, 0.55],   // hunched over, knees buckling
+                    armA: [0.12 + 0.06 * Math.sin(T * 2.2), 0.04] });   // (his arm just hangs)
+    if (Math.random() < rdt * 2.2) {
+      const hx = f.x + f.face * 4, hy = f.y - 112 + 14 * br;
+      particles.push({ x: hx + (Math.random() - 0.5) * 8, y: hy, vx: (Math.random() - 0.5) * 20, vy: 30, life: 1.2, max: 1.2, size: 2,
+                       color: gore ? BLOOD[(realRandom() * BLOOD.length) | 0] : '#b4b4bb', type: 'bit', grav: 900, stain: gore });
     }
-    if (!f.ui) uiScream(f);
-    f.action = { type: 'land', t: 0, dur: 0.15 };           // ...and NOW the meter starts to drain
+    if (v) { v.x = cx - 80; v.y = gy; v.face = 1; v.ground = true; v.action.pose = (v.look && v.look.idle) || null; }
+    a.bubble = T >= B.bell ? "REF, I DIDN'T HEAR NO BELL." : null;
+    a.cam = { x: cx + 5, y: gy - 95, z: T >= B.bell ? 1.85 : 1.5, speed: 2 };
+    if (T >= B.bell && once('bell')) shake = Math.max(shake, 3);
     return;
   }
-  if (T < UI.lineAt) {                                       // 1) THE BEATING (base form)
-    a.blinkT -= rdt;
-    if (a.blinkT <= 0) { a.blinkT += UI.pre.every; uiStrike(f, a, v, UI.pre.dmg, a.n % 6 === 5); }
-    if (Math.random() < dt * 20) burst(f.x, f.y - 50, [kiColor(f), '#ffffff'], 1, Math.PI / 2, 1.2, 200, { grav: -200 });
-  } else if (T < UI.screamAt) {                              // 2) "ARE YOU FINISHED?" - standing over them, aura flickering
-    if (!a.standing) {
-      a.standing = true; ghosts.push({ fig: figureOf(f), life: 0.3, max: 0.3, color: kiColor(f) });
-      f.face = Math.sign(v.x - f.x) || f.face; f.x = v.x - f.face * 110; f.y = Math.min(v.y + 40, STAGE.y);
-      a.pose = null;
-      if (v.action) v.action.pose = pose({ lean: -0.5, bob: -10, legA: [0.3, 1.1], legB: [-0.2, 1.3], armA: [-0.4, 0.5], armB: [0.3, -0.5] });   // slumped
+  a.bubble = null;
+  if (!v) { f.action = { type: 'land', t: 0, dur: 0.15 }; return; }
+
+  if (T < B.barrage) {                                      // 2) the aura erupts round him
+    a.pose = pose({ lean: -0.25 + Math.sin(T * 40) * 0.03, bob: -4, legA: [0.6, 0.35], legB: [-0.6, 0.35], armA: [-2.0, 0.2] });
+    a.waveT = (a.waveT || 0) - rdt;
+    if (a.waveT <= 0) { a.waveT = 0.3; auraWaves.push({ x: f.x, y: f.y - 55, t: 0, dur: 0.55, max: 200, color: UI.glow }); ring(f.x, f.y - 55); }
+    if (Math.random() < rdt * 10) bolt(f.x, f.y - 55, Math.random() * Math.PI * 2, 100 + Math.random() * 60, 0.1, '#ffffff');
+    shake = Math.max(shake, 5);
+    v.action.pose = pose({ lean: -0.35, bob: -6, legA: [0.5, 0.4], legB: [-0.7, 0.3], armA: [0.9, -1.2], armB: [0.7, -1.4] });   // shielding their eyes
+    a.cam = { x: cx, y: gy - 100, z: 1.35, speed: 3 };
+    return;
+  }
+
+  if (T < B.walk) {                                         // 3) THE BARRAGE: he weaves every one as he walks in
+    const span = B.walk - B.barrage, k = (T - B.barrage) / span;
+    const i = Math.floor(k * UI.barrageHits), sub = k * UI.barrageHits - i;
+    f.x = lerp(cx + 35, cx - 20, k); f.y = gy; f.face = -1;
+    v.x = cx - 80 + 28 * Math.sin(clamp(sub / 0.6, 0, 1) * Math.PI); v.y = gy; v.face = 1;   // (steps into every swing)
+    const mv = v.moveset || {}, atk = ['jab', 'jab2', 'jab3', 'sideGround', 'kick1', 'kick2', 'dashAttack'].map(q => mv[q]).filter(m => m && m.strike);
+    const m = atk.length ? atk[i % atk.length] : null;
+    v.action.pose = m ? (sub < 0.45 ? m.wind : m.strike) : uiHurtPose(0.5);
+    // his weave: leaning out of the way, a different direction each time
+    const side = [1, -1, 0, 1, -1, 1, 0, -1, 1, -1][i % 10], dodge = Math.sin(clamp((sub - 0.35) / 0.5, 0, 1) * Math.PI);
+    a.pose = side === 0
+      ? pose({ lean: 0.5 * dodge, bob: -6 - 22 * dodge, legA: [0.5, 0.4 + 0.8 * dodge], legB: [-0.4, 0.3 + 0.9 * dodge], armA: [0.2, 0.0] })   // ducks under it
+      : pose({ lean: -0.55 * side * dodge, bob: -6 - 5 * dodge, legA: [0.45 + 0.15 * Math.sin(T * 7), 0.3], legB: [-0.4 - 0.15 * Math.sin(T * 7), 0.3], armA: [0.25, 0.0] });
+    if (sub >= 0.45 && once('weave' + i)) { uiNote(); ghosts.push({ fig: figureOf(f), life: 0.18, max: 0.18, color: UI.color }); }
+    a.cam = { x: (f.x + v.x) / 2, y: gy - 85, z: 1.7, speed: 4 };
+    return;
+  }
+
+  if (T < B.past) {                                         // 4) ...walks right past them (they're frozen mid-swing)
+    const k = (T - B.walk) / (B.past - B.walk);
+    f.x = lerp(cx - 20, cx - 200, k); f.y = gy; f.face = -1;
+    const s = Math.sin(T * 9);
+    a.pose = pose({ lean: 0.05, bob: -5 + Math.abs(s) * 2, legA: [0.35 * s, 0.2], legB: [-0.35 * s, 0.2], armA: [0.15 * -s, 0.05] });   // calm walk
+    v.x = cx - 80; v.y = gy;
+    return;
+  }
+
+  if (T < B.flurry1) {                                      // 5) ...and a storm of white hits lands on them all at once
+    f.x = cx - 200; f.face = -1; a.pose = pose({ lean: 0.02, bob: -5, legA: [0.35, 0.25], legB: [-0.3, 0.25], armA: [0.25, -0.1] });
+    a.hitT = (a.hitT || 0) - rdt;
+    if (a.hitT <= 0) {
+      a.hitT = 0.09;
+      uiDamage(f, v, UI.dmg.white); v.action.pose = uiHurtPose(); v.face = Math.random() < 0.5 ? 1 : -1;
+      uiHitFx(v, v.x + (Math.random() - 0.5) * 50, v.y - 25 - Math.random() * 70, Math.random() < 0.2);
+      v.x = cx - 80 + (Math.random() - 0.5) * 8;
     }
-    const k = (T - UI.lineAt) / (UI.screamAt - UI.lineAt);
-    shake = Math.max(shake, 1 + 5 * k);
-    if (Math.random() < dt * (20 + 80 * k)) {                // silver light starting to leak out of him
-      const an = Math.random() * Math.PI * 2, d = 120 + Math.random() * 60;
-      particles.push({ x: f.x + Math.cos(an) * d, y: f.y - 55 + Math.sin(an) * d, vx: -Math.cos(an) * d * 4, vy: -Math.sin(an) * d * 4,
-                       life: 0.25, max: 0.25, size: 2.5, color: Math.random() < 0.5 ? '#ffffff' : UI.glow, type: 'bit', grav: 0 });
-    }
-    if (Math.random() < dt * 6 * k) bolt(f.x, f.y - 55, Math.random() * Math.PI * 2, 60 + Math.random() * 60, 0.08, '#ffffff');
-  } else {                                                   // 3) ULTRA INSTINCT: the flurry, for the rest of the song
+    a.cam = { x: (f.x + v.x) / 2, y: gy - 85, z: 1.6, speed: 4 };
+    return;
+  }
+
+  if (T < B.tl1) {                                          // 6) a teleport FLURRY
+    if (once('f1start')) { a.n = 0; a.blinkT = 0; a.bigT = 1.2; v.y = gy - 40; }
+    v.x = cx - 80; v.y = gy - 40;
     a.blinkT -= rdt; a.bigT -= rdt;
-    if (a.blinkT <= 0) {
-      a.blinkT = Math.max(a.blinkT + UI.ui.every, 0);
-      const big = a.bigT <= 0; if (big) a.bigT = UI.ui.bigEvery;
-      uiStrike(f, a, v, UI.ui.dmg * (big ? 6 : 1), big);
+    if (a.blinkT <= 0) { a.blinkT += 0.11; const big = a.bigT <= 0; if (big) a.bigT = 1.2; uiBlinkStrike(f, a, v, big); }
+    a.cam = { x: v.x, y: v.y - 60, z: 1.55, speed: 5 };
+    return;
+  }
+
+  // 7) TOP LEFT -> TELEPORT KICK further -> TELEPORT, caught and kicked DOWN into the stage
+  const P0 = { x: cx - 80, y: gy - 40 }, P1 = { x: cx - 260, y: gy - 300 }, P2 = { x: cx - 420, y: gy - 470 }, P3 = { x: cx - 300, y: gy };
+  if (T < B.tl2) {
+    if (once('tl1')) {
+      f.x = P0.x + 60; f.y = P0.y + 30; f.face = -1; a.pose = LANCE_MOVES.jab4.strike;
+      uiDamage(f, v, UI.dmg.kick); uiHitFx(v, P0.x, P0.y - 55, true, UI.glow); uiNote(0.6);
     }
-    a.waveT = (a.waveT || 0) - dt;
-    if (a.waveT <= 0) { a.waveT = 0.6; auraWaves.push({ x: v.x, y: v.y - 55, t: 0, dur: 0.5, max: 170, color: UI.glow }); }
+    const p = uiTween(T, B.tl1, B.tl2, P0.x, P0.y, P1.x, P1.y);
+    v.x = p.x; v.y = p.y; v.action.pose = uiFlyPose(-p.k * 4);
+    a.cam = { x: lerp(cx - 80, P1.x, 0.6), y: gy - 230, z: 1.0, speed: 6 };
+    return;
+  }
+  if (T < B.down) {
+    if (once('tl2')) {
+      ghosts.push({ fig: figureOf(f), life: 0.25, max: 0.25, color: UI.color }); if (sfx.vanish) sfx.vanish(0.6);
+      f.x = P1.x + 55; f.y = P1.y + 40; f.face = -1; a.pose = LANCE_MOVES.highKick.strike;
+      uiDamage(f, v, UI.dmg.kick); uiHitFx(v, P1.x, P1.y - 55, true, UI.glow);
+    }
+    const p = uiTween(T, B.tl2, B.down, P1.x, P1.y, P2.x, P2.y);
+    v.x = p.x; v.y = p.y; v.action.pose = uiFlyPose(-4 - p.k * 4);
+    a.cam = { x: (P1.x + P2.x) / 2, y: gy - 360, z: 0.95, speed: 6 };
+    return;
+  }
+  const DOWN_HIT = B.down + 0.1, LAND = B.down + 0.4;
+  if (T < B.flurry2) {
+    if (once('down')) {
+      ghosts.push({ fig: figureOf(f), life: 0.25, max: 0.25, color: UI.color }); if (sfx.vanish) sfx.vanish(0.6);
+      f.x = P2.x + 10; f.y = P2.y - 90; f.face = -1; a.pose = LANCE_MOVES.dair.wind;   // over them...
+    }
+    if (T >= DOWN_HIT && once('downHit')) { a.pose = LANCE_MOVES.dair.strike2 || LANCE_MOVES.dair.strike; uiDamage(f, v, UI.dmg.kick); uiHitFx(v, P2.x, P2.y - 40, true, UI.glow); }
+    if (T < DOWN_HIT) { v.x = P2.x; v.y = P2.y; }
+    else if (T < LAND) { const p = uiTween(T, DOWN_HIT, LAND, P2.x, P2.y, P3.x, P3.y, k => k * k); v.x = p.x; v.y = p.y; v.action.pose = uiFlyPose(Math.PI * 0.5); }
+    else {                                                   // SLAMMED into the stage - their body bounces off it
+      if (once('slam')) {
+        cracks.push({ x: P3.x, y: gy, life: 4, max: 4, seed: Math.random() * 1000, size: 2 });
+        dust(P3.x, gy, 26, 3); ring(P3.x, gy - 10); shake = Math.max(shake, 24); sfx.huge();
+        impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: P3.x, y: gy - 20, ang: 0, all: false, focus: true };
+        uiDamage(f, v, UI.dmg.bounce);
+      }
+      const bt = T - LAND, bh = Math.max(0, Math.sin(Math.min(1, bt / 0.45) * Math.PI)) * 90;
+      v.x = P3.x; v.y = gy - bh; v.action.pose = uiFlyPose(Math.PI * 0.5 + bt * 3);
+      f.x = P3.x + 120; f.y = gy; f.face = -1; a.pose = pose({ lean: 0.02, bob: -5, legA: [0.35, 0.25], legB: [-0.3, 0.25], armA: [0.25, -0.1] });   // dropped down beside them
+    }
+    a.cam = { x: lerp(P2.x, P3.x, clamp((T - B.down) / 0.5, 0, 1)), y: lerp(gy - 380, gy - 110, clamp((T - B.down) / 0.5, 0, 1)), z: 1.05, speed: 5 };
+    return;
+  }
+
+  if (T < B.away) {                                         // 8) another flurry as they come off the floor
+    if (once('f2start')) { a.blinkT = 0; a.bigT = 1.3; }
+    v.x = P3.x; v.y = gy - 50;
+    a.blinkT -= rdt; a.bigT -= rdt;
+    if (a.blinkT <= 0) { a.blinkT += 0.11; const big = a.bigT <= 0; if (big) a.bigT = 1.3; uiBlinkStrike(f, a, v, big); }
+    a.cam = { x: v.x, y: v.y - 60, z: 1.55, speed: 5 };
+    return;
+  }
+
+  // 9) blasted off the stage... they come flying back in, swinging - he WEAVES under it and hits them on the way past
+  const A0 = { x: P3.x, y: gy - 50 }, A1 = { x: cx + 160, y: gy - 330 }, W0 = { x: cx + 40, y: gy - 50 };
+  if (T < B.comeback) {
+    if (once('away')) {
+      f.x = A0.x - 60; f.y = gy; f.face = 1; a.pose = LANCE_MOVES.jab4.strike;
+      uiDamage(f, v, UI.dmg.bounce); uiHitFx(v, A0.x, A0.y - 55, true, UI.glow);
+    }
+    const p = uiTween(T, B.away, B.comeback, A0.x, A0.y, A1.x, A1.y);
+    v.x = p.x; v.y = p.y; v.action.pose = uiFlyPose(p.k * 5);
+    a.cam = { x: (A0.x + A1.x) / 2, y: gy - 220, z: 1.0, speed: 4 };
+    return;
+  }
+  if (T < B.kameCharge) {
+    if (once('stance')) { ghosts.push({ fig: figureOf(f), life: 0.2, max: 0.2, color: UI.color }); f.x = cx - 120; f.y = gy; f.face = 1; }
+    // they rocket back down at him, swinging...
+    const p = uiTween(T, B.comeback, B.weave + 0.15, A1.x, A1.y, cx - 60, gy - 60, k => k * k);
+    if (T < B.weave + 0.15) { v.x = p.x; v.y = p.y; v.face = -1; const mv = v.moveset || {}; const m = mv.fair || mv.sideGround || mv.jab; v.action.pose = m && m.strike ? m.strike : uiHurtPose(0.3); }
+    else {                                                   // ...past him and tumbling out the other side
+      const q = uiTween(T, B.weave + 0.15, B.kameCharge, cx - 60, gy - 60, cx - 330, gy - 120);
+      v.x = q.x; v.y = q.y; v.action.pose = uiFlyPose(-q.k * 6);
+    }
+    if (T < B.weave) a.pose = pose({ lean: 0.02, bob: -5, legA: [0.35, 0.25], legB: [-0.3, 0.25], armA: [0.25, -0.1] });
+    else {                                                   // THE WEAVE: he drops flat under it, diving past them, and hits them going by
+      if (once('weaveHit')) { uiNote(); uiDamage(f, v, UI.dmg.weave); uiHitFx(v, v.x, v.y - 40, true, UI.glow); ghosts.push({ fig: figureOf(f), life: 0.3, max: 0.3, color: UI.color }); }
+      const k = clamp((T - B.weave) / 0.45, 0, 1);
+      f.x = lerp(cx - 120, cx - 200, easeOut(k)); f.y = gy - 26;
+      a.pose = { ...pose({ lean: 0, bob: 0, legA: [0.3, 0.05], legB: [-0.25, 0.05], armA: [1.6, 0.0] }), spin: f.face * 1.52 };   // flat out, sailing under it (the reference pic)
+      if (k >= 1) { f.y = gy; a.pose = pose({ lean: 0.2, bob: -10, legA: [0.8, 0.8], legB: [-0.6, 0.3], armA: [0.4, 0] }); f.face = -1; }
+    }
+    a.cam = { x: (f.x + v.x) / 2, y: gy - 120, z: 1.2, speed: 4 };
+    return;
+  }
+
+  // 10) KAMEHAMEHA
+  const KX = cx - 330, KY = gy - 120;
+  f.x = cx - 200; f.y = gy; f.face = -1;
+  if (T < B.kameFire) {
+    const k = (T - B.kameCharge) / (B.kameFire - B.kameCharge);
+    a.pose = LANCE_MOVES.neutralRanged.wind; a.charge = k;
+    v.x = KX; v.y = KY + Math.sin(T * 3) * 6; v.action.pose = uiFlyPose(-6 - k * 2);
+    if (once('kame')) sfx.beam(0.6);
+    if (Math.random() < rdt * 50) { const an = Math.random() * Math.PI * 2, d = 60; particles.push({ x: f.x + f.face * 30 + Math.cos(an) * d, y: f.y - 62 + Math.sin(an) * d, vx: -Math.cos(an) * 300, vy: -Math.sin(an) * 300, life: 0.2, max: 0.2, size: 2, color: Math.random() < 0.4 ? '#ffffff' : kiColor(f), type: 'bit', grav: 0 }); }
+    shake = Math.max(shake, 2 + 6 * k);
+    a.cam = { x: (f.x + KX) / 2, y: gy - 110, z: 1.15, speed: 3 };
+    return;
+  }
+  if (T < B.end) {
+    const k = (T - B.kameFire) / (B.end - B.kameFire);
+    if (once('fire')) { sfx.beam(1); sfx.huge(); shake = Math.max(shake, 20); impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: f.x + f.face * 40, y: f.y - 62, ang: 0, all: false, focus: true }; }
+    a.pose = LANCE_MOVES.neutralRanged.strike;
+    v.x = KX - 120 * k; v.y = KY - 40 * k; v.action.pose = uiFlyPose(-8 - k * 10);   // pushed back in it
+    { const x0 = f.x + f.face * 40, y0 = f.y - 62, dx = v.x - x0, dy = (v.y - 55) - y0, L = Math.hypot(dx, dy) || 1;   // straight THROUGH them
+      a.beam = { x0, y0, x1: x0 + dx / L * (L + 260), y1: y0 + dy / L * (L + 260), k }; }
+    a.tickT = (a.tickT || 0) - rdt;
+    if (a.tickT <= 0) { a.tickT = 0.1; uiDamage(f, v, UI.dmg.beam); burst(v.x, v.y - 55, ['#ffffff', kiColor(f)], 4, 0, Math.PI, 400, { grav: 0 }); }
+    shake = Math.max(shake, 8);
+    a.cam = { x: (f.x + v.x) / 2, y: gy - 110, z: 1.0, speed: 3 };
+    return;
+  }
+  // ...the song ends: the last of it sends them flying. NOW the meter starts draining.
+  v.action = null;
+  knock(v, { ...UI.final, ultFinal: true }, -1, powerOf(f), v.x, v.y - 55);
+  f.action = { type: 'land', t: 0, dur: 0.2 };
+}
+// the cutscene's beam (drawn in the world, over the fighters) and the ki ball charging in his hand
+function drawUiKame(f) {
+  const a = f.action; if (!a || a.type !== 'uiTransform') return;
+  const col = kiColor(f), hx = f.x + f.face * 34, hy = f.y - 62;
+  if (a.charge > 0) {
+    const r = 6 + 18 * a.charge + Math.sin(performance.now() / 40) * 2;
+    ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(hx, hy, r * 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  }
+  if (a.beam) {
+    const B = a.beam, ang = Math.atan2(B.y1 - B.y0, B.x1 - B.x0), len = Math.hypot(B.x1 - B.x0, B.y1 - B.y0), th = 46 + Math.sin(performance.now() / 30) * 4;
+    ctx.save(); ctx.translate(B.x0, B.y0); ctx.rotate(ang);
+    ctx.globalAlpha = 0.45; ctx.fillStyle = col; ctx.fillRect(0, -th * 0.75, len, th * 1.5);
+    ctx.globalAlpha = 0.9; ctx.fillRect(0, -th / 2, len, th);
+    ctx.globalAlpha = 1; ctx.fillStyle = '#ffffff'; ctx.fillRect(0, -th * 0.22, len, th * 0.44);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, th * 0.8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, th * 0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+// the speech bubble (screen space)
+function drawUiBubble() {
+  for (const f of fighters) {
+    const a = f.action;
+    if (!a || a.type !== 'uiTransform' || !a.bubble) continue;
+    const p = toScreen(f.x, f.y - 150), w = 300, h = 34, x = clamp(p.x - w / 2, 10, W - w - 10), y = Math.max(60, p.y - h);
+    sctx.fillStyle = '#ffffff'; sctx.strokeStyle = '#000000'; sctx.lineWidth = 3;
+    sctx.beginPath(); sctx.rect(x, y, w, h); sctx.fill(); sctx.stroke();
+    sctx.beginPath(); sctx.moveTo(clamp(p.x, x + 20, x + w - 20) - 8, y + h); sctx.lineTo(clamp(p.x, x + 20, x + w - 20), y + h + 14); sctx.lineTo(clamp(p.x, x + 20, x + w - 20) + 8, y + h); sctx.closePath(); sctx.fill();
+    text(a.bubble, x + w / 2, y + 23, 10, '#111111', 'center', false);
   }
 }
 // AUTO DODGE: called when a hit is about to land on him. Returns true if his body dodged it on its own.
@@ -10783,7 +10991,7 @@ function uiAutoDodge(t, hx) {
   if (t.action && t.action.type !== 'attack') t.action = null;
   burst(t.x, t.y - 55, ['#ffffff', UI.glow], 12, 0, Math.PI, 300, { grav: 0 });
   painTexts.push({ x: t.x, y: t.y - 140, t: 0.6, max: 0.6, text: 'AUTO DODGE', big: false });
-  if (!playBuffer(uiNoteBuf, 0.9) && sfx.vanish) sfx.vanish(0.6);
+  uiNote();
   return true;
 }
 // the white wisps and sparks that hang round him while he's in it
@@ -13005,7 +13213,7 @@ function update(dt) {
         let surf = (oldY <= STAGE.y && p.y >= STAGE.y && p.x > STAGE.x && p.x < STAGE.x + STAGE.w) ? STAGE : null;
         if (!surf) for (const s of PLATFORMS) if (oldY <= s.y && p.y >= s.y && p.x > s.x && p.x < s.x + s.w) { surf = s; break; }
         if (surf) {
-          stains.push({ x: p.x, y: surf.y, color: p.color, life: 5 + Math.random() * 3, w: p.size });
+          stains.push({ x: p.x, y: surf.y, color: p.color, life: 5 + realRandom() * 3, w: p.size });
           if (stains.length > 400) stains.shift();
           p.life = 0;
         }
@@ -13082,13 +13290,17 @@ function update(dt) {
 
   updateCannons(dt);
 
+  // LANCE'S ULTRA INSTINCT: the whole match stops to watch - everyone but him and the one he's beating on is frozen
+  const uiCut = fighters.find(f => f.action && f.action.type === 'uiTransform');
+  for (const f of fighters) f.uiFrozen = !!uiCut && f !== uiCut && f !== uiCut.action.victim;
   for (const f of fighters.slice()) {
+    if (f.uiFrozen) continue;
     const inp = demo && !f.minion ? demoInput(f) : inputFor(f);
     updateFighter(f, inp, dt);
     tickPose(f, dt);
     updateSmear(f, dt);                                    // white attack smears
   }
-  updateMinions(dt);                                       // Colbalias's clones: time out / fall apart
+  if (!uiCut) updateMinions(dt);                           // Colbalias's clones: time out / fall apart (paused while UI plays)
   updateCage(dt);                                          // Aiden's steel cage keeps both of them inside
 
   // Fighters gently push each other apart
@@ -13109,7 +13321,7 @@ function update(dt) {
   // Melee hitboxes
   for (const f of fighters) {
     const a = f.action;
-    if (!a || a.type !== 'attack' || a.phase !== 'active' || !a.move.hitboxes || f.respawnTimer > 0) continue;
+    if (!a || a.type !== 'attack' || a.phase !== 'active' || !a.move.hitboxes || f.respawnTimer > 0 || f.uiFrozen) continue;
     const boxes = a.powered && a.move.chargedHit ? a.move.chargedHit.hitboxes : a.move.hitboxes;   // power jab = its own big hitbox
     hitLoop:
     for (const h of boxes) {
@@ -13251,7 +13463,7 @@ function update(dt) {
     }
   }
 
-  updateProjectiles(dt);
+  if (!uiCut) updateProjectiles(dt);                       // (frozen while Lance's Ultra Instinct plays)
   updateScythes(dt);
   weaponWatchdog(dt);
   updateAuraWaves(dt);
@@ -15306,6 +15518,7 @@ function drawProjectiles() {
     for (let k = 0; k < 6; k++) ctx.fillRect(snap(x - cannon.side * k * 3) - (cannon.side < 0 ? 0 : PIX), snap(cannon.y - 15 + k * 3), PIX, snap(30 - k * 6));
   }
   if (!sketch) drawKameCharge();                                // Lance's ultimate: the ki ball growing in his hand
+  for (const f of fighters) if (f.action && f.action.type === 'uiTransform') drawUiKame(f);   // Lance's UI cutscene Kamehameha
   for (const s of projectiles) if (s.kind === 'beam') drawBeam(s); else if (s.kind === 'disc') drawDisc(s); else if (s.kind === 'dragon') drawDragon(s);
   if (sketch) {                          // pen-drawn energy balls with a scribbled fill
     ctx.lineCap = 'round';
@@ -15562,6 +15775,12 @@ function drawHUD() {
       }
     }
     if (U.white > 0) { sctx.fillStyle = `rgba(255,255,255,${clamp(U.white, 0, 1)})`; sctx.fillRect(0, 0, W, H); }
+    if (ultBanner) drawUltHUD();
+    return;
+  }
+  if (fighters.some(f => f.action && f.action.type === 'uiTransform')) {   // Lance's Ultra Instinct: letterbox + his speech bubble
+    sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, 54); sctx.fillRect(0, H - 54, W, 54);
+    drawUiBubble();
     if (ultBanner) drawUltHUD();
     return;
   }
@@ -17249,7 +17468,7 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER)', 'SUPER SAIYAN', 'Golden hair and aura - faster.'],
-      ['DOWN + I (FULL METER)', 'ULTRA INSTINCT', 'A 44-second cutscene to his theme: he grabs the nearest enemy in a teleport combo, stops for "are you finished?" - then SCREAMS and transforms (white hair, silver aura) and beats on them from every side for the rest of the song before launching them. The meter only starts draining after. In it: no stat boost, but +1 Z vanish dot and AUTO DODGE (his body dodges hits on its own, spending a Z vanish dot). Out of dots, he can be hit.'],
+      ['DOWN + I (FULL METER)', 'ULTRA INSTINCT', 'A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms. He weaves their whole barrage, walks past as the hits land, teleport-combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. The meter only drains after. In it: no stat boost, but +1 Z vanish dot and AUTO DODGE.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
