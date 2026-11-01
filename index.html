@@ -1022,21 +1022,42 @@ const LANCE_MOVES = {
     wind: pose({ bob: -10, armA: [-0.5, -1.8], lean: 0.3, spin: -0.15, legA: [0.75, 0.9], legB: [-0.6, 0.3] }),
     strike: pose({ bob: -10, armA: [1.25, -0.9], lean: 0.4, spin: 0.15, legA: [0.8, 0.9], legB: [-0.65, 0.2] }) },
   // 4th hit (finisher): open palm thrust that explodes with ki and blasts them away
-  jab4: { name: 'Ki Palm Blast', startup: 0.08, active: 0.08, endlag: 0.28, lunge: 220, lungeFriction: 0.5,
-    hitboxes: [{ x: 44, y: -64, r: 26, dmg: 7, base: 400, growth: 4.5, angle: 38 }],
-    wind: pose({ bob: -6, armA: [-0.75, -1.95], lean: -0.15, legA: [0.8, 0.7], legB: [-0.7, 0.2] }),     // chambered at the hip
-    strike: pose({ bob: -12, armA: [1.57, 0], lean: 0.45, legA: [1.1, 0.8], legB: [-0.95, 0.1] }),     // deep lunge, palm out
+  // 6th hit (finisher): KI BURST - his aura pops out all round him and SHOVES them away (both sides). Light damage
+  // and low knockback growth, so it only pushes them to a spot he can dash / fly-dash after and keep the combo going.
+  jab4: { name: 'Ki Burst', startup: 0.07, active: 0.08, endlag: 0.2, hitstunBonus: 0.18,
+    hitboxes: [{ x: 30, y: -56, r: 54, dmg: 4, base: 640, growth: 1.2, angle: 42 },
+               { x: -30, y: -56, r: 54, dmg: 4, base: 640, growth: 1.2, angle: 138 }],
+    wind: pose({ bob: -10, armA: [-0.8, -2.1], lean: 0.3, legA: [0.9, 0.9], legB: [-0.9, 0.3] }),       // coils up
+    strike: pose({ bob: -4, armA: [-1.9, 0.15], lean: -0.25, legA: [1.0, 0.6], legB: [-1.0, 0.1] }),    // arm flung back, aura bursts
     fire(f) {
-      const x = f.x + f.face * 50, y = f.y - 64;
-      burst(x, y, [kiColor(f), '#ffffff'], 18, f.face > 0 ? 0 : Math.PI, 0.7, 520, { grav: 0 });
-      ring(x, y); shake = Math.max(shake, 5); sfx.blast();
+      ring(f.x, f.y - 56); shake = Math.max(shake, 6);
+      burst(f.x, f.y - 56, [kiColor(f), '#ffffff'], 30, 0, Math.PI, 620, { grav: 0 });
+      sfx.blast();
     } },
   // Side: SHURIKEN KICK (Ryu/Ken hurricane kick) - see makeShurikenKick below. Same move in the air (fair).
   sideGround: makeShurikenKick(false),
-  upGround: { name: 'Rising Uppercut', startup: 0.08, active: 0.12, endlag: 0.26, charge: true, hop: 520, landLag: 0.12,
-    hitboxes: [{ x: 16, y: -104, r: 25, dmg: 10, base: 380, growth: 5.5, angle: 86 }],
-    wind: pose({ bob: -10, armA: [0.3, -2.2], legA: [0.75, 1.5], legB: [0.55, 1.3], lean: 0.3 }),
-    strike: pose({ armA: [3.0, 0], lean: -0.1, legA: [0.2, 0.3], legB: [-0.2, 0.6] }) },
+  // Up J: KI SCATTER - his hand sweeps over his head from front to back, spraying a WIDE ARC of small ki blasts
+  // (front-low, up over him, down behind). Each one is weak, but it covers everything above and around him.
+  upGround: { name: 'Ki Scatter', startup: 0.1, active: 0.4, endlag: 0.24, charge: true,
+    wind: pose({ bob: -8, armA: [0.9, -1.6], legA: [0.7, 0.6], legB: [-0.7, 0.2], lean: 0.2 }),
+    strike: pose({ armA: [1.3, 0.05], lean: 0.1, legA: [0.7, 0.6], legB: [-0.7, 0.2] }),
+    step(f, a, dt) {
+      if (a.phase !== 'active') { a.poseOverride = null; return false; }
+      const k = Math.min(1, a.t / LANCE_SCATTER.sweep);
+      const ang = -LANCE_SCATTER.from - k * (Math.PI - 2 * LANCE_SCATTER.from);    // in front -> overhead -> behind
+      a.poseOverride = pose({ armA: [Math.PI / 2 - ang, 0.05], lean: 0.1 - k * 0.3, legA: [0.7, 0.6], legB: [-0.7, 0.2] });
+      a.shotT = (a.shotT || 0) - dt;
+      while (a.shotT <= 0 && a.t <= LANCE_SCATTER.sweep) {
+        a.shotT += LANCE_SCATTER.every;
+        const aa = ang + (Math.random() - 0.5) * 0.12, dx = Math.cos(aa) * f.face, dy = Math.sin(aa);
+        const S = LANCE_SCATTER, sp = S.speed * (0.9 + Math.random() * 0.2);
+        projectiles.push({ owner: f, x: f.x + dx * 30, y: f.y - 66 + dy * 30, vx: dx * sp, vy: dy * sp, r: S.r,
+          dmg: S.dmg, base: S.base, growth: 0, angle: S.angle, mult: (a.mult || 1) * powerOf(f), life: S.life, kind: 'orb',
+          color: kiColor(f), hit: new Set(), pierce: false, trail: [], grav: 0, noStop: true });
+        if (realRandom() < 0.5) sfx.blast();
+      }
+      return false;
+    } },
   // Down (on the ground): HEADSPIN - flips upside down onto his head like a breakdancer and SPINS, legs split wide
   // and whirling round, hitting both sides over and over; the last spin launches them.
   // (The spike stays in the air: down air is still his Meteor Fist.)
@@ -1053,8 +1074,14 @@ const LANCE_MOVES = {
     })(),
     wind: pose({ bob: -30, lean: 0.6, legA: [1.0, 1.6], legB: [-0.6, 1.4], armA: [0.5, -0.4] }),              // ducks down, hand to the floor
     strike: pose({ spin: Math.PI, bob: 2, lean: 0, legA: [1.3, 0.1], legB: [-1.3, 0.1], armA: [2.7, 0.3] }),   // upside down on his head, legs split
-    step(f, a, dt) {
+    step(f, a, dt, inp) {
       if (a.phase !== 'active') { a.poseOverride = null; return false; }   // (flips back onto his feet afterwards)
+      // he can creep a little left / right while spinning (much slower than anyone else's spinning moves) - never off the edge
+      if (f.ground && inp && inp.dir) {
+        const nx = f.x + inp.dir * LANCE_HEADSPIN_DRIFT * dt;
+        if (f.onPlatform || (nx > STAGE.x + 16 && nx < STAGE.x + STAGE.w - 16)) f.vx = inp.dir * LANCE_HEADSPIN_DRIFT;
+        else f.vx = 0;
+      }
       if (a.t < 0.4) {
         // THE SPIN: he rotates round a vertical line through his head, legs held out in a wide V - seen side-on, the V
         // narrows as he turns edge-on and the legs swap sides each half turn (turnX = cos of the spin)
@@ -1102,7 +1129,16 @@ const LANCE_MOVES = {
     wind: pose({ armA: [0.5, -2.0], legA: [1.0, 1.8], legB: [0.6, 1.6] }),
     strike: pose({ armA: [1.6, 0], legA: [0.9, 1.6], legB: [0.4, 1.3], lean: 0.1 }),
     strike2: pose({ armA: [-1.6, 0], legA: [0.9, 1.6], legB: [0.4, 1.3], lean: -0.1 }), strike2At: 0.07 },
-  fair: makeShurikenKick(true),          // forward air = the Shuriken Kick too (spins across the sky)
+  // Side air (either way - he turns to face the side you hold): FLYING SCISSOR KICK - he lunges forward, one leg
+  // scissors UP through them, then the other snaps DOWN across it. The first hit holds them, the second sends them.
+  fair: { name: 'Scissor Kick', startup: 0.07, active: 0.2, endlag: 0.18, landLag: 0.1, turnAir: true,
+    hitboxes: [{ x: 40, y: -58, r: 30, dmg: 4, base: 200, growth: 0, angle: 70, from: 0, to: 0.08, group: 0 },
+               { x: 44, y: -52, r: 34, dmg: 7, base: 400, growth: 5, angle: 40, from: 0.1, to: 0.2, group: 1 }],
+    wind: pose({ lean: 0.25, legA: [0.3, 1.4], legB: [1.2, 1.6], armA: [-1.3, -0.4] }),                     // both legs coiled
+    strike: pose({ lean: -0.35, legA: [2.3, 0.04], legB: [0.6, 0.1], armA: [-1.5, 0.2] }),                  // front leg scissored UP
+    strike2: pose({ lean: 0.3, legA: [0.9, 0.1], legB: [2.0, 0.04], armA: [-1.6, 0.3] }), strike2At: 0.1,   // ...back leg snaps DOWN across it
+    fire(f) { f.vx = f.face * 520; f.vy = Math.min(f.vy, -120); sfx.whoosh(true); } },
+  shurikenAir: makeShurikenKick(true),   // (his old forward air - not used any more)
   // Backhand Chop: swings the arm straight out behind him
   bair: { name: 'Backhand Chop', startup: 0.08, active: 0.07, endlag: 0.2, landLag: 0.12,
     hitboxes: [{ x: -46, y: -66, r: 22, dmg: 12, base: 430, growth: 7, angle: 145 }],
@@ -1120,6 +1156,10 @@ const LANCE_MOVES = {
     m.name = 'Spinning Axe Kick'; m.startup = 0.08; m.active = 0.2; m.endlag = 0.22; m.landLag = 0.18; m.whiffLag = 0.18;
     m.hitboxes[0].from = 0.1; m.hitboxes[0].to = 0.2; m.hitboxes[1].from = 0.12; m.hitboxes[1].to = 0.2;
     m.strike2At = 0.12;
+    // bigger, earlier hitboxes so it connects reliably: the whole arc of the heel, from overhead down to his feet
+    m.hitboxes[0].r = 40; m.hitboxes[1].r = 36;
+    m.hitboxes.push({ x: 30, y: -76, r: 34, dmg: m.hitboxes[0].dmg, base: m.hitboxes[0].base, growth: m.hitboxes[0].growth, angle: -82, from: 0.08, to: 0.2 });
+    m.hitboxes[0].from = 0.08;
     return m;
   })(),
   // (his old down air: METEOR FIST (Mario's forward air) - fist wound up behind his back, swung over the top and
@@ -1217,9 +1257,12 @@ const LANCE_MOVES = {
 // KAIOKEN x2 / x3: down K again while it's on = the next level up (x3 -> off). Each level only hits a bit
 // harder, but the strain on his body gets MUCH worse (damage he takes every second).
 const KAIOKEN = { taken: 1, color: '#ff2a1f',
-                  levels: [{ dealt: 1.05, drain: 1 },      // KAIOKEN     : +5%,  1% a second
-                           { dealt: 1.1,  drain: 2 },      // KAIOKEN x2  : +10%, 2% a second
-                           { dealt: 1.16, drain: 4 }] };   // KAIOKEN x3  : +16%, 4% a second
+                  levels: [{ dealt: 1.05, drain: 0.8 },    // KAIOKEN     : +5%,  0.8% a second
+                           { dealt: 1.1,  drain: 1.3 },    // KAIOKEN x2  : +10%, 1.3% a second (was 2)
+                           { dealt: 1.16, drain: 2.2 }] }; // KAIOKEN x3  : +16%, 2.2% a second (was 4)
+// Lance's Ki Scatter (up J): the arc of small ki blasts
+const LANCE_SCATTER = { sweep: 0.32, every: 0.027, from: 0.12, speed: 950, life: 0.42, r: 10, dmg: 1.1, base: 110, angle: 75 };
+const LANCE_HEADSPIN_DRIFT = 130;   // how fast he can creep sideways during the Headspin (px/s)
 const kaiokenLv = f => KAIOKEN.levels[Math.min(3, f.kaioken | 0) - 1] || null;
 function toggleKaioken(f) {
   f.kaioken = (f.kaioken | 0) >= 3 ? 0 : (f.kaioken | 0) + 1;
@@ -10623,6 +10666,7 @@ function chooseMove(f, inp, btn) {
     }
     if (inp.up) return 'uair';
     if (inp.down) return 'dair';
+    if (inp.dir && f.moveset.fair && f.moveset.fair.turnAir) { f.face = inp.dir; return 'fair'; }   // (Lance's Scissor Kick: either way)
     if (inp.dir && inp.dir === -f.face) return 'bair';
     if (inp.dir) return 'fair';
     return 'nair';
@@ -16718,22 +16762,21 @@ const MOVESETS = {
       'RIVAL WEAPONS: if Colten throws his greatsword while Colby is empty-handed, Colby can press K to CATCH it and fight with it.' ] } ] },
   LANCE: { blurb: 'A one-armed ki fighter: fast combos, beams and discs, and a ki mark that lets him teleport right behind you.', sections: [
     { title: 'GROUND J', rows: [
-      ['J x6', 'Straight Punch > Backfist > Switch Kicks > Body Hook > Ki Palm Blast', 'A six-hit string thrown with one arm and both legs - the palm blast finisher sends them away.'],
+      ['J x6', 'Straight Punch > Backfist > Switch Kicks > Body Hook > Ki Burst', 'A six-hit string thrown with one arm and both legs - the Ki Burst finisher shoves everyone around him away, close enough to keep the combo going.'],
       ['SIDE J', 'Shuriken Kick', 'A spinning kick.'],
-      ['UP J', 'Rising Uppercut', 'An uppercut that launches straight up.'],
-      ['DOWN J', 'Headspin', 'Flips onto his head and breakdance-spins, legs whirling - hits both sides over and over, the last spin launches.'],
+      ['UP J', 'Ki Scatter', 'Sweeps his hand over his head, spraying a wide arc of weak ki blasts in front, above and behind him. Hold to charge.'],
+      ['DOWN J', 'Headspin', 'Flips onto his head and breakdance-spins, legs whirling - hits both sides over and over, the last spin launches. Hold left / right to creep along while spinning.'],
       ['RUN + J', 'Cartwheel Kick', 'Cartwheels in with his legs split wide: two hits, the second sends them flying.'] ] },
     { title: 'AIR J', rows: [
       ['AIR J', 'Spinning Backfist', 'His arm sweeps all the way round him: front, back, front - the last one launches.'],
-      ['AIR FWD J', 'Shuriken Kick', 'The spinning kick, in the air.'],
-      ['AIR BACK J', 'Backhand Chop', 'Swings his arm straight out behind him.'],
+      ['AIR SIDE J', 'Scissor Kick', 'A lunging flying scissor kick - he turns to face whichever side you hold. One leg scissors up, the other snaps down and sends them.'],
       ['AIR UP J', 'Upward Palm', 'A palm thrust straight up.'],
       ['AIR DOWN J', 'Spinning Axe Kick', 'A spinning heel brought down on them.'] ] },
     { title: 'K (KI)', rows: [
       ['K (HOLD)', 'Kamehameha', 'Hold to charge, let go to fire a beam that hits over and over. AIM IT while charging: the last direction you press decides where it fires - left / right / UP on the ground, and DOWN too in the air (up launches, down spikes). Z VANISH while charging = blink (up to 3 times, still charging). With someone MARKED = Instant Transmission behind them and fire at once.'],
       ['SIDE K', 'Destructo Disc', 'A spinning disc of ki that flies out and comes back like a boomerang - it cuts on the way out AND back (and can nick him).'],
       ['UP K', 'Rising Axe Kick', 'His recovery: flips upward driving his heel up - carries them up with him, then pops them higher to keep the combo going.'],
-      ['DOWN K', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (1% / 2% / 4% damage every second).'] ] },
+      ['DOWN K', 'Kaioken', 'Toggles KAIOKEN: x1 > x2 > x3 > off. More damage at each level (+5 / +10 / +16%), but it strains him (0.8% / 1.3% / 2.2% damage every second).'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER)', 'SUPER SAIYAN', 'Golden hair and aura - faster.'],
