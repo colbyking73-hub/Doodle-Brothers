@@ -2668,7 +2668,7 @@ function stepDashChoke(f, a, dt, inp) {
 
 // Lance is the speedster: his physical moves come out ~15% quicker than they're written above,
 // but every hit does less damage and knockback than Colby's.
-const LANCE_SPEED = 0.85, LANCE_POWER = 0.78;   // (was 0.82: Colbalias stays the top tier)
+const LANCE_SPEED = 0.85, LANCE_POWER = 0.82;
 // His physical (J) moves reach farther than they're written above (pushed out a bit more again: +16px / +6 radius)
 const LANCE_PHYSICAL = ['jab', 'jab2', 'kick1', 'kick2', 'jab3', 'jab4', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair'];
 const _lanceReach = new Set();
@@ -7830,13 +7830,11 @@ CHARACTERS.COLBY.altUlt = {
   final: { dmg: 14, base: 560, growth: 6.6, angle: 32 },
 };
 // Lance: a full-power Kamehameha fired from wherever he is, straight ahead, across the whole stage
-const KAME_KO = { at: 100, kaioken: 70 };
 CHARACTERS.LANCE.ult = {
   name: 'FINAL KAMEHAMEHA',
   beamUlt: true,             // no grab/flurry - see stepUltBeam
   windTime: 1.15,            // charge-up (Kamehameha charge sound, can't be interrupted) - slow, so it KOs if it lands:
-                             // anyone at 100%+ when it hits them is finished (70%+ in KAIOKEN); below that it's just a big hit
-                             // (it used to KO anyone above 0% - with his form ladder giving him meter after meter, that was too much)
+                             // anyone above 0% when it hits them is finished; at 0% they survive - unless he's in KAIOKEN
   beamTime: 1.0,             // how long the beam lasts
   chargeSfx: 'kame',
 };
@@ -11176,10 +11174,11 @@ function updateBeam(s, dt) {
         if (t.x + t.w / 2 < x0 || t.x - t.w / 2 > x1) continue;
         if (t.y < s.y - s.w / 2 || t.y - hurtH(t) > s.y + s.w / 2) continue;   // (crouching can duck a thin beam)
       }
-      // LANCE'S ULT: a guaranteed KO if they were already at KAME_KO.at % when it caught them (KAME_KO.kaioken % in Kaioken)
+      // LANCE'S ULT: a guaranteed KO if they had any damage when it caught them (or always, in Kaioken) - it's slow and easy
+      // to see coming: jump it, get behind him or Z vanish through it (the CPUs know - see aiDodgeKame)
       if (s.final.lanceKO && !(s.startDmg || (s.startDmg = new Map())).has(t)) s.startDmg.set(t, t.damage);
       let h = last ? s.final : s.tick;
-      if (last && s.final.lanceKO && s.startDmg.get(t) >= (o.kaioken ? KAME_KO.kaioken : KAME_KO.at)) h = { ...s.final, koAt: 0.001 };
+      if (last && s.final.lanceKO && (s.startDmg.get(t) > 0 || o.kaioken)) h = { ...s.final, koAt: 0.001 };
       if (applyHit(t, h, s.dir, s.mult, s.vdir ? t.x : t.x - s.dir * 10, s.vdir ? t.y - 50 : s.y)) markKi(o, t, s);   // Lance's ki marks them (once per beam)
     }
   }
@@ -12770,6 +12769,7 @@ function aiInput(f, level) {
     }
   }
   aiSafety(f, ai);
+  aiDodgeKame(f, ai, level);                                 // Lance's FINAL KAMEHAMEHA coming: get out of its way
 
   // PARRY REFLEX (every frame, not just when it "thinks"): an attack is about to land on us - now and then snap the
   // shield up at just the right moment for a PERFECT BLOCK (better CPUs more often). Staggered from one of our own
@@ -13239,6 +13239,52 @@ function aiSafety(f, ai) {
   }
   if (f.ground && !f.onPlatform &&
       ((ai.dir < 0 && f.x < STAGE.x + 40) || (ai.dir > 0 && f.x > STAGE.x + STAGE.w - 40))) ai.dir = 0;
+}
+
+// FINAL KAMEHAMEHA (Lance's ult - a one-hit KO, but slow and easy to read): every frame while someone's charging or firing
+// it, CPUs in its path get out. It fires straight ahead in a band at his chest height and only KOs on its LAST tick, so:
+//  - behind him = safe: stay there (no walking back round in front, no lunging attacks)
+//  - close in front: ROLL straight through him just before it fires, ending up behind him
+//  - further out: run at him while it charges and roll through; if there isn't time, jump as it fires and stay above it
+//    (double jump, then Z vanish upward) until it's over
+// How reliably they read it depends on their level (KAME_READ).
+const KAME_READ = { EASY: 0.25, NORMAL: 0.55, HARD: 0.8, MASTER: 0.92, IMPOSSIBLE: 1, FERAL: 0.5 };
+function aiDodgeKame(f, ai, level) {
+  if (f.minion || f.respawnTimer > 0) return false;
+  const o = fighters.find(q => q !== f && !allies(f, q) && q.respawnTimer <= 0 && q.action && q.action.type === 'ultBeam');
+  if (!o) return false;
+  const a = o.action, U = CHARACTERS[o.char].ult || {};
+  if (ai.kameFor !== a) { ai.kameFor = a; ai.kameRead = Math.random() < (KAME_READ[level] ?? 0.6); }
+  if (!ai.kameRead) return false;
+  const fa = f.action;
+  if (fa && (fa.type === 'hitstun' || fa.type === 'dizzy' || fa.type === 'grabbed' || fa.type === 'thrown')) return false;
+  const front = Math.sign(f.x - o.x) === o.face;                   // (the beam only goes the way he's facing)
+  const bandTop = o.y - 62 - 44, bandBot = o.y - 62 + 44;
+  const inBand = f.y >= bandTop && f.y - hurtH(f) <= bandBot;
+  const left = a.phase === 'charge' ? (U.windTime || 1.15) - a.t : -a.t;   // (seconds until it fires; negative = firing)
+  ai.tapAtk = ai.tapSpc = ai.tapGrab = ai.tapUlt = false; ai.holdBtn = null; ai.block = false;
+  if (!front) {                                                    // BEHIND HIM: safe - stay there
+    if (ai.dir === o.face) ai.dir = 0;
+    if (Math.abs(f.x - o.x) < 40) ai.dir = -o.face;                 // (step a little further round the back)
+    return true;
+  }
+  const dist = Math.abs(f.x - o.x), toward = -o.face;
+  if (f.ground) {
+    if (dist < 250 && left < 0.45 && !fa) { ai.tapBlock = true; ai.dir = toward; ai.down = false; ai.up = false; return true; }   // ROLL through him
+    const runTime = dist / Math.max(400, f.stats.runSpeed);
+    if (a.phase === 'charge' && runTime < left - 0.15) { ai.dir = toward; return true; }      // there's time: run in to roll through
+    if (left < 0.12 && inBand) { ai.tapJump = true; ai.jumpHold = 0.35; ai.dir = 0; return true; }   // no time: jump it
+    ai.dir = 0; return true;
+  }
+  // in the air (jumped it / was already up): stay above the band until it's over
+  if (a.phase === 'fire' || left < 0.3) {
+    const sinking = f.vy > -150 && f.y > bandTop - 90;
+    if (sinking) {
+      if (f.airJumps > 0) { ai.tapJump = true; ai.jumpHold = 0.3; }
+      else if (canAirDodge(f) && !fa) { ai.tapBlock = true; ai.up = true; ai.dir = toward; }
+    }
+  }
+  return true;
 }
 
 // =====================================================================
@@ -17587,7 +17633,7 @@ const MOVESETS = {
       ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out - and through KOs.'],
       ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'Lightning crackles round his aura: +15% damage, +25% move speed, attacks 25% faster. Also stays on when the meter runs out, and through KOs.'],
       ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
-      ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage. A guaranteed KO on anyone already at 100%+ (70%+ in Kaioken).'],
+      ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage. A one-hit KO on anyone above 0% - but it is slow to charge: jump it, get behind him or Z vanish through it.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'KI MARKS: every separate ki attack that hits marks them (up to 3 marks, they last 6 seconds).',
