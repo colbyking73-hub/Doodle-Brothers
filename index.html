@@ -5748,6 +5748,25 @@ const LP = {
   elbow: pose({ lean: 0.5, bob: -6, legA: [0.9, 0.5], legB: [-0.8, 0.2], armA: [1.4, -2.3], armB: [0.5, -1.6] }),
   hurt: pose({ lean: -0.6, legA: [0.6, 0.4], legB: [-0.5, 0.7], armA: [-2.2, 0.3], armB: [2.4, 0.2] }),
   flat: pose({ lean: 0, legA: [0.15, 0.1], legB: [-0.15, 0.2], armA: [-2.6, 0.2], armB: [2.6, -0.2] }),
+  // (more martial arts, so every clone fights its own way)
+  hook: pose({ lean: 0.35, bob: -6, legA: [0.8, 0.5], legB: [-0.7, 0.2], armA: [1.2, -1.4], armB: [0.6, -1.8] }),
+  upper: pose({ lean: -0.15, bob: -2, legA: [0.4, 0.2], legB: [-0.5, 0.2], armA: [2.9, 0.1], armB: [0.6, -1.6] }),
+  sideKick: pose({ lean: -0.6, bob: -2, legA: [1.62, 0.04], legB: [-0.25, 0.25], armA: [-0.9, -0.6], armB: [0.8, -1.3] }),
+  spinHeel: pose({ lean: -0.4, legA: [2.1, 0.05], legB: [-0.3, 0.3], armA: [-1.8, 0], armB: [1.6, -0.3], spin: 0.35 }),
+  flyKnee: pose({ lean: 0.2, legA: [1.6, 2.4], legB: [-0.4, 1.2], armA: [1.6, -1.2], armB: [1.4, -1.2] }),
+  dropkick: pose({ lean: -1.0, legA: [1.7, 0.05], legB: [1.5, 0.05], armA: [-2.0, 0.2], armB: [-1.7, 0.2] }),
+  hammer: pose({ lean: 0.45, bob: -8, legA: [0.9, 0.6], legB: [-0.7, 0.2], armA: [0.9, 0.05], armB: [0.85, 0.05] }),
+  hammerUp: pose({ lean: -0.2, bob: -2, legA: [0.6, 0.4], legB: [-0.5, 0.2], armA: [3.0, 0.1], armB: [2.9, 0.1] }),
+  tackle: pose({ lean: 0.95, bob: -14, legA: [1.0, 0.7], legB: [-1.2, 0.3], armA: [0.8, -0.9], armB: [0.6, -1.0] }),
+  crescent: pose({ lean: -0.3, legA: [2.6, 0.05], legB: [-0.2, 0.2], armA: [-1.4, -0.3], armB: [1.4, -0.4] }),
+  elbowDrop: pose({ lean: 0.6, legA: [0.8, 1.6], legB: [0.3, 1.3], armA: [0.2, -2.5], armB: [1.0, -1.4] }),
+  twinPalm: pose({ lean: 0.55, bob: -10, legA: [1.0, 0.6], legB: [-0.9, 0.2], armA: [1.55, 0.02], armB: [1.6, 0.02] }),
+  risingKnee: pose({ lean: -0.2, legA: [2.0, 2.4], legB: [-0.3, 0.6], armA: [2.2, -0.6], armB: [2.0, -0.6] }),
+  diveKick: pose({ lean: 0.5, legA: [0.9, 0.05], legB: [0.1, 1.6], armA: [-1.0, -0.3], armB: [-0.8, -0.3] }),
+  scissor: pose({ lean: -0.5, legA: [2.2, 0.05], legB: [0.5, 0.1], armA: [-1.3, -0.3], armB: [-1.1, -0.3] }),
+  shoulder: pose({ lean: 0.75, bob: -10, legA: [1.0, 0.6], legB: [-1.0, 0.3], armA: [0.2, -1.2], armB: [-0.4, -0.6] }),
+  lowKick: pose({ lean: -0.2, bob: -6, legA: [1.15, 0.05], legB: [-0.3, 0.4], armA: [1.0, -1.5], armB: [0.8, -1.6] }),
+  chop: pose({ lean: 0.4, bob: -8, legA: [0.8, 0.5], legB: [-0.7, 0.2], armA: [1.1, -0.25], armB: [0.6, -1.7] }),
 };
 // the opponent's poses: guard, getting hit, and the counters (wind -> strike)
 const LV = {
@@ -5772,6 +5791,9 @@ const LV = {
   headbutt: pose({ lean: 0.85, bob: -8, legA: [0.9, 0.6], legB: [-0.9, 0.2], armA: [1.2, -0.6], armB: [1.1, -0.6] }),
   spinWind: pose({ lean: 0.3, bob: -14, legA: [0.8, 1.2], legB: [-0.6, 0.4], armA: [-1.5, -0.3], armB: [1.5, -0.3] }),
   spinKick: pose({ lean: -0.5, bob: -4, legA: [1.6, 0.05], legB: [-0.2, 0.3], armA: [-1.8, 0], armB: [1.8, 0] }),
+  liftHigh: pose({ lean: -0.15, bob: -2, legA: [0.5, 0.3], legB: [-0.5, 0.3], armA: [3.0, 0.3], armB: [2.9, 0.3] }),   // hoisted overhead...
+  slamDown: pose({ lean: 0.6, bob: -26, legA: [1.0, 1.2], legB: [-0.8, 0.6], armA: [1.0, 0.1], armB: [0.9, 0.1] }),    // ...and DRIVEN into the floor
+  bridge: pose({ lean: -1.2, bob: -18, legA: [0.8, 1.0], legB: [-0.3, 1.2], armA: [3.4, 0.2], armB: [3.3, 0.2] }),     // suplex bridge
 };
 // how each clone attacks: its entrance, its hits ([time, pose] - time in seconds at the normal pace), how long it
 // takes, and the counters the opponent answers it with
@@ -5785,6 +5807,75 @@ const LEGION_ATTACKS = {
   pincer:  { app: 'pincer', side: -1, appT: 0.22, hits: [[0, 'jabA'], [0.15, 'roundhouse']], ta: 0.34, ctr: ['spinKick'], pair: true },
 };
 const LEGION_ORDER = ['rush', 'flyKick', 'behind', 'slide', 'drop', 'flurry', 'rush', 'pincer', 'behind', 'flyKick', 'slide', 'drop'];
+// THE 25 CLONES - every one comes in its own way and fights its own way (side -1 = from his side, 1 = from BEHIND them).
+// app: run / leap / poof / slide / drop / dive (diagonal from high up) / vault (flips over their head, lands behind) /
+//      rise (erupts out of the ground) / spin (tornados in) / cartwheel
+const LEGION_SEQ = [
+  { app: 'run',       side: -1, appT: 0.24, hits: [[0, 'jabA'], [0.11, 'jabB'], [0.24, 'straight']], ta: 0.38 },
+  { app: 'leap',      side: -1, appT: 0.3,  hits: [[0, 'flyKick'], [0.2, 'roundhouse']], ta: 0.36 },
+  { app: 'poof',      side: 1,  appT: 0.14, hits: [[0, 'elbow'], [0.14, 'straight']], ta: 0.3 },
+  { app: 'slide',     side: -1, appT: 0.2,  hits: [[0, 'sweep'], [0.17, 'knee']], ta: 0.32 },
+  { app: 'drop',      side: -1, appT: 0.26, hits: [[0, 'axe'], [0.16, 'jabB']], ta: 0.3 },
+  { app: 'vault',     side: 1,  appT: 0.3,  hits: [[0, 'spinHeel'], [0.18, 'hook']], ta: 0.34 },
+  { app: 'run',       side: -1, appT: 0.2,  hits: [[0, 'jabA'], [0.06, 'jabB'], [0.12, 'jabA'], [0.18, 'jabB'], [0.24, 'jabA'], [0.32, 'straight']], ta: 0.42, small: true },
+  { app: 'rise',      side: -1, appT: 0.2,  hits: [[0, 'upper'], [0.16, 'risingKnee']], ta: 0.32 },
+  { app: 'dive',      side: -1, appT: 0.28, hits: [[0, 'diveKick'], [0.18, 'lowKick'], [0.3, 'sideKick']], ta: 0.42 },
+  { app: 'spin',      side: -1, appT: 0.3,  hits: [[0, 'roundhouse'], [0.12, 'spinHeel'], [0.24, 'crescent']], ta: 0.38 },
+  { app: 'poof',      side: 1,  appT: 0.12, hits: [[0, 'chop'], [0.1, 'chop'], [0.22, 'shoulder']], ta: 0.34 },
+  { app: 'cartwheel', side: -1, appT: 0.3,  hits: [[0, 'scissor'], [0.2, 'dropkick']], ta: 0.34 },
+  { app: 'drop',      side: -1, appT: 0.24, hits: [[0, 'elbowDrop'], [0.18, 'hammer']], ta: 0.32 },
+  { app: 'run',       side: -1, appT: 0.2,  hits: [[0, 'tackle'], [0.16, 'knee'], [0.28, 'upper']], ta: 0.38 },
+  { app: 'vault',     side: 1,  appT: 0.28, hits: [[0, 'hammerUp'], [0.12, 'hammer']], ta: 0.3 },
+  { app: 'slide',     side: -1, appT: 0.18, hits: [[0, 'lowKick'], [0.12, 'sweep'], [0.24, 'crescent']], ta: 0.36 },
+  { app: 'leap',      side: -1, appT: 0.26, hits: [[0, 'flyKnee'], [0.16, 'elbow'], [0.28, 'twinPalm']], ta: 0.38 },
+  { app: 'rise',      side: 1,  appT: 0.18, hits: [[0, 'risingKnee'], [0.14, 'hook'], [0.26, 'upper']], ta: 0.36 },
+  { app: 'spin',      side: 1,  appT: 0.26, hits: [[0, 'spinHeel'], [0.14, 'sideKick']], ta: 0.3 },
+  { app: 'dive',      side: -1, appT: 0.24, hits: [[0, 'diveKick'], [0.14, 'twinPalm']], ta: 0.3 },
+  { app: 'cartwheel', side: 1,  appT: 0.26, hits: [[0, 'scissor'], [0.12, 'lowKick'], [0.22, 'roundhouse']], ta: 0.34 },
+  { app: 'run',       side: -1, appT: 0.18, hits: [[0, 'hook'], [0.08, 'upper'], [0.16, 'hook'], [0.24, 'straight']], ta: 0.32, small: true },
+  { app: 'poof',      side: -1, appT: 0.1,  hits: [[0, 'sideKick'], [0.12, 'crescent']], ta: 0.26 },
+  { app: 'drop',      side: 1,  appT: 0.22, hits: [[0, 'axe'], [0.12, 'dropkick']], ta: 0.28 },
+  { app: 'pincer',    side: -1, appT: 0.22, hits: [[0, 'jabA'], [0.15, 'roundhouse']], ta: 0.34, pair: true },
+];
+// EVERY ENEMY ANSWERS WITH THEIR OWN KIT: each clone gets a different counter from the last, built out of the opponent's
+// real moves (their weapon, their grapples, their kicks, their ki...) - [move key, how the clone goes flying, effect].
+//  fly: up / far / mid / slide / flat (stomped into the floor) / arc (thrown over their shoulder) / suplex / bomb (powerbomb)
+//  fx: slash / fire / ki / kick / slam / grab / hell
+const LEGION_KITS = {
+  COLBY:     [['neutralRanged', 'far', 'slash'], ['jab3', 'mid', 'kick'], ['scythe3', 'up', 'slash'], ['downGround', 'flat', 'kick'], ['upRanged', 'up', 'slash'],
+              ['bair', 'far', 'kick'], ['scythe2', 'arc', 'slash'], ['upGround', 'up', 'kick'], ['downRanged', 'mid', 'slash'], ['fairR', 'far', 'slash'], ['uair', 'up', 'kick']],
+  COLTEN:    [['neutralRanged', 'far', 'slash'], ['sideGround', 'mid', 'slash'], ['jab3', 'mid', 'kick'], ['scythe3', 'up', 'slash'], ['downGround', 'flat', 'kick'],
+              ['upGround', 'up', 'slash'], ['scythe2', 'arc', 'slash'], ['dashAttack', 'far', 'slash'], ['downRanged', 'mid', 'slash'], ['jab', 'slide', 'slash']],
+  SEVON:     [['jab', 'mid', 'fire'], ['sideGround', 'far', 'fire'], ['upGround', 'up', 'fire'], ['downGround', 'flat', 'fire'], ['dashAttack', 'far', 'fire'],
+              ['jab3', 'mid', 'fire'], ['unknowingFire', 'slide', 'fire'], ['jab2', 'up', 'fire'], ['nair', 'mid', 'fire'], ['blazingUniverse', 'flat', 'fire']],
+  AIDEN:     [['@suplex', 'suplex', 'grab'], ['neutralRanged', 'far', 'slam'], ['jab3', 'mid', 'slam'], ['@powerbomb', 'bomb', 'grab'], ['sideGround', 'far', 'kick'],
+              ['upRanged', 'up', 'slam'], ['@throw', 'arc', 'grab'], ['roundhouse', 'mid', 'kick'], ['jab4', 'slide', 'slam'], ['fair', 'up', 'kick'], ['turnbuckle', 'flat', 'slam']],
+  LANCE:     [['kick1', 'mid', 'kick'], ['jab4', 'slide', 'ki'], ['highKick', 'up', 'kick'], ['kick2', 'far', 'kick'], ['dashAttack', 'far', 'kick'],
+              ['uair', 'up', 'ki'], ['counter', 'mid', 'ki'], ['dair', 'flat', 'kick'], ['jab2', 'mid', 'kick'], ['upRanged', 'up', 'kick'], ['bair', 'far', 'ki']],
+  STICKMAN:  [['jab', 'mid', 'kick'], ['sideGround', 'far', 'kick'], ['upGround', 'up', 'kick'], ['downGround', 'flat', 'slam'], ['nair', 'mid', 'kick'],
+              ['fair', 'far', 'kick'], ['counter', 'slide', 'ki'], ['uair', 'up', 'kick'], ['@throw', 'arc', 'grab']],
+  COLBALIAS: [['hellCross', 'far', 'hell'], ['hookKick', 'mid', 'kick'], ['upGround', 'up', 'hell'], ['bair', 'far', 'kick'], ['dashAttack', 'slide', 'kick'],
+              ['fair', 'mid', 'hell'], ['hellFlurry', 'up', 'hell'], ['@throw', 'arc', 'grab'], ['counter', 'slide', 'hell']],
+};
+const LEGION_FLY = { up: { launch: [250, -1150], spin: 15 }, far: { launch: [1400, -260], spin: 11 }, mid: { launch: [900, -620], spin: 9 },
+                     slide: { launch: [1600, 0], slide: true }, flat: { flat: true }, arc: { arc: true }, suplex: { arc: true, behind: true }, bomb: { flat: true, lift: true } };
+// a counter, resolved from their kit: { windPose, strikePose, wT, sT, + how it flies, fx }
+function legionKitCounter(U, n) {
+  const v = U.target, kit = LEGION_KITS[v.char];
+  if (!kit || (v.noScythe && (v.char === 'COLBY' || v.char === 'COLTEN'))) return null;   // (bare-handed Colby / Colten: the martial-arts set)
+  const usable = kit.filter(([k]) => k[0] === '@' || (v.moveset[k] && v.moveset[k].strike));
+  if (!usable.length) return null;
+  let i = (n * 7 + 3) % usable.length;
+  if (usable.length > 1 && usable[i][0] === U.lastKit) i = (i + 1) % usable.length;      // (never the same answer twice in a row)
+  const [key, fly, fx] = usable[i]; U.lastKit = key;
+  let windPose, strikePose;
+  if (key === '@suplex')         { windPose = LV.catch; strikePose = LV.bridge; }
+  else if (key === '@powerbomb') { windPose = LV.liftHigh; strikePose = LV.slamDown; }
+  else if (key === '@throw')     { windPose = LV.catch; strikePose = LV.overThrow; }
+  else { const m = v.moveset[key]; windPose = m.wind || LV.guard; strikePose = m.strike2 || m.strike; }
+  const grab = key[0] === '@';
+  return { windPose, strikePose, wT: grab ? 0.14 : 0.09, sT: grab ? 0.24 : 0.18, fx, key, ...LEGION_FLY[fly] };
+}
 // the counters: wind-up, the strike, how long each takes, and what happens to the clone
 //  launch = [speed away from them, speed up]; arc = thrown over their shoulder; flat = stomped into the floor
 const LEGION_COUNTERS = {
@@ -5800,16 +5891,30 @@ const LEGION_COUNTERS = {
   own:        { wind: 'guard', strike: null, wT: 0.08, sT: 0.18, launch: [1050, -520], spin: 12 },   // (one of THEIR moves)
 };
 const legionPoof = (x, y) => burst(x, y - 50, ['#6e6e78', '#b4b4bb', '#3a0000', '#d8d8de'], 16, 0, Math.PI, 340, { grav: -80 });
+// the flavour of THEIR counter: a weapon's slash, Sevon's flames, Lance's ki, Captain Heel's slams, Colbalias's hellfire
+function legionCounterFx(U, E, x, y) {
+  const v = U.target, fx = E.C.fx;
+  if (fx === 'slash') { slashLine(x, y, Math.random() * Math.PI, 170 + Math.random() * 60, 0.18); slashLine(x, y, Math.random() * Math.PI, 120, 0.14); sfx.cut(0.8); }
+  else if (fx === 'fire') { burst(x, y, SEVON_FIRE, 34, 0, Math.PI, 620, { grav: -300 }); ring(x, y); sfx.cut(0.6); }
+  else if (fx === 'ki') { const col = kiColor(v); burst(x, y, [col, '#ffffff'], 30, 0, Math.PI, 700, { grav: 0 }); ring(x, y); sfx.blast && sfx.blast(); }
+  else if (fx === 'slam' || fx === 'grab') { dust(x, U.baseY, 18, 2.4); shake = Math.max(shake, 14); sfx.slam(); }
+  else if (fx === 'hell') { hellBurst(x, y, 16, 520); }
+  else { particles.push({ x, y, vx: 0, vy: 0, life: 0.14, max: 0.14, r: 26, type: 'impact', rot: Math.random() * Math.PI }); }
+}
 function legionNewExchange(U) {
   const n = U.spent++, p = n / Math.max(1, LEGION.count - 1);
-  const kind = n === LEGION.count - 1 ? 'pincer' : LEGION_ORDER[n % LEGION_ORDER.length];
-  const A = LEGION_ATTACKS[kind];
-  let ci = (n * 3 + Math.floor(n / LEGION_ORDER.length)) % A.ctr.length;
-  if (A.ctr.length > 1 && A.ctr[ci] === U.lastCtr) ci = (ci + 1) % A.ctr.length;   // (never the same counter twice in a row)
-  const ctrName = A.ctr[ci]; U.lastCtr = ctrName;
+  const A = LEGION_SEQ[Math.min(n, LEGION_SEQ.length - 1)], kind = A.app;   // (clone n's own attack)
+  const GEN = ['catchThrow', 'uppercut', 'roundhouse', 'knee', 'palm', 'backfist', 'headbutt', 'stomp', 'own', 'spinKick'];
+  let ci = (n * 3 + 1) % GEN.length;
+  if (GEN[ci] === U.lastCtr) ci = (ci + 1) % GEN.length;
+  const ctrName = A.pair ? 'spinKick' : GEN[ci]; U.lastCtr = ctrName;
   const s = lerp(LEGION.slow, LEGION.fast, Math.pow(p, 0.8));
   const ownList = ['sideGround', 'upGround', 'jab', 'downGround', 'dashAttack'].map(k => U.target.moveset[k] && U.target.moveset[k].strike).filter(Boolean);
-  const E = { n, kind, A, C: LEGION_COUNTERS[ctrName], ctrName, s, t: 0, hitN: 0, lastHit: -9, done: false,
+  // their answer: from THEIR kit if they have one (weapon / grapple / kicks / ki), otherwise the martial-arts set
+  const kitC = A.pair ? null : legionKitCounter(U, n);
+  const gC = LEGION_COUNTERS[ctrName];
+  const C = kitC || { ...gC, windPose: LV[gC.wind] || LV.guard, strikePose: gC.strike ? LV[gC.strike] : null, fx: 'kick' };
+  const E = { n, kind, A, C, ctrName: kitC ? kitC.key : ctrName, s, t: 0, hitN: 0, lastHit: -9, done: false,
               own: ownList.length ? ownList[n % ownList.length] : LV.palm,
               clones: A.pair ? [{ side: -1, app: 'run' }, { side: 1, app: 'poof' }] : [{ side: A.side, app: A.app }] };
   E.A0 = A.appT * s; E.C0 = E.A0 + A.ta * s; E.CI = E.C0 + E.C.wT * s; E.END = E.CI + E.C.sT * s;
@@ -5830,6 +5935,14 @@ function legionClone(U, E, c, t) {
     if (c.app === 'slide') return { x: lerp(u.x - d * 10, sx, easeOut(k)), y: U.baseY, face, pose: LP.slide };
     if (c.app === 'leap') return { x: lerp(u.x - d * 40, sx, k), y: U.baseY - Math.sin(Math.PI * k) * 170 - (1 - k) * 0, face, pose: k < 0.7 ? LP.tuck : LP.flyKick };
     if (c.app === 'drop') return { x: sx, y: U.baseY - (1 - k * k) * 480, face, pose: LP.axeUp };
+    if (c.app === 'dive') return { x: lerp(sx - c.side * d * 300, sx, k), y: U.baseY - (1 - k) * 380, face, pose: LP.diveKick };   // a diagonal dive from high up
+    if (c.app === 'vault') {                                     // runs at them from his side and FLIPS over their head, landing behind
+      const x0 = u.x - d * 20;
+      return { x: lerp(x0, sx, easeInOut(k)), y: U.baseY - Math.sin(Math.PI * k) * 200, face: k < 0.5 ? d : face, pose: LP.tuck, spin: d * Math.PI * 2 * k };
+    }
+    if (c.app === 'rise') return { x: sx, y: U.baseY + (1 - k) * 90, face, pose: LP.upper, alpha: k };   // erupts out of the ground
+    if (c.app === 'spin') return { x: lerp(u.x - d * 20, sx, easeOut(k)), y: U.baseY - Math.sin(Math.PI * k) * 30, face, pose: LP.roundhouse, spin: d * Math.PI * 4 * k };   // a tornado
+    if (c.app === 'cartwheel') return { x: lerp(c.side < 0 ? u.x - d * 20 : sx + c.side * d * 260, sx, easeOut(k)), y: U.baseY, face, pose: LP.scissor, spin: -c.side * d * Math.PI * 2 * k };
     return { x: sx, y: U.baseY, face, pose: LP.guard, alpha: k };   // poof: appears right there
   }
   // ...the combo: the newest hit's pose, stepping in a touch with each one
@@ -5843,8 +5956,10 @@ function legionClone(U, E, c, t) {
 function legionLaunch(U, E, c, cx, cy) {
   const d = U.dir, v = U.target, C = E.C, away = c.side * d;     // (away from them, on its own side)
   const deb = { x: cx, y: cy, vx: 0, vy: 0, spin: 0, spinV: 0, t: 0, life: 0.34, pose: LP.hurt, face: -away };
-  if (C.arc) {                                                   // over the shoulder: an arc to the far side, SLAMMED down
-    Object.assign(deb, { arc: { x0: cx, x1: v.x - away * 62, y0: cy }, life: 0.26, slamT: 0.2 });
+  if (C.lift) {                                                  // POWERBOMB: hoisted up over their head... then DRIVEN into the floor
+    Object.assign(deb, { arc: { x0: cx, x1: v.x + away * 40, y0: cy }, life: 0.3, slamT: 0.24, bomb: true });
+  } else if (C.arc) {                                            // over the shoulder: an arc to the far side, SLAMMED down (suplex: straight back)
+    Object.assign(deb, { arc: { x0: cx, x1: v.x - away * (C.behind ? 80 : 62), y0: cy }, life: 0.26, slamT: 0.2 });
   } else if (C.flat) {
     Object.assign(deb, { pose: LP.flat, spin: 0, life: 0.2, flat: true, y: U.baseY });
     dust(cx, U.baseY, 12, 2); shake = Math.max(shake, 10);
@@ -5875,7 +5990,8 @@ function updateLegionUlt(U, dt) {
       const k = clamp(q.t / q.slamT, 0, 1);
       q.x = lerp(q.arc.x0, q.arc.x1, k); q.y = q.arc.y0 - Math.sin(Math.PI * k) * 120 + k * k * 0;
       q.spin = -Math.sign(q.arc.x1 - q.arc.x0) * Math.PI * 1.2 * k;
-      if (k >= 1 && !q.slammed) { q.slammed = true; q.y = U.baseY; q.pose = LP.flat; dust(q.x, U.baseY, 14, 2); shake = Math.max(shake, 12); sfx.hit(0.7); }
+      if (q.bomb) q.y = q.arc.y0 - Math.sin(Math.PI * Math.min(1, k * 1.3)) * 170;   // (up high first, then straight down)
+      if (k >= 1 && !q.slammed) { q.slammed = true; q.y = U.baseY; q.pose = LP.flat; dust(q.x, U.baseY, q.bomb ? 26 : 14, q.bomb ? 3 : 2); shake = Math.max(shake, q.bomb ? 18 : 12); sfx.hit(0.7); if (q.bomb) { sfx.slam(); cracks.push({ x: q.x, y: U.baseY, life: 2.5, max: 2.5, seed: q.x, size: 1 }); } }
     } else if (!q.flat) {
       q.x += q.vx * dt; q.y += q.vy * dt; q.vy += (q.slide ? 0 : 2600) * dt; q.spin += q.spinV * dt;
       if (q.slide) { q.vx *= Math.pow(0.02, dt); if (Math.random() < dt * 40) dust(q.x, U.baseY, 1, 0.6); }
@@ -5920,6 +6036,7 @@ function updateLegionUlt(U, dt) {
           const P = legionClone(U, E, c, E.CI);
           legionLaunch(U, E, c, P.x, P.y);
           burst(P.x, P.y - 55, ['#ffffff', '#ffd23f', '#ff1a1a'], 14, 0, Math.PI, 560, { grav: 0 });
+          legionCounterFx(U, E, P.x, P.y - 55);
         }
         if (E.n % 4 === 3 || E.n >= LEGION.count - 3) { impactFrame = Math.max(impactFrame, 0.05); impactAt = { x: v.x, y: v.y - 60, ang: 0, all: false, focus: true }; }   // (a flash on every few - not all of them)
         hitstop = Math.max(hitstop, 0.05); shake = Math.max(shake, 9);
@@ -5930,7 +6047,7 @@ function updateLegionUlt(U, dt) {
       // the NEXT clone sets off so it arrives as this counter finishes
       if (!E.spawnedNext && U.spent < LEGION.count) {
         const p = U.spent / Math.max(1, LEGION.count - 1), sN = lerp(LEGION.slow, LEGION.fast, Math.pow(p, 0.8));
-        const nextApp = LEGION_ATTACKS[U.spent === LEGION.count - 1 ? 'pincer' : LEGION_ORDER[U.spent % LEGION_ORDER.length]].appT * sN;
+        const nextApp = LEGION_SEQ[Math.min(U.spent, LEGION_SEQ.length - 1)].appT * sN;
         if (E.t >= E.CI + E.C.sT * s * 0.55 - nextApp) { E.spawnedNext = true; legionNewExchange(U); }
       }
       if (E.clones.some(c => c.app === 'poof') && !E.poofed) {   // (poofing in behind them)
@@ -5943,9 +6060,9 @@ function updateLegionUlt(U, dt) {
       const E = lead, c0 = E.clones[0];
       v.face = c0.side * d > 0 ? 1 : -1;                          // (facing the clone)
       if (E.t < E.C0) U.victimPose = E.t - E.lastHit < 0.09 * E.s ? (E.hitN % 2 ? LV.hurtA : LV.hurtB) : LV.guard;
-      else if (E.t < E.CI) U.victimPose = LV[E.C.wind] || LV.guard;
-      else U.victimPose = E.C.strike ? LV[E.C.strike] : E.own;
-      if (E.C.strike === 'spinKick' && E.t >= E.CI) U.victimPose = { ...LV.spinKick, spin: v.face * Math.min(1, (E.t - E.CI) / (E.C.sT * E.s)) * Math.PI * 2 };
+      else if (E.t < E.CI) U.victimPose = E.C.windPose || LV.guard;
+      else U.victimPose = E.C.strikePose || E.own;
+      if (E.ctrName === 'spinKick' && E.t >= E.CI) U.victimPose = { ...LV.spinKick, spin: v.face * Math.min(1, (E.t - E.CI) / (E.C.sT * E.s)) * Math.PI * 2 };
     } else U.victimPose = LV.guard;
     if (U.spent >= LEGION.count && U.ex.every(E => E.done) && !U.debris.length) { U.phase = 'final'; U.t = 0; v.face = -d; U.victimPose = LV.guard; }
     return;
@@ -5995,7 +6112,7 @@ function drawLegionCrowd(U) {
     if (E.countered) continue;
     for (const c of E.clones) {
       const P = legionClone(U, E, c, E.t);
-      drawClone(P.x, P.y, P.face, P.pose, 0.95 * (P.alpha ?? 1));
+      drawClone(P.x, P.y, P.face, P.pose, 0.95 * (P.alpha ?? 1), P.spin || 0);
     }
   }
   if (U.debris) for (const q of U.debris) drawClone(q.x, q.y, q.face, q.pose, 0.9, q.spin);   // ...and the ones flying off
@@ -17998,7 +18115,7 @@ const MOVESETS = {
     { title: 'TRANSFORM + ULTIMATES (I) - TWO BARS', rows: [
       ['I (ONE BAR FULL)', 'TRUE DEMON', 'Transforms on one bar (the other stays saved). Transformed: +1 clone out at once, his clones take +1 hit and rage.'],
       ['I (TRANSFORMED)', '100-Type Guanyin Bodhisattva', 'A giant hundred-armed statue rises behind him and pummels them. Locks on from anywhere.'],
-      ['DOWN + I (TRANSFORMED)', 'Shadow Clone Rush', '25 clones fight them one exchange at a time - each lands a combo and gets countered - then he teleports behind them for a dead-flat launching punch to the back of the head.'] ] },
+      ['DOWN + I (TRANSFORMED)', 'Shadow Clone Rush', '25 clones fight them one exchange at a time - every clone comes in its own way (running, leaping, diving, vaulting over them, rising out of the ground, tornado-spinning in...) with its own combo, and every one gets countered with a move from THEIR OWN kit (weapon slashes, grapple slams, kicks, ki, fire) - then he teleports behind them for a dead-flat launching punch to the back of the head.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'TWO METER BARS: each bar is a full transform + ultimate. Use one, and the second can do it all again.',
       'HIS CLONES have his whole moveset (slower and weaker) except ultimates, the gaze and summoning. Each takes 2 hits (+1 per fighter past two in the match), and Colbalias takes HALF of any damage a clone takes.',
