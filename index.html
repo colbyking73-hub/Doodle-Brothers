@@ -10,6 +10,7 @@
 <!-- DBZ teleport sound, used for Z vanishes -->
 <script src="sounds/teleport-sfx.js"></script>
 <script src="sounds/ui-note-sfx.js"></script>
+<script src="sounds/ui-awaken-sfx.js"></script>
 <script src="sounds/shield-sfx.js"></script>
 <!-- Kamehameha charge-up sound, used for Lance's Kamehameha and ultimate charge -->
 <script src="sounds/kame-sfx.js"></script>
@@ -8332,7 +8333,7 @@ function setCharacter(f, charName) {
   f.stats = { ...DEFAULT_STATS, ...c.stats };
   f.look = c.look || {};
   f.w = 26 * (f.look.scale || 1); f.h = 90 * (f.look.scale || 1);   // bigger characters = bigger hurtbox
-  f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false; f.ui = false;
+  f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false; f.ui = false; stopUiSong(f);
   f.weapon = (c.look && c.look.weapon) || null;                // Colby / Colten start with their own weapon
 }
 function resetFighter(f, atSpawn) {
@@ -8371,7 +8372,7 @@ let matchTeams = false;
 
 // ---------------- Effects ----------------
 const particles = [];
-const MAX_PARTICLES = 900;
+const MAX_PARTICLES = 600;   // (was 900: Colbalias + 4 clones all hitting at once got heavy)
 const ghosts = [];
 const stains = [];
 const projectiles = [];
@@ -8393,6 +8394,7 @@ function ring(x, y) {
 }
 // Square pixel bits flying out in a direction (ang = radians, 0 = right, PI/2 = up)
 function burst(x, y, colors, n, ang = 0, spread = Math.PI, speed = 400, opts = {}) {
+  if (particles.length > MAX_PARTICLES * 0.5) n = Math.ceil(n * (particles.length > MAX_PARTICLES * 0.8 ? 0.35 : 0.6));   // busy screen: fewer per burst
   for (let i = 0; i < n; i++) {
     const a = ang + (Math.random() - 0.5) * 2 * spread;
     const s = speed * (0.3 + Math.random() * 0.9);
@@ -8673,6 +8675,7 @@ function startBattleSong() {
 }
 function updateBattleMusic(dt) {
   const fighting = scene === 'fight' && !matchOver;
+  if (!fighting) for (const f of fighterPool) stopUiSong(f);   // (Lance's UI theme doesn't follow you out of the fight)
   if (fighting && !battleMusic.el && soundOn && menuMusic.unlocked) startBattleSong();   // a new fight: a new song
   const el = battleMusic.el;
   if (!el) return;
@@ -8684,7 +8687,7 @@ function updateBattleMusic(dt) {
     return;
   }
   // turned down under an ultimate's own music / voice lines, and while the game's paused
-  const ultMusic = ult || fighters.some(f => f.action && f.action.type === 'shipUlt');
+  const ultMusic = ult || fighters.some(f => (f.action && f.action.type === 'shipUlt') || f.uiSong);   // (+ Lance's Ultra Instinct theme)
   const duck = ultMusic ? 0.2 : paused ? 0.45 : 1;
   el.volume = clamp(BATTLE_MUSIC.vol * battleMusic.level * duck * settings.master * settings.music * 1.6, 0, 1);
   if (el.paused && want) el.play().catch(() => {});
@@ -8789,7 +8792,8 @@ function loadNeteroSfx() {
   if (!neteroVoiceBuf) dec(window.NETERO_VOICE_B64, b => { neteroVoiceBuf = b; });
   if (!neteroHitsBuf) dec(window.NETERO_HITS_B64, b => { neteroHitsBuf = b; });
   if (!clonePoofBuf) dec(window.CLONE_POOF_B64, b => { clonePoofBuf = b; });
-  if (!uiNoteBuf) dec(window.UI_NOTE_B64, b => { uiNoteBuf = b; });   // Lance's Ultra Instinct auto-dodge note
+  if (!uiNoteBuf) dec(window.UI_NOTE_B64, b => { uiNoteBuf = b; });
+  if (!uiAwakenBuf) dec(window.UI_AWAKEN_B64, b => { uiAwakenBuf = b; });   // Lance's Ultra Instinct theme ("are you finished?")   // Lance's Ultra Instinct auto-dodge note
 }
 // ---- Naruto shadow clone jutsu "poof" (sounds/clone-poof.wav, 2.28-3.6s of your clip) - Colbalias's clone summon ----
 let clonePoofBuf = null, lastPoof = null;
@@ -10620,6 +10624,7 @@ function endTransform(f) {
   if (f.baseStats) f.stats = f.baseStats;
   f.baseStats = null;
   f.ui = false;
+  stopUiSong(f);                                   // (Ultra Instinct's theme fades out with the form)
 }
 
 // ---------------- ULTRA INSTINCT (Lance: DOWN + I on a full meter, instead of Super Saiyan) ----------------
@@ -10637,13 +10642,22 @@ const UI = { color: '#d8e2ff', glow: '#9fb6ff', hair: '#f4f6ff',
   dodgeInvuln: 0.32, dodgeDist: 95 };
 const UI_STATS = { power: 1, speed: 1 };
 CHARACTERS.LANCE.uiTransform = true;
-let uiNoteBuf = null;
+let uiNoteBuf = null, uiAwakenBuf = null;
+// THE ULTRA INSTINCT THEME: the whole clip plays from the moment he transforms - over the awakening and the combo, and on
+// as his theme while he stays in it. It fades out when he drops out of the form (meter runs out / KO / match ends).
+function startUiSong(f) {
+  stopUiSong(f, 0.1);
+  const h = playBuffer(uiAwakenBuf, 0.9);
+  if (h) { f.uiSong = h; h.s.onended = () => { if (f.uiSong === h) f.uiSong = null; }; }
+}
+function stopUiSong(f, fade = 1.0) { if (f && f.uiSong) { stopBuffer(f.uiSong, fade); f.uiSong = null; } }
 function startUltraInstinct(f) {
   f.transformed = true; f.ui = true; f.ultBuf = 0;
   f.baseStats = f.stats; f.stats = { ...f.stats };          // (no speed bonus)
   f.action = { type: 'uiTransform', t: 0, phase: 'awaken', y0: f.y };
   f.vx = 0; f.vy = 0;
   ultBanner = { t: 1.4, title: 'TRANSFORM', name: 'ULTRA INSTINCT', color: UI.color, who: f };
+  startUiSong(f);
   hitstop = Math.max(hitstop, 0.2);
   impactFrame = 0.1; impactAt = { x: f.x, y: f.y - 50, ang: 0, all: true, focus: true, invert: true };
   shake = Math.max(shake, 14);
@@ -14787,6 +14801,9 @@ function drawFighter(p) {
   const powered = p.look && p.look.aura && a && (a.type === 'flydash' || charging || a.type === 'ultBeam' ||
     (a.type === 'attack' && (a.move.rapid || a.move.beam) && a.phase !== 'end') ||
     (ult && ult.user === p && ult.phase === 'final'));                      // ultimate charge-up
+  if (p.minion) {                                                           // CLONES: a single cheap aura (not 2 full ones each)
+    if (!sketch && ((p.owner && p.owner.transformed) || p.transformed)) drawAura(p, '#ff1a1a', false, 1.05, 0.55);
+  } else {
   if (p.transformed) drawAura(p, auraColor(p), true);
   if (p.transformed && p.ui) drawUiWisps(p);                       // TRANSFORMED: big, constant aura (everyone)
   if (godSpeed(p) && !sketch) drawGodSpeedArcs(p);                          // Colby's GOD SPEED: electricity crackling all over him
@@ -14806,6 +14823,7 @@ function drawFighter(p) {
       }
       if (Math.random() < 0.12) bolt(p.x + (Math.random() - 0.5) * 40, p.y - 50 - Math.random() * 30, Math.random() * Math.PI * 2, 40, 0.07, Math.random() < 0.5 ? '#ff2a2a' : '#ffffff');
     } else drawAura(p, p.look.bossAura, false, 1.0 + 0.15 * stored, base + 0.35 * stored);
+  }
   }
   if (p.tc) drawAura(p, TC.color, !p.transformed);                                // SEVON: TOTAL CONCENTRATION - a flame aura
   if (p.kaioken) for (let k = 0; k < Math.min(2, p.kaioken); k++) drawAura(p, KAIOKEN.color, !p.transformed && k === 0);   // (x2 / x3: a bigger, double aura)                // KAIOKEN: red aura (on top of Super Saiyan's gold)
@@ -14980,6 +14998,9 @@ function drawAura(p, col = kiColor(p), big = false, scale = null, alphaMul = 1) 
   // 1) outer spiky flame in the aura's color
   ctx.globalAlpha = (big ? 0.5 : 0.36) * alphaMul;
   ctx.fillStyle = col;
+  if (p.minion) {                                       // COLBALIAS'S CLONES: one cheap layer - no glow, no sparks (4 of them add up)
+    spikyAuraPath(cx, cy, w, h, 30 * s, 0); ctx.fill(); ctx.restore(); return;
+  }
   spikyAuraPath(cx, cy, w, h, 30 * s, 0); ctx.fill();
   // 2) a lighter inner layer of shorter spikes
   ctx.globalAlpha = (big ? 0.42 : 0.3) * alphaMul;
@@ -16372,7 +16393,7 @@ function showResults() {
 }
 
 function startMatch() {
-  for (const f of fighterPool) endShipSong(f);    // (a pirate-ship song still playing from the last match)
+  for (const f of fighterPool) { endShipSong(f); stopUiSong(f, 0.3); }    // (a pirate-ship song / UI theme still playing from the last match)
   removeAllMinions();
   cage = null;
   kbTaps.l = kbTaps.r = -9;                       // (no double-tap carried over from the last match - everyone starts STILL)
