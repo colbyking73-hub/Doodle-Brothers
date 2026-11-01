@@ -8066,11 +8066,13 @@ CHARACTERS.COLBY.altUlt = {
   final: { dmg: 14, base: 560, growth: 6.6, angle: 32 },
 };
 // Lance: a full-power Kamehameha fired from wherever he is, straight ahead, across the whole stage
+const KAME_KO_AT = 130;
 CHARACTERS.LANCE.ult = {
   name: 'FINAL KAMEHAMEHA',
   beamUlt: true,             // no grab/flurry - see stepUltBeam
-  windTime: 1.15,            // charge-up (Kamehameha charge sound, can't be interrupted) - slow, so it KOs if it lands:
-                             // anyone above 0% when it hits them is finished; at 0% they survive - unless he's in KAIOKEN
+  windTime: 0.6,             // charge-up (Kamehameha charge sound, can't be interrupted) - quick now. AIM it while it charges:
+                             // up / left / right (and down in the air). A one-hit KO on anyone already at KAME_KO_AT% or more;
+                             // below that it's just a big hit
   beamTime: 1.0,             // how long the beam lasts
   chargeSfx: 'kame',
 };
@@ -9894,7 +9896,11 @@ const painTexts = [];
 // NO TEXT IN FIGHTS: the only words that pop up during a fight are the ULTIMATES' (and the X-ray bone breaks).
 // Any pop-up word made while an ultimate is going on is tagged as an ultimate one; everything else stays hidden.
 // (SHOW_FIGHT_TEXT = true brings all the other pop-ups back: DODGED!, PERFECT!, CLASH!, CRITICAL!...)
-const SHOW_FIGHT_TEXT = false;
+let SHOW_FIGHT_TEXT = false;   // (on in SANDBOX: the controls list and the fight text come back - see sandbox)
+// SANDBOX MODE (home menu): a practice room - infinite lives, the full controls list on screen, and every old debug key
+// working again (T cannons, B CPU mode, H hitboxes, 1-4 demos, M slow-mo, V / N swap characters, G blood, P style,
+// R reset) + F fills every meter and 0 puts everyone back to 0%. Never online.
+let sandbox = false;
 // ...plus these, which always show: CLASH text (the clash and its power-bar duel) and CRITICAL hits
 const KEEP_TEXTS = new Set(['CRITICAL!', 'WIN!', 'CLASH WON!', 'BROKEN!', 'YARRKO!']);
 const ultRunning = () => !!ult || fighters.some(f => f.action && ['shipUlt', 'ultBeam', 'flameDragon', 'uiTransform', 'ssj2Cut', 'ultStart', 'ultSeq'].includes(f.action.type));
@@ -10834,10 +10840,21 @@ function stepKiBarrage(f, a, dt) {
 // ---------------- LANCE'S ULTIMATE: FINAL KAMEHAMEHA ----------------
 // No grab, no combo: he stops wherever he is (ground or air), charges for a moment (can't be
 // interrupted), then fires a giant beam straight ahead in the direction he's facing, across the whole stage.
-function stepUltBeam(f, a, dt) {
+function stepUltBeam(f, a, dt, inp) {
   const U = CHARACTERS[f.char].ult;
   f.vx *= Math.exp(-dt * 10); f.vy = 0;                      // hovers in place
   if (a.phase === 'charge') {
+    // AIM: up / left / right - and down too in the air (a.aim: -1 up, 1 down, 0 straight ahead)
+    if (a.aim === undefined) a.aim = 0;
+    if (inp && (inp.up || inp.down || inp.dir)) {
+      if (inp.up) a.aim = -1;
+      else if (inp.down && !f.ground) a.aim = 1;
+      else if (inp.dir) { a.aim = 0; f.face = inp.dir; }
+    } else if (f.controller === 'dummy') {                   // (CPUs aim at whoever's nearest)
+      const o = nearestFoe(f);
+      if (o) { const dx = o.x - f.x, dy = (o.y - 50) - (f.y - 62);
+        if (Math.abs(dx) < 90 && dy < -110) a.aim = -1; else if (Math.abs(dx) < 90 && dy > 110 && !f.ground) a.aim = 1; else { a.aim = 0; f.face = Math.sign(dx) || f.face; } }
+    }
     if (Math.random() < dt * 45) {                           // ki rushing into his hand
       const ang = Math.random() * Math.PI * 2, d = 80;
       particles.push({ x: f.x + f.face * 30 + Math.cos(ang) * d, y: f.y - 62 + Math.sin(ang) * d,
@@ -10846,19 +10863,21 @@ function stepUltBeam(f, a, dt) {
     }
     if (Math.random() < dt * 12) bolt(f.x, f.y - 50, Math.random() * Math.PI * 2, 60, 0.08, kiColor(f));
     shake = Math.max(shake, 2 + 5 * (a.t / U.windTime));    // the screen trembles more and more
-    if (a.t >= U.windTime) { a.phase = 'fire'; a.t = 0; spawnUltBeam(f); }
+    if (a.t >= U.windTime) { a.phase = 'fire'; a.t = 0; spawnUltBeam(f, a.aim || 0); }
   } else if (a.phase === 'fire' && a.t >= U.beamTime) {
     f.action = { type: 'land', t: 0, dur: 0.3 };
   }
 }
-function spawnUltBeam(f) {
+function spawnUltBeam(f, aim = 0) {
   const U = CHARACTERS[f.char].ult;
+  const b = { vdir: aim };
+  const org = aim ? beamOrigin(f, b) : { x: f.x + f.face * 30, y: f.y - 62 };
   projectiles.push({
-    owner: f, kind: 'beam', ult: true, x: f.x + f.face * 30, y: f.y - 62, dir: f.face, len: 0, grow: 7000,
+    owner: f, kind: 'beam', ult: true, x: org.x, y: org.y, dir: f.face, vdir: aim, len: 0, grow: 7000,
     maxLen: 2730, w: 88, life: U.beamTime, max: U.beamTime, tickT: 0, mult: f.ultPower || 1, color: kiColor(f),   // (+5% size)
     hit: new Set(), trail: [],
-    tick:  { dmg: 2.0, base: 110, growth: 0, angle: 15, noStop: true },
-    final: { dmg: 12, base: 520, growth: 6, angle: 35, ultFinal: true, lanceKO: true },   // ~28% total; KOs (see updateBeam)
+    tick:  { dmg: 2.0, base: 110, growth: 0, angle: aim < 0 ? 88 : aim > 0 ? -86 : 15, noStop: true },   // (aimed up / down: carries them along it)
+    final: { dmg: 12, base: 520, growth: 6, angle: aim < 0 ? 86 : aim > 0 ? -80 : 35, ultFinal: true, lanceKO: true },   // ~28% total; KOs at 130%+ (see updateBeam)
   });
   impactFrame = 0.15; impactAt = { x: f.x + f.face * 40, y: f.y - 62, ang: 0, all: true, focus: true, invert: true };
   hitstop = Math.max(hitstop, 0.15);
@@ -11560,11 +11579,11 @@ function updateBeam(s, dt) {
         if (t.x + t.w / 2 < x0 || t.x - t.w / 2 > x1) continue;
         if (t.y < s.y - s.w / 2 || t.y - hurtH(t) > s.y + s.w / 2) continue;   // (crouching can duck a thin beam)
       }
-      // LANCE'S ULT: a guaranteed KO if they had any damage when it caught them (or always, in Kaioken) - it's slow and easy
-      // to see coming: jump it, get behind him or Z vanish through it (the CPUs know - see aiDodgeKame)
+      // LANCE'S ULT: a guaranteed KO if they were already at KAME_KO_AT% when it caught them - jump it, get out of its line
+      // or Z vanish through it (the CPUs know - see aiDodgeKame)
       if (s.final.lanceKO && !(s.startDmg || (s.startDmg = new Map())).has(t)) s.startDmg.set(t, t.damage);
       let h = last ? s.final : s.tick;
-      if (last && s.final.lanceKO && (s.startDmg.get(t) > 0 || o.kaioken)) h = { ...s.final, koAt: 0.001 };
+      if (last && s.final.lanceKO && s.startDmg.get(t) >= KAME_KO_AT) h = { ...s.final, koAt: 0.001 };   // (a one-hit KO only at 130%+)
       if (applyHit(t, h, s.dir, s.mult, s.vdir ? t.x : t.x - s.dir * 10, s.vdir ? t.y - 50 : s.y)) markKi(o, t, s);   // Lance's ki marks them (once per beam)
     }
   }
@@ -12187,7 +12206,7 @@ function stepAction(f, inp, dt) {
     if (v) { startDeckUlt(f, v); return; }
   }
   if (a.type === 'timeStop') return stepTimeStop(f, a, dt);
-  if (a.type === 'ultBeam') return stepUltBeam(f, a, dt);
+  if (a.type === 'ultBeam') return stepUltBeam(f, a, dt, inp);
   if (a.type === 'flameDragon') return stepFlameDragon(f, a, dt);
   if (a.type === 'kiCharge') return stepKiCharge(f, a, inp, dt);   // Lance: holding down K - the ki charge
   if (a.type === 'uiTransform') return stepUiTransform(f, a, dt);
@@ -13395,8 +13414,8 @@ function aiDecide(f, o, ai, L) {
   const beamUlt = (CHARACTERS[f.char].ult || {}).beamUlt;
   const dragonUlt = (CHARACTERS[f.char].ult || {}).dragon;
   if (dragonUlt && f.transformed && f.ult > 0 && adx < 140 && Math.abs(dy) < 40 && f.face === toward && Math.random() < 0.06) { ai.down = true; ai.tapUlt = true; return; }   // (point blank: Ninth Form)
-  const ultRange = dragonUlt ? adx < 950 : beamUlt ? adx < 900 && Math.abs(dy) < 50 : adx < 140 && Math.abs(dy) < 40;
-  if (f.transformed && f.ult > 0 && ultRange && (f.face === toward || dragonUlt) &&
+  const ultRange = dragonUlt ? adx < 950 : beamUlt ? (adx < 900 && Math.abs(dy) < 50) || (adx < 80 && dy < -120) : adx < 140 && Math.abs(dy) < 40;
+  if (f.transformed && f.ult > 0 && ultRange && (f.face === toward || dragonUlt || beamUlt) &&
       (f.ult < 25 || Math.random() < 0.08)) {          // mostly fights transformed, cashes the rest in before it runs out
     ai.tapUlt = true;
     return;
@@ -13646,6 +13665,14 @@ function aiDodgeKame(f, ai, level) {
   if (!ai.kameRead) return false;
   const fa = f.action;
   if (fa && (fa.type === 'hitstun' || fa.type === 'dizzy' || fa.type === 'grabbed' || fa.type === 'thrown')) return false;
+  if (a.aim) {                                                     // aimed UP / DOWN: a column - just get out from over / under him
+    const colX = o.x + o.face * 8, inCol = Math.abs(f.x - colX) < 44 + f.w / 2 + 10;
+    const inDir = a.aim < 0 ? f.y < o.y - 20 : f.y - hurtH(f) > o.y - 40;
+    ai.tapAtk = ai.tapSpc = ai.tapGrab = ai.tapUlt = false; ai.holdBtn = null;
+    if (inCol && inDir) { ai.dir = f.x >= colX ? 1 : -1; if (f.ground && !fa) { ai.tapBlock = true; } else if (!f.ground && canAirDodge(f) && !fa) { ai.tapBlock = true; ai.up = false; ai.down = false; } }
+    else if (Math.abs(f.x - colX) < 140 && ai.dir === Math.sign(colX - f.x)) ai.dir = 0;   // (don't wander back into it)
+    return true;
+  }
   const front = Math.sign(f.x - o.x) === o.face;                   // (the beam only goes the way he's facing)
   const bandTop = o.y - 62 - 44, bandBot = o.y - 62 + 44;
   const inBand = f.y >= bandTop && f.y - hurtH(f) <= bandBot;
@@ -13800,7 +13827,9 @@ function update(dt) {
 
   // Demo / debug toggles - all switched OFF in CLEAN MODE (real matches: nothing on the keyboard can
   // spawn cannons, swap characters, reset the fight etc. by accident)
-  if (!gameOptions.cleanHud && !netActive()) {             // (never online: they'd only happen on one side)
+  if ((sandbox || !gameOptions.cleanHud) && !netActive()) {   // (never online: they'd only happen on one side)
+    if (sandbox && tapped('KeyF')) for (const f of fighters) if (!f.minion) f.ult = ULT_MAX;          // SANDBOX: fill every meter
+    if (sandbox && tapped('Digit0')) for (const f of fighters) f.damage = 0;                           // SANDBOX: everyone back to 0%
     if (tapped('KeyT')) { cannon.on = !cannon.on; cannon.timer = 1.0; }
     if (tapped('KeyB')) { dummyMode = (dummyMode + 1) % DUMMY_MODES.length; for (const f of fighters) f.cpuLevel = null; }   // B = debug override for every CPU
     if (tapped('KeyH')) showHitboxes = !showHitboxes;
@@ -13821,7 +13850,7 @@ function update(dt) {
     if (demo.t >= (demo.kind === 'broly' ? 2.6 : DEMO_LENGTH)) endDemo();
   }
   // C cycles the on-screen text: controls list -> just a small hint -> CLEAN MODE (nothing) -> controls list
-  if (tapped('KeyC') && !netActive()) {
+  if (tapped('KeyC') && !netActive() && !sandbox) {
     if (gameOptions.cleanHud) { gameOptions.cleanHud = false; showControls = true; }
     else if (showControls) showControls = false;
     else setCleanMode(true);
@@ -16033,14 +16062,14 @@ function drawKameCharge() {
   }
 }
 function drawBeam(s) {
-  if (s.ult && !sketch) return drawKameBeam(s);
-  const k = clamp(s.life / s.max, 0, 1), fade = k < 0.2 ? k / 0.2 : 1;
-  const w = s.w * (0.8 + Math.sin(time * 60) * 0.1) * fade;
   if (s.vdir) {                                                     // aimed up / down: draw it as a straight beam, turned
     ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.vdir * Math.PI / 2);
     const turned = { ...s, x: 0, y: 0, dir: 1, vdir: 0 };
     drawBeam(turned); ctx.restore(); return;
   }
+  if (s.ult && !sketch) return drawKameBeam(s);
+  const k = clamp(s.life / s.max, 0, 1), fade = k < 0.2 ? k / 0.2 : 1;
+  const w = s.w * (0.8 + Math.sin(time * 60) * 0.1) * fade;
   const x0 = s.x, x1 = s.x + s.dir * s.len;
   ctx.save();
   if (sketch) {
@@ -16446,7 +16475,7 @@ function drawHUD() {
   });
 
   // Controls (all of this disappears with the CLEAN SCREEN option / C)
-  if (gameOptions.cleanHud || !SHOW_FIGHT_TEXT) { /* clean screen: no demo/debug text at all */ }
+  if ((gameOptions.cleanHud && !sandbox) || !SHOW_FIGHT_TEXT) { /* clean screen: no demo/debug text at all */ }
   else if (showControls) {
     const kn = a => keyName(bindings.keys[a][0]);       // shows YOUR current key bindings
     const lines = [
@@ -16460,7 +16489,7 @@ function drawHUD() {
       `V P1 CHARACTER:${fighters[0].char}   N CPU CHARACTER:${fighters[1].char}`,
       `1 CLASH DEMO   2 PERFECT BLOCK DEMO   M SLOW-MO:${timeScale < 1 ? 'ON' : 'OFF'}   O SOUND:${soundOn ? 'ON' : 'OFF'}`,
       `${kn('ult')} TRANSFORM (BAR FULL), ${kn('ult')} AGAIN WHILE TRANSFORMED = ULTIMATE (XBOX: LB)   3 ULTIMATE DEMO   4 BROLY SLAM DEMO`,
-    ];
+    ].concat(sandbox ? ['SANDBOX:  F FILL EVERY METER   0 EVERYONE TO 0%   INFINITE LIVES   ESC TO LEAVE'] : []);
     const top = sketch ? 92 : 26;               // sketch: start below the spiral binding, inside the margin
     lines.forEach((l, i) => text(l, sketch ? 92 : 16, top + i * (sketch ? 24 : 18), 9, '#b4b4bb'));
   } else {
@@ -17245,6 +17274,9 @@ function startMatch() {
   matchOver = null;
   const cpu = players.find(p => p.cpu);
   if (cpu) dummyMode = DUMMY_MODES.indexOf(cpu.level);
+  if (sandbox && netActive()) sandbox = false;
+  SHOW_FIGHT_TEXT = sandbox;
+  if (sandbox) { showControls = true; for (const f of fighters) f.stocks = Infinity; }
   projectiles.length = 0; particles.length = 0; ghosts.length = 0; stains.length = 0; cracks.length = 0; painTexts.length = 0; scythes.length = 0; auraWaves.length = 0; ropeFx.length = 0;
   ult = null; demo = null; timeScale = 1; hitstop = 0; impactFrame = 0; critText = null; clashText = null; xray = null; slowmo = 0;
   paused = false; scene = 'fight';
@@ -18023,7 +18055,7 @@ const MOVESETS = {
       ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out - and through KOs.'],
       ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'A full cutscene to Day of Fate (the red line, the lava sea of ki) - then lightning crackles round his aura: +20% damage, +32% move speed, attacks 32% faster. Also stays on when the meter runs out, and through KOs.'],
       ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
-      ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage. A one-hit KO on anyone above 0% - but it is slow to charge: jump it, get behind him or Z vanish through it.'],
+      ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage. Quick to charge, and you can AIM it up, left or right (down too in the air). A one-hit KO on anyone already at 130%+ - below that it is a big hit.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'KI MARKS: every separate ki attack that hits marks them (up to 3 marks, they last 6 seconds).',
@@ -18537,8 +18569,8 @@ function drawArcade() {
     }
   });
 }
-const homeItems = () => (appUpdate().state === 'ready' ? ['UPDATE NOW'] : []).concat(['PLAY', 'ARCADE', 'ONLINE', 'MOVESETS', 'CONTROLS', 'OPTIONS']).concat(window.appInfo ? ['QUIT'] : []);
-const homeItemRect = k => { const n = homeItems().length, step = n > 7 ? 47 : n > 6 ? 54 : 64; return { x: W / 2 - 170, y: 334 + k * step, w: 340, h: step - 12 }; };   // (tighter when there are 7 items)
+const homeItems = () => (appUpdate().state === 'ready' ? ['UPDATE NOW'] : []).concat(['PLAY', 'ARCADE', 'SANDBOX', 'ONLINE', 'MOVESETS', 'CONTROLS', 'OPTIONS']).concat(window.appInfo ? ['QUIT'] : []);
+const homeItemRect = k => { const n = homeItems().length, step = n > 8 ? 41 : n > 7 ? 47 : n > 6 ? 54 : 64; return { x: W / 2 - 170, y: (n > 8 ? 322 : 334) + k * step, w: 340, h: step - 10 }; };   // (tighter the more items there are)   // (tighter when there are 7 items)
 function goHome() { scene = 'home'; home.phase = 'menu'; menuSfx('back'); }
 function homeUpdate(dt) {
   const devs = menuDevices(dt);
@@ -18563,11 +18595,12 @@ function homeUpdate(dt) {
 }
 function homeChoose(item, dev = 'keyboard') {
   menuSfx('go');
-  if (item === 'PLAY') scene = 'select';
+  if (item === 'PLAY') { sandbox = false; scene = 'select'; }
+  else if (item === 'SANDBOX') { sandbox = true; scene = 'select'; }
   else if (item === 'UPDATE NOW') { if (window.appInfo && window.appInfo.installUpdate) window.appInfo.installUpdate(); }   // installs + restarts
-  else if (item === 'ONLINE') { scene = 'select'; sbNet.ui.show('menu'); }
+  else if (item === 'ONLINE') { sandbox = false; scene = 'select'; sbNet.ui.show('menu'); }
   else if (item === 'MOVESETS') openMovesets(dev);
-  else if (item === 'ARCADE') openArcade();
+  else if (item === 'ARCADE') { sandbox = false; openArcade(); }
   else if (item === 'CONTROLS') openControls('home');
   else if (item === 'OPTIONS') { scene = 'options'; opt.row = 0; }
   else if (item === 'QUIT') window.close();
