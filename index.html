@@ -18417,6 +18417,40 @@ const ARCADE_ROUNDS = ['STICKMAN', 'AIDEN', 'LANCE', 'COLBY', 'COLBALIAS'];
 const ARCADE_DIFFS = ['EASY', 'NORMAL', 'HARD', 'MASTER', 'IMPOSSIBLE'];
 const ARCADE_STOCKS = 3;
 let arcade = null;   // { phase: 'pick' | 'vs' | 'lose' | 'win', sel, diff, round, t, dev, saved, active }
+// ARCADE STARS: beat the whole gauntlet on a difficulty = that difficulty's GOLD STAR, shown top-left of the home screen
+// (one per difficulty, kept on this computer). The win screen tells you when you've earned a new one.
+const STARS_KEY = 'db-arcade-stars';
+let arcadeStars = (() => { try { const v = JSON.parse(localStorage.getItem(STARS_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } })();
+function earnArcadeStar(diff) {
+  if (arcadeStars.includes(diff)) return false;
+  arcadeStars.push(diff);
+  try { localStorage.setItem(STARS_KEY, JSON.stringify(arcadeStars)); } catch (e) {}
+  return true;
+}
+// a 5-point star
+function starPath(c, x, y, r) {
+  c.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  c.closePath();
+}
+// the row of stars, top-left of the home screen: gold for every difficulty beaten, a faint outline for the rest
+function drawArcadeStars(th) {
+  withMenuDrawing(() => {
+    const sk = th === 'sketch', x0 = sk ? 150 : 34, y0 = sk ? 58 : 40, gap = 46;
+    ARCADE_DIFFS.forEach((dn, k) => {
+      const x = x0 + k * gap, got = arcadeStars.includes(dn);
+      starPath(sctx, x, y0, 17);
+      if (got) {
+        sctx.fillStyle = dn === 'IMPOSSIBLE' ? '#ffe680' : '#ffd23f'; sctx.fill();
+        sctx.lineWidth = 2.5; sctx.strokeStyle = sk ? '#1d1b2a' : '#8a5a00'; sctx.stroke();
+        if (dn === 'IMPOSSIBLE' && !sk) { sctx.save(); sctx.globalAlpha = 0.35 + 0.25 * Math.sin(menuTime * 4); sctx.fillStyle = '#ffffff'; starPath(sctx, x, y0, 9); sctx.fill(); sctx.restore(); }
+      } else { sctx.lineWidth = 2; sctx.strokeStyle = sk ? 'rgba(29,27,42,0.35)' : 'rgba(255,255,255,0.25)'; sctx.stroke(); }
+      sctx.font = th === 'pixel' ? `7px ${PX_FONT}` : sk ? `13px ${DOODLE_FONT}` : `11px ${CG_FONT}`;
+      sctx.textAlign = 'center'; sctx.fillStyle = got ? (sk ? '#1d1b2a' : '#ffd23f') : (sk ? 'rgba(29,27,42,0.4)' : 'rgba(255,255,255,0.3)');
+      sctx.fillText(dn === 'IMPOSSIBLE' ? 'IMPOSS.' : dn, x, y0 + 32);
+    });
+  });
+}
 const arcadePicks = () => ROSTER.filter(Boolean);
 function openArcade(dev) {
   arcade = { phase: 'pick', sel: 0, diff: 1, round: 0, t: 0, dev: dev || 'keyboard', active: false, saved: null };
@@ -18456,7 +18490,7 @@ function arcadeMatchOver(won) {
   const A = arcade;
   removeAllMinions();
   if (!won) { A.phase = 'lose'; menuSfx('back'); }
-  else if (A.round >= ARCADE_ROUNDS.length - 1) { A.phase = 'win'; menuSfx('go'); }
+  else if (A.round >= ARCADE_ROUNDS.length - 1) { A.phase = 'win'; A.newStar = earnArcadeStar(ARCADE_DIFFS[A.diff]); menuSfx('go'); }
   else { A.round++; A.phase = 'vs'; menuSfx('go'); }
   A.t = 0; scene = 'arcade';
 }
@@ -18562,8 +18596,17 @@ function drawArcade() {
       sctx.textAlign = 'center'; sctx.font = F(24); sctx.fillStyle = ink;
       sctx.fillText(charName(picks[A.sel]) + ' beat all ' + ARCADE_ROUNDS.length + ' - including the FINAL BOSS - on ' + ARCADE_DIFFS[A.diff] + '.', W / 2, 300);
       ladder(380, ARCADE_ROUNDS.length, true);
+      // THE STAR: earned (new) / already had it - and how many of the five they've got
+      {
+        const dn = ARCADE_DIFFS[A.diff], pulse = 1 + 0.08 * Math.sin(A.t * 6), sx = W / 2 - 300, sy = 500;
+        starPath(sctx, sx, sy, 30 * (A.newStar ? pulse : 1)); sctx.fillStyle = '#ffd23f'; sctx.fill(); sctx.lineWidth = 3; sctx.strokeStyle = sk ? INK : '#8a5a00'; sctx.stroke();
+        sctx.textAlign = 'left'; sctx.font = F(26, true); sctx.fillStyle = A.newStar ? '#ffd23f' : ink;
+        sctx.fillText(A.newStar ? 'NEW STAR EARNED - ' + dn + '!' : 'You already have the ' + dn + ' star', sx + 46, sy + 4);
+        sctx.font = F(17); sctx.fillStyle = dim;
+        sctx.fillText(arcadeStars.length + ' OF ' + ARCADE_DIFFS.length + ' STARS  -  see them on the home screen', sx + 46, sy + 32);
+      }
       const keep = sketch; if (sk) sketch = true;
-      drawPortrait(picks[A.sel], W / 2, 640, 2.4, sk ? INK : (CHARACTERS[picks[A.sel]].look.body || '#fff'), menuTime);
+      drawPortrait(picks[A.sel], W / 2 + 400, 650, 2.4, sk ? INK : (CHARACTERS[picks[A.sel]].look.body || '#fff'), menuTime);   // (off to the side: the star message gets the middle)
       sketch = keep;
       if (A.t > 1) { sctx.font = F(18); sctx.fillStyle = dim; sctx.fillText('PRESS ANY BUTTON', W / 2, H - 16); }
     }
@@ -18797,6 +18840,7 @@ const menuTheme = () => artStyle === 'SKETCHBOOK' ? 'sketch' : artStyle === 'PIX
 function drawHome() {
   const th = menuTheme();
   if (th === 'sketch') drawHomeSketch(); else if (th === 'pixel') drawHomePX(); else drawHomeCG();
+  drawArcadeStars(th);                                             // the arcade stars, top-left
   const st = updateStatusText();                                   // the update status, bottom-left
   if (st) withMenuDrawing(() => {
     const ready = appUpdate().state === 'ready', blink = Math.floor(menuTime * 2) % 2 === 0;
