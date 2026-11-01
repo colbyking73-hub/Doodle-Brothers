@@ -1,5 +1,5 @@
 {
-    "version":  "0.7.4",
+    "version":  "0.7.5",
     "shell":  "2c7f2e991c796adb",
     "files":  {
                   "build/icon.png":  {
@@ -7,8 +7,8 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "d37fe850ef4e2c44159ae1b10f2a0cea8d4ebd18e71e19dcd2bf529a6e57eea0",
-                                     "size":  1215971
+                                     "hash":  "36d1a9a170f6b24489f57a653650fe3e2c7f493c4456af628e5d3183c5f04fcf",
+                                     "size":  1228357
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
@@ -173,6 +173,14 @@
                   "sounds/teleport-sfx.js":  {
                                                  "hash":  "b564bfb1f4152031882da1724a982cd40c1beaf28e122f96d1d49e0ab9040e83",
                                                  "size":  349545
-                                             }
+                                             },
+                  "sounds/ui-awaken-sfx.js":  {
+                                                  "hash":  "192c2356cc25d4fbf09853325a5bc887e121f440b2c727468737c98d4e8e0294",
+                                                  "size":  949786
+                                              },
+                  "sounds/ui-note-sfx.js":  {
+                                                "hash":  "fea6638a100bdf83a17e542d548318748ab4db2a6e9b6ff88a3cb323044e7f8e",
+                                                "size":  32160
+                                            }
               }
 }
