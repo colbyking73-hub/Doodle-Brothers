@@ -469,7 +469,7 @@ function updateCamera(dt) {
   if (shipF) {                                       // Aiden's pirate ship: pull out to show the whole ship
     const a = shipF.action; tx = a.x + a.dir * (a.t < SHIP.holdEnd ? 0 : SHIP.L * 0.45); ty = a.gy - 210; tz = 0.72; speed = 3;
   }
-  const uiF = alive.find(f => f.action && f.action.type === 'uiTransform' && f.action.cam);
+  const uiF = alive.find(f => f.action && (f.action.type === 'uiTransform' || f.action.type === 'flameDragon') && f.action.cam);
   if (uiF) { const c = uiF.action.cam; tx = c.x; ty = c.y; tz = c.z; speed = c.speed; }   // Lance's Ultra Instinct: the cutscene's own camera
   if (typeof ult !== 'undefined' && ult) {          // ultimate: push in close on the action
     const u = ult.user, v = ult.target;
@@ -8454,17 +8454,20 @@ function stepFlameDragon(f, a, dt) {
   if (a.phase === 'rush') {                                  // riding the dragon: it moves him (see updateDragon)
     f.vx = f.vy = 0; f.ground = false;
     a.pose = NINTH_POSE.rush;
+    const dg = projectiles.find(q => q.kind === 'dragon' && q.rider === f);
+    if (dg) a.cam = { x: dg.x, y: dg.y - 30, z: dg.state === 'carry' ? 1.25 : 1.05, speed: 7 };   // (the cutscene camera rides with him)
     if (!projectiles.some(q => q.kind === 'dragon' && q.rider === f)) {   // it's done: he lands in his follow-through
       a.phase = 'follow'; a.t = 0; a.pose = NINTH_POSE.follow;
       f.upSpecialUsed = false; f.airJumps = AIR_JUMPS;      // (free to get home if it ended off the stage)
     }
     return;
   }
-  if (a.phase === 'follow') { a.pose = NINTH_POSE.follow; if (a.t >= FLAME_DRAGON.endlag) { f.action = null; endNinthSound(f); } return; }
+  if (a.phase === 'follow') { a.pose = NINTH_POSE.follow; a.cam = null; if (a.t >= FLAME_DRAGON.endlag) { f.action = null; endNinthSound(f); } return; }
   f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = 0;          // he holds his ground (hangs in the air)
   if (a.phase === 'summon') {
     a.songT = (a.songT || 0) + dt / uiRealRate();
     a.pose = NINTH_POSE.stance;
+    a.cam = { x: f.x + f.face * 40, y: f.y - 95, z: 1.35 + 0.35 * clamp(a.songT / FLAME_DRAGON.summon, 0, 1), speed: 3 };   // (pushing in on him as he breathes)
     const v = nearestFoe(f);
     if (v && v.respawnTimer <= 0) f.face = Math.sign(v.x - f.x) || f.face;
     const k = a.songT / FLAME_DRAGON.summon;
@@ -8511,7 +8514,7 @@ function updateDragon(s, dt) {
     for (const t of fighters) {
       if (t === o || allies(o, t) || s.hit.has(t) || t.respawnTimer > 0 || t.halo > 0 || t.dead || t.poofT > 0 || projPhase(t)) continue;
       if (!circleHitsFighter(s.x, s.y, D.r, t)) continue;
-      if (isIntangible(t)) { t.dodgedFlash = 0.35; s.hit.add(t); continue; }   // slipped it with a Z vanish
+      if (isIntangible(t) && !t.uiFrozen) { t.dodgedFlash = 0.35; s.hit.add(t); continue; }   // slipped it with a Z vanish (not while frozen in the cutscene)
       s.hit.add(t);
       if (t.minion) { knock(t, D.final, Math.sign(Math.cos(s.dir)) || 1, s.mult, s.x, s.y); continue; }   // clones just get torched on the way through
       // THE CLASH: a flash and a beat of stillness... then he drives on through them in its jaws
@@ -11698,9 +11701,10 @@ function updateCannons(dt) {
   }
 }
 
-function updateProjectiles(dt) {
+function updateProjectiles(dt, only = null) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const s = projectiles[i];
+    if (only && s.kind !== only) continue;
     if (s.kind === 'beam') { if (updateBeam(s, dt)) projectiles.splice(i, 1); continue; }
     if (s.kind === 'disc') { if (updateDisc(s, dt)) projectiles.splice(i, 1); continue; }   // Lance's Destructo Disc
     if (s.kind === 'dragon') { if (updateDragon(s, dt)) projectiles.splice(i, 1); continue; }   // Sevon's Flame Dragon
@@ -13949,7 +13953,8 @@ function update(dt) {
   updateCannons(dt);
 
   // LANCE'S ULTRA INSTINCT: the whole match stops to watch - everyone but him and the one he's beating on is frozen
-  const uiCut = fighters.find(f => f.action && (f.action.type === 'uiTransform' || f.action.type === 'ssj2Cut'));
+  const uiCut = fighters.find(f => f.action && (f.action.type === 'uiTransform' || f.action.type === 'ssj2Cut' ||
+                                                 (f.action.type === 'flameDragon' && f.action.phase !== 'follow')));   // (+ Sevon's NINTH FORM: a cutscene too - nobody can interrupt it)
   for (const f of fighters) f.uiFrozen = !!uiCut && f !== uiCut && f !== uiCut.action.victim;
   for (const f of fighters.slice()) {
     if (f.uiFrozen) continue;
@@ -14122,6 +14127,7 @@ function update(dt) {
   }
 
   if (!uiCut) updateProjectiles(dt);                       // (frozen while Lance's Ultra Instinct plays)
+  else if (uiCut.action.type === 'flameDragon') updateProjectiles(dt, 'dragon');   // (Sevon's cutscene: only his dragon moves)
   updateScythes(dt);
   weaponWatchdog(dt);
   updateAuraWaves(dt);
@@ -16447,6 +16453,11 @@ function drawHUD() {
     if (ultBanner) drawUltHUD();
     return;
   }
+  if (fighters.some(f => f.action && f.action.type === 'flameDragon' && f.action.phase !== 'follow')) {   // Sevon's NINTH FORM: letterbox
+    sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, 54); sctx.fillRect(0, H - 54, W, 54);
+    if (ultBanner) drawUltHUD();
+    return;
+  }
   const ss2F = fighters.find(f => f.action && f.action.type === 'ssj2Cut');
   if (ss2F) { drawSsj2Cut(ss2F); if (ultBanner) drawUltHUD(); return; }   // Lance's Super Saiyan 2 cutscene: the whole screen
   if (fighters.some(f => f.action && f.action.type === 'uiTransform')) {   // Lance's Ultra Instinct: letterbox + his speech bubble
@@ -18282,7 +18293,7 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
       ['I (FULL METER)', 'FLAME HASHIRA', 'A burning aura - faster and stronger.'],
-      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'He sinks into his stance and breathes in as a DRAGON OF FLAME coils round him - then on the shout he RUSHES THEM DOWN as the dragon, riding at its head with his blade out, chasing the nearest enemy. It catches them, drives on through them in its jaws and EXPLODES in a sea of flame. Shields do not stop it; a well-timed Z vanish does.'],
+      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'He sinks into his stance and breathes in as a DRAGON OF FLAME coils round him - then on the shout he RUSHES THEM DOWN as the dragon, riding at its head with his blade out, chasing the nearest enemy. It catches them, drives on through them in its jaws and EXPLODES in a sea of flame. A cutscene: everyone freezes until it lands, so it cannot be interrupted or dodged.'],
       ['DOWN + I (TRANSFORMED)', 'Fifth Form: Flame Tiger', 'A lunge into a flurry of flaming slashes ending in a roaring fire tiger.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'TOTAL CONCENTRATION (down K): +12% damage, +18% speed, quicker attacks, and flames on every windup and hit - but it strains him: 1.5% damage every second.',
