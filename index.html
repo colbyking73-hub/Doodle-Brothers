@@ -1288,7 +1288,7 @@ const LANCE_MOVES = {
       a.held = (a.held || 0) + dt;
       const holding = inp && inp.spcHeld;
       if (holding && a.held < KI_CHARGE.holdFor) { a.phase = 'startup'; a.t = 0; return true; }   // (waiting to see: tap or hold?)
-      if (holding && f.ground && !f.transformed && !f.minion) { startKiCharge(f); return true; }  // HELD: the ki charge
+      if (holding && !f.transformed && !f.minion) { startKiCharge(f); return true; }  // HELD: the ki charge (in the air too - he sinks slowly)
       if (!a.toggled) { a.toggled = true; toggleKaioken(f); a.phase = 'end'; a.t = 0; }          // TAPPED: Kaioken
       return false;
     } },
@@ -1308,7 +1308,7 @@ const LANCE_MOVES = {
 // The DBZ power-up: he plants his feet and SCREAMS, his aura swelling out round him bit by bit, and it slowly fills his
 // ultimate meter (a decent rate, not a fast one) so he can transform. Only while his meter isn't in use (not transformed).
 // He's WIDE OPEN while he does it: any hit knocks him out of it. The only ways out are letting go, or BLOCK / Z VANISH.
-const KI_CHARGE = { rate: 8.3, holdFor: 0.22, loopFrom: 2.0, vol: 0.8 };  // rate = meter per second (full in ~12s)
+const KI_CHARGE = { rate: 8.3, holdFor: 0.22, loopFrom: 2.0, vol: 0.8, airFall: 90 };   // airFall: how fast he sinks charging in the air  // rate = meter per second (full in ~12s)
 let kiChargeBuf = null;
 function startKiCharge(f) {
   f.action = { type: 'kiCharge', t: 0 };
@@ -1330,11 +1330,12 @@ function stepKiCharge(f, a, inp, dt) {
   f.atkBuf = f.spcBuf = f.jumpBuf = f.grabBuf = f.ultBuf = 0;   // (nothing else gets him out - no attacks / jumps saved up for after)
   // BLOCK or Z VANISH: out of it straight into the shield / dodge (the only ways out, other than letting go)
   if (inp.blockTap || inp.blockHeld || f.dodgeBuf > 0) { f.action = null; freeControl(f, inp, dt); return; }
-  if (!inp.spcHeld || !f.ground || f.transformed) { f.action = null; return; }
+  if (!inp.spcHeld || f.transformed) { f.action = null; return; }
+  if (!f.ground) { f.vx *= Math.exp(-dt * 4); f.vy = Math.min(f.vy, KI_CHARGE.airFall); }   // IN THE AIR: he hangs there, sinking slowly
   if (!f.transformed) f.ult = Math.min(ULT_MAX, (f.ult || 0) + KI_CHARGE.rate * dt);
   const k = Math.min(1, a.t / 2.5);
   shake = Math.max(shake, 1 + 2 * k);
-  if (Math.random() < dt * (10 + 20 * k)) dust(f.x + (Math.random() - 0.5) * 70, f.y, 1, 1.2);
+  if (f.ground && Math.random() < dt * (10 + 20 * k)) dust(f.x + (Math.random() - 0.5) * 70, f.y, 1, 1.2);
   a.waveT = (a.waveT || 0) - dt;
   if (a.waveT <= 0) { a.waveT = 0.7 - 0.35 * k; auraWaves.push({ x: f.x, y: f.y - 50, t: 0, dur: 0.6, max: 110 + 70 * k, color: kiColorNow(f) }); }
 }
@@ -7293,7 +7294,6 @@ const AURA_ARMOR = { threshold: 900, kb: 0.85, color: '#7dffb0' };
 // =====================================================================
 const SEVON_FIRE = ['#ff5a1a', '#ffb02e', '#ffe066', '#e0301e'];
 const flameSlash = (f, x, y, n = 10) => burst(f.x + f.face * x, f.y + y, SEVON_FIRE, n, Math.PI / 2, 1.3, 380, { grav: -300 });
-const SEVON_DIVE = 2300;   // Sevon's down air: how fast he drops (normal max fall is 1200)
 const RISE = { vy: 1450, vx: 200, window: 0.55 };   // Sevon's up K: the lift, and how long after it K = Sky Flame Slash
 const SEVON_MOVES = {
   counter: STICKMAN_MOVES.counter,
@@ -7358,12 +7358,31 @@ const SEVON_MOVES = {
     strike: pose({ lean: 0.55, bob: -14, legA: [1.2, 0.7], legB: [-0.9, 0.1], armA: [1.7, 0.1], armB: [-1.2, -0.4], sw: 1.75 }),   // drawn and cut in one motion
     fire(f) { flameSlash(f, 60, -58, 14); sfx.whoosh(true); } },
   // ---------- J in the air ----------
-  nair: { name: 'Bloom of Flame', startup: 0.05, active: 0.2, endlag: 0.16, landLag: 0.1, flip: true, flipTurns: 1,
-    hitboxes: [{ x: 50, y: -56, r: 34, dmg: 4, base: 200, growth: 1.5, angle: 60, from: 0, to: 0.1, group: 0 },
-               { x: -50, y: -56, r: 34, dmg: 6, base: 360, growth: 5.2, angle: 130, from: 0.1, to: 0.2, group: 1 }],
-    wind: pose({ lean: 0.1, legA: [1.0, 1.7], legB: [0.6, 1.5], armA: [1.6, 0.1], armB: [1.5, 0.2], sw: 1.6 }),
-    strike: pose({ lean: 0.1, legA: [0.9, 1.5], legB: [0.5, 1.3], armA: [1.6, 0], armB: [1.5, 0.1], sw: 1.6 }),
-    fire(f) { flameSlash(f, 0, -56, 12); } },
+  // AIR J: LEVI SPIN - the spin from the end of his ODM combo, right where he is in the air: he whirls with the katana held
+  // out, a ring of blade-light round him, cutting everything around him over and over - the last cut sends them flying.
+  // (In TOTAL CONCENTRATION the spin throws off a whirl of flame.)
+  nair: { name: 'Levi Spin', startup: 0.06, active: 0.32, endlag: 0.16, landLag: 0.12, flip: true, flipTurns: 4, leviSpin: true,
+    hitboxes: [0, 1, 2, 3].map(i => ({ x: 0, y: -50, r: 62, dmg: 2, base: 60, growth: 0, angle: 70, noStop: true, from: i * 0.06, to: i * 0.06 + 0.05, group: i }))
+      .concat([{ x: 0, y: -50, r: 66, dmg: 5.5, base: 440, growth: 5.8, angle: 45, from: 0.26, to: 0.32, group: 4 }]),
+    wind: pose({ lean: 0.2, legA: [0.9, 1.4], legB: [0.4, 1.2], armA: [1.2, 0.1], armB: [1.1, 0.2], sw: 1.3 }),
+    strike: pose({ lean: 0.2, legA: [0.9, 1.4], legB: [0.4, 1.2], armA: [1.6, 0], armB: [1.5, 0.05], sw: 1.6 }),
+    fire(f, mult, c, a) { a.caught = []; sfx.whoosh(true); sfx.whoosh(false); },
+    onHit(f, t, a, h) { if (a && a.caught && h && h.group < 4 && !a.caught.includes(t)) a.caught.push(t); },
+    step(f, a, dt) {
+      if (a.phase !== 'active') return false;
+      f.vy = Math.min(f.vy, 60);                                               // (he hangs in the air while he spins)
+      if (a.caught) for (const t of a.caught) {                                // caught in the spin: held right there till the last cut
+        if (!fighters.includes(t) || t.respawnTimer > 0 || !t.action || t.action.type !== 'hitstun') continue;
+        if (a.t < 0.26) { t.vx = 0; t.vy = 0; t.x = lerp(t.x, f.x + Math.sign(t.x - f.x || f.face) * 44, 0.3); t.y = lerp(t.y, f.y, 0.3); t.action.dur = Math.max(t.action.dur, t.action.t + 0.2); }
+      }
+      if (realRandom() < dt * 60) ghosts.push({ fig: figureOf(f), life: 0.1, max: 0.1, color: '#9fd8ff' });
+      if (f.tc) for (let k = 0; k < 3; k++) {                                       // TOTAL CONCENTRATION: a whirl of flame
+        const an = time * 24 + k * 2.1, r = 58 + realRandom() * 10;
+        particles.push({ x: f.x + Math.cos(an) * r, y: f.y - 50 + Math.sin(an) * r * 0.75, vx: -Math.sin(an) * 260, vy: Math.cos(an) * 200 - 60,
+                         life: 0.25, max: 0.25, size: realRandom() < 0.4 ? 3 : 2, color: SEVON_FIRE[(realRandom() * 4) | 0], type: 'bit', grav: -120 });
+      }
+      return false;
+    } },
   fair: { name: 'Falling Flame', startup: 0.07, active: 0.08, endlag: 0.18, landLag: 0.12,
     hitboxes: [{ x: 66, y: -56, r: 36, dmg: 9, base: 400, growth: 6, angle: 40 }, { x: 30, y: -62, r: 28, dmg: 9, base: 400, growth: 6, angle: 40 }],
     wind: pose({ lean: -0.3, legA: [0.9, 1.6], legB: [0.4, 1.2], armA: [2.8, 0.2], armB: [2.6, 0.3], sw: 2.9 }),
@@ -7379,28 +7398,12 @@ const SEVON_MOVES = {
     wind: pose({ lean: 0.1, legA: [0.9, 1.6], legB: [0.3, 1.0], armA: [1.2, 0.2], armB: [1.1, 0.3], sw: 1.2 }),
     strike: pose({ lean: -0.2, legA: [0.5, 1.2], legB: [0.1, 0.8], armA: [3.0, 0.05], armB: [2.9, 0.1], sw: 3.1 }),
     fire(f) { flameSlash(f, 10, -118, 10); } },
-  // DOWN AIR J: FALLING FLAME WHEEL - a full send. A tiny hitch, then he tucks into a blazing forward wheel and DROPS like
-  // a meteor, straight down, way past normal fall speed, spinning the whole way. Anyone underneath gets SPIKED down with
-  // him; over the stage it's the fastest way back to the floor (he lands in a burst of flame). (fastFall = no fall cap)
-  dair: { name: 'Falling Flame Wheel', startup: 0.07, active: 0.9, endlag: 0.16, landLag: 0.14, spike: true, slamLand: true,
-    fastFall: true, flip: true, flipTurns: 7,
-    hitboxes: [{ x: 0, y: -48, r: 40, dmg: 9, base: 520, growth: 5.5, angle: -88, group: 0 },
-               { x: 0, y: -4, r: 32, dmg: 9, base: 520, growth: 5.5, angle: -88, group: 0 }],
-    // when it CONNECTS in the air he bounces off them (so a spike off the stage isn't a suicide) - a whiff off the stage is
-    onHit(f, t, a) { if (!f.ground && !t.ground) { f.vy = -620; a.phase = 'end'; a.t = 0; burst(f.x, f.y, SEVON_FIRE, 14, Math.PI / 2, 1.4, 420, { grav: -100 }); } },
-    wind: pose({ lean: -0.3, bob: -6, legA: [0.9, 1.7], legB: [0.5, 1.5], armA: [2.6, 0.3], armB: [2.4, 0.4], sw: 2.9 }),   // pulled up, blade back
-    strike: pose({ lean: 0.2, legA: [1.3, 2.0], legB: [0.9, 1.9], armA: [1.6, 0.05], armB: [1.4, 0.2], sw: 1.55 }),       // tucked ball, blade out
-    step(f, a, dt) {
-      if (a.phase === 'startup') { f.vy = Math.min(f.vy, 0) * 0.3; f.vx *= Math.exp(-dt * 8); }   // the hitch at the top
-      else if (a.phase === 'active') {
-        f.vy = SEVON_DIVE; f.vx *= Math.exp(-dt * 7);                   // straight down, FAST
-        for (let i = 0; i < 3; i++) particles.push({ x: f.x + (realRandom() - 0.5) * 50, y: f.y - 20 - realRandom() * 60, vx: (realRandom() - 0.5) * 80, vy: -200 - realRandom() * 200,
-          life: 0.3, max: 0.3, size: realRandom() < 0.4 ? 3 : 2, color: SEVON_FIRE[(realRandom() * 4) | 0], type: 'bit', grav: -150 });
-        if (Math.floor(a.t / 0.06) !== Math.floor((a.t - dt) / 0.06)) ghosts.push({ fig: figureOf(f), life: 0.14, max: 0.14, color: '#ff7a1a' });
-      } else if (f.vy > MAX_FALL) f.vy = MAX_FALL;
-      return false;
-    },
-    fire(f) { flameSlash(f, 0, -40, 10); sfx.whoosh(true); } },
+  // DOWN AIR J: DOWNWARD THRUST - the katana driven straight down underneath him, stabbing whoever's below (spikes)
+  dair: { name: 'Downward Thrust', startup: 0.08, active: 0.14, endlag: 0.2, landLag: 0.16, spike: true,
+    hitboxes: [{ x: 4, y: 26, r: 26, dmg: 9, base: 400, growth: 5.6, angle: -86 }, { x: 4, y: -4, r: 22, dmg: 9, base: 400, growth: 5.6, angle: -86 }],
+    wind: pose({ lean: -0.15, legA: [1.0, 1.7], legB: [0.6, 1.5], armA: [2.8, 0.2], armB: [2.6, 0.3], sw: 3.14 }),   // blade raised, point up
+    strike: pose({ lean: 0.1, legA: [1.25, 2.0], legB: [0.85, 1.9], armA: [0.15, 0], armB: [0.1, 0.1], sw: 0 }),       // knees up, blade driven straight down
+    fire(f) { flameSlash(f, 0, 10, 10); sfx.slash && sfx.slash(); } },
   // ---------- K ----------
   // NEUTRAL K: ODM HOOK - see ODM / stepOdm
   neutralRanged: { name: 'ODM Hook', startup: 0.035, active: 0.04, endlag: 0.1, landLag: 0.06, noClash: true,
@@ -7834,7 +7837,9 @@ function stepOdm(f, a, dt, inp) {
 // blades whipping round so fast they become a spinning disc, seen edge-on along the way he's flying - with a fainter
 // echo of it trailing behind, and the edge of the ring flickering as it turns
 function drawLeviSpin(f) {
-  const a = f.action; if (!a || a.type !== 'odmSpin' || (a.phase !== 'fly' && a.phase !== 'hits')) return;
+  const a = f.action;
+  const airSpin = a && a.type === 'attack' && a.move && a.move.leviSpin && a.phase === 'active';   // (his Levi Spin air J)
+  if (!a || (!airSpin && (a.type !== 'odmSpin' || (a.phase !== 'fly' && a.phase !== 'hits')))) return;
   const cx = f.x, cy = f.y - 46;
   const ang = a.phase === 'fly' && (f.vx || f.vy) ? Math.atan2(f.vy, f.vx) : (f.face > 0 ? 0 : Math.PI);
   const big = a.phase === 'hits' ? 1.15 : 1;
@@ -17487,7 +17492,8 @@ function render() {
   ctx = pixelMode ? loCtx : sctx;
   ctx.setTransform(pixelMode ? 1 / PIX : RS, 0, 0, pixelMode ? 1 / PIX : RS, 0, 0);
   ctx.imageSmoothingEnabled = false;
-  if (shake > 0) ctx.translate(snap((Math.random() - 0.5) * shake), snap((Math.random() - 0.5) * shake));
+  // (3-4 PLAYER matches: no screen shake - it gets nauseating with that much going on - except during ultimates)
+  if (shake > 0 && (REAL_FIGHTERS <= 2 || ultRunning())) ctx.translate(snap((realRandom() - 0.5) * shake), snap((realRandom() - 0.5) * shake));
   sketchStroke = 0;
   if (impactFrame > 0) {
     drawImpactFrame();
@@ -18944,11 +18950,11 @@ const MOVESETS = {
       ['DOWN J', 'Flame Sweep', 'A low flaming sweep.'],
       ['RUN + J', 'Burning Draw', 'A running draw-cut.'] ] },
     { title: 'AIR J', rows: [
-      ['AIR J', 'Bloom of Flame', 'A blossom of flaming cuts around him.'],
+      ['AIR J', 'Levi Spin', 'He whirls in place with the katana out - cutting everything around him over and over, the last cut launches. In Total Concentration it throws off a whirl of flame.'],
       ['AIR FWD J', 'Falling Flame', 'A downward cut in front.'],
       ['AIR BACK J', 'Reverse Flame', 'A cut behind him.'],
       ['AIR UP J', 'Sky Flame', 'A slash straight up over his head.'],
-      ['AIR DOWN J', 'Falling Flame Wheel', 'A full send: he wheels into a ball of flame and drops STRAIGHT DOWN, way faster than falling - spikes anyone underneath, and gets him back to the stage fast.'] ] },
+      ['AIR DOWN J', 'Downward Thrust', 'The katana driven straight down underneath him - stabs anyone below him and spikes them.'] ] },
     { title: 'K (BREATH OF FLAME + ODM GEAR)', rows: [
       ['K', 'ODM Hook', 'Fires the grapple hook at the nearest opponent ANYWHERE on the stage - it tracks them in flight and almost always lands (a Z vanish shakes it off, and once in a while it misses). If it sticks, they are TETHERED for 4 seconds. Falling below the ledge, it grabs the LEDGE instead: K again reels him up onto it.'],
       ['K (TETHERED)', 'Reel In', 'Fires the gas and yanks himself straight to them.'],
