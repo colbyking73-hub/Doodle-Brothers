@@ -7982,7 +7982,10 @@ const CHARACTERS = {
     stats: { runSpeed: 560, airSpeed: 470, jumpVel: 1140, doubleJumpVel: 1020, weight: 1.16 },
     look: {
       body: '#9aa4ae',          // steel plate (his green is on the tabard and the plume)
-      knight: { steel: '#b9c1ca', dark: '#6c7580', tabard: '#2f9a3a', trim: '#e8c64a', plume: '#3fae49' },   // KNIGHT ARMOR - see drawKnightArmor
+      knight: { steel: '#b9c1ca', dark: '#6c7580', tabard: '#2f9a3a', trim: '#e8c64a' },   // KNIGHT ARMOR (neck down) - see drawKnightArmor
+      headColor: '#3fae49',     // (his head stays his own green - no helmet)
+      foreSpikes: '#6b4423',    // brown hair, spiked up only at the forehead
+      glasses: true,            // rectangle reading glasses
       greatsword: true,         // the huge sword (drawn in his front hand, angle from the pose's "sw")
       weapon: 'sword',          // his own weapon (Colby's is the scythe) - see WEAPONS
       auraArmor: true,          // transformed: glowing aura armor (ultra armor + less knockback)
@@ -15377,7 +15380,7 @@ function drawFigure(fig, opts = {}) {
   // Round head - or, for a SKELETON (Captain Heel), a real SIDE-PROFILE SKULL on a neck of vertebrae
   ctx.fillStyle = main;
   if (look.skeleton) drawSkullProfile(head, shoulder, f, main, opts, look);
-  else { ctx.beginPath(); ctx.arc(head.x, head.y, 12 + (opts.outline || 0) / 2, 0, Math.PI * 2); ctx.fill(); }
+  else { if (look.headColor && !opts.tint && !sketch) ctx.fillStyle = look.headColor; ctx.beginPath(); ctx.arc(head.x, head.y, 12 + (opts.outline || 0) / 2, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = main; }
   // Spiky swept-back hair (Hwoarang style)
   if (look.hair) {
     ctx.fillStyle = opts.tint || look.hair;
@@ -15782,9 +15785,8 @@ function drawRangerSuit(hip, shoulder, head, pz, f, opts) {
   ctx.fillStyle = '#ffffff'; ctx.fillRect(X(f > 0 ? -2 : -1) - 0.5, Y(-13), 3, 7);   // white stripe down the crown
   ctx.lineCap = 'round';
 }
-// COLTEN'S KNIGHT ARMOR: a steel breastplate under a green tabard with a gold hem, a round pauldron on the shoulder, and a
-// GREAT HELM over his whole head - flat-topped steel with a black eye slit, breathing holes and a green plume streaming
-// back off the crown.
+// COLTEN'S KNIGHT ARMOR (neck down - no helmet): a steel breastplate under a green tabard with a gold hem, a steel belt
+// and a round pauldron on the shoulder. (Steel limbs = his body colour; gauntlet drawn at the end of drawFigure.)
 function drawKnightArmor(hip, shoulder, head, pz, f, opts, K) {
   if (opts.tint) return;
   const steel = sketch ? '#ffffff' : K.steel, dark = sketch ? '#1b1b1b' : K.dark;
@@ -15810,24 +15812,6 @@ function drawKnightArmor(hip, shoulder, head, pz, f, opts, K) {
   // pauldron
   ctx.fillStyle = steel; ctx.beginPath(); ctx.arc(shoulder.x + f * 1, shoulder.y + 2, 8.5, Math.PI, 0); ctx.closePath(); ctx.fill();
   ctx.strokeStyle = dark; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(shoulder.x + f * 1, shoulder.y + 2, 6, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
-  // the plume, streaming back off the crown (behind the helm)
-  const X = dx => head.x + f * dx, Y = dy => head.y + dy, sway = Math.sin(time * 5 + head.x * 0.02) * 2;
-  if (!sketch) {
-    ctx.fillStyle = K.plume;
-    ctx.beginPath(); ctx.moveTo(X(2), Y(-14));
-    ctx.quadraticCurveTo(X(-8), Y(-26), X(-22 + sway), Y(-12));
-    ctx.quadraticCurveTo(X(-12), Y(-16), X(-4), Y(-11)); ctx.closePath(); ctx.fill();
-  }
-  // the GREAT HELM: a flat-topped steel bucket over the whole head
-  ctx.fillStyle = steel;
-  ctx.beginPath(); ctx.moveTo(X(-12), Y(9)); ctx.lineTo(X(-12), Y(-9)); ctx.quadraticCurveTo(X(-11), Y(-14), X(-4), Y(-14.5));
-  ctx.lineTo(X(8), Y(-14.5)); ctx.quadraticCurveTo(X(13), Y(-13), X(13), Y(-7)); ctx.lineTo(X(13.5), Y(9)); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = dark;
-  ctx.fillRect(Math.min(X(2), X(13.5)), Y(-4), 11.5, 2.8);                                        // the eye slit
-  ctx.fillRect(Math.min(X(6.5), X(8)), Y(-1), 1.5, 8);                                             // the nose bar
-  for (const [dx, dy] of [[10, 3], [10, 6], [12, 4.5]]) { ctx.beginPath(); ctx.arc(X(dx), Y(dy), 0.9, 0, Math.PI * 2); ctx.fill(); }   // breathing holes
-  ctx.fillRect(Math.min(X(-12), X(13.5)), Y(-10), 25.5, 1.6);                                    // the riveted brow band
-  if (!sketch) { ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(Math.min(X(-8), X(-5)), Y(-12), 3, 18); }   // shine
   ctx.lineCap = 'round';
 }
 function drawRangerGloves(shoulder, pz, f, look) {
