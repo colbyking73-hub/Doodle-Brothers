@@ -13,6 +13,8 @@
 <script src="sounds/ui-awaken-sfx.js"></script>
 <script src="sounds/ki-charge-sfx.js"></script>
 <script src="sounds/ssj2-song-sfx.js"></script>
+<script src="sounds/chidori-sfx.js"></script>
+<script src="sounds/ninth-form-sfx.js"></script>
 <script src="sounds/shield-sfx.js"></script>
 <!-- Kamehameha charge-up sound, used for Lance's Kamehameha and ultimate charge -->
 <script src="sounds/kame-sfx.js"></script>
@@ -8405,45 +8407,70 @@ CHARACTERS.COLTEN.ult = {
   final: { dmg: 8, base: 640, growth: 8, angle: 38 },
 };
 CHARACTERS.COLTEN.transformName = 'WARLORD';
-// Sevon: NINTH FORM: RENGOKU - a lunge; whoever it catches takes a storm of flaming slashes from every side, then he
+// Sevon: FIFTH FORM: FLAME TIGER - a lunge; whoever it catches takes a storm of flaming slashes from every side, then he
 // charges straight through them as a giant TIGER OF FIRE (see the flameFinal finisher in updateUlt)
-// (his SECOND ultimate now: hold DOWN as you press ULT)
+// (his SECOND ultimate: hold DOWN as you press ULT)
 CHARACTERS.SEVON.altUlt = {
-  name: 'NINTH FORM: RENGOKU',
+  name: 'FIFTH FORM: FLAME TIGER',
   slashes: [SEVON_MOVES.jab.strike, SEVON_MOVES.jab2.strike, SEVON_MOVES.jab3.strike, SEVON_MOVES.fair.strike, SEVON_MOVES.uair.strike, SEVON_MOVES.sideGround.strike],
   kicks: [SEVON_MOVES.dashAttack.strike, SEVON_MOVES.upGround.strike, SEVON_MOVES.downGround.strike],
   finalWind: SEVON_MOVES.unknowingFire.wind, finalStrike: SEVON_MOVES.unknowingFire.strike,
   perHit: 1.0, flameFinal: true, cutscene: false,
   final: { dmg: 12, base: 520, growth: 6.4, angle: 38 },
 };
-// Sevon's MAIN ultimate: FLAME BREATHING - FLAME DRAGON (Rengoku). He plants his feet and breathes in; fire spirals up
-// round him and coils into a great serpent DRAGON OF FLAME. Then he cuts forward and it ROARS off his blade at the nearest
-// enemy, weaving after them. Whoever it bites is swallowed in fire and carried along (burning hits), then it EXPLODES and
-// launches them. Shields don't stop it - only a Z vanish at the right moment slips it. See stepFlameDragon / updateDragon.
-CHARACTERS.SEVON.ult = { name: 'FLAME BREATHING: FLAME DRAGON', dragon: true };
+// Sevon's MAIN ultimate: NINTH FORM - RENGOKU (an homage to Rengoku's last stand). His voice line plays ("NINTH FORM...
+// RENGOKU!"): he sinks into his stance and breathes in as fire spirals up round him into a great serpent DRAGON OF FLAME -
+// then, on the shout, he RUSHES THEM DOWN *as* the dragon: riding at its head, blade out in front, its burning body
+// streaming out behind him, weaving after them. When it catches them: the clash - an impact flash and a beat of stillness -
+// he drives on through them in its jaws... and it all EXPLODES in a sea of flame that launches them, while he lands
+// beyond in his follow-through. Shields don't stop it - only a Z vanish at the right moment slips it.
+// (The wind-up runs in REAL seconds so the rush always leaves on the shout in the clip.)
+CHARACTERS.SEVON.ult = { name: 'NINTH FORM: RENGOKU', dragon: true };
+let ninthFormBuf = null;
+const NINTH_POSE = {
+  stance: pose({ lean: 0.35, bob: -24, legA: [1.15, 1.2], legB: [-0.95, 0.4], armA: [2.6, 0.5], armB: [2.4, 0.6], sw: 3.0 }),   // low, blade raised beside his head
+  rush: pose({ lean: 0.85, bob: -10, legA: [0.2, 0.9], legB: [-1.2, 0.5], armA: [1.45, 0.05], armB: [1.35, 0.1], sw: 1.45 }),     // flat out, blade leading
+  follow: pose({ lean: 0.6, bob: -20, legA: [1.2, 1.1], legB: [-1.0, 0.3], armA: [0.9, 0.05], armB: [0.8, 0.1], sw: 0.7 }),       // landed, blade swept through
+};
 const FLAME_DRAGON = {
-  summon: 0.85, endlag: 0.4,               // the coil round him / his follow-through after the cut
-  speed: 1150, turn: 3.2, life: 2.0, r: 56, // flight: speed, how hard it steers after them (rad/s), how long it lives, bite size
-  carry: 0.6, carrySpeed: 620, tickEvery: 0.1,
+  summon: 2.25, endlag: 0.55,              // the coil + breath (REAL seconds - the rush leaves on the shout) / his follow-through
+  speed: 1300, turn: 3.4, life: 1.4, r: 60, // the rush: speed, how hard it steers after them (rad/s), how long it lasts, bite size
+  carry: 0.5, carrySpeed: 700, tickEvery: 0.1,
   tick: { dmg: 2.2, base: 0, growth: 0, angle: 90, noStop: true },             // burning while it carries them
   final: { dmg: 14, base: 560, growth: 7, angle: 42, ultFinal: true },          // the explosion
   len: 34,                                 // body length (trail points)
 };
 function startFlameDragon(f) {
-  f.action = { type: 'flameDragon', t: 0, phase: 'summon' };
+  f.action = { type: 'flameDragon', t: 0, songT: 0, phase: 'summon' };
   projectiles.push({ owner: f, kind: 'dragon', state: 'coil', t: 0, x: f.x, y: f.y - 30, dir: 0, trail: [], hit: new Set(),
-                     mult: (f.ultPower || 1) * powerOf(f), r: FLAME_DRAGON.r });
+                     mult: (f.ultPower || 1) * powerOf(f), r: FLAME_DRAGON.r, rider: f });
+  if (f.ninthSnd) stopBuffer(f.ninthSnd, 0.1);
+  f.ninthSnd = playBuffer(ninthFormBuf, 1.0);               // "NINTH FORM... RENGOKU!"
   sfx.beam(0.5);
 }
+// (the voice line fades once it's all over)
+function endNinthSound(f, fade = 1.6) { if (f && f.ninthSnd) { stopBuffer(f.ninthSnd, fade); f.ninthSnd = null; } }
 function stepFlameDragon(f, a, dt) {
+  if (a.phase === 'rush') {                                  // riding the dragon: it moves him (see updateDragon)
+    f.vx = f.vy = 0; f.ground = false;
+    a.pose = NINTH_POSE.rush;
+    if (!projectiles.some(q => q.kind === 'dragon' && q.rider === f)) {   // it's done: he lands in his follow-through
+      a.phase = 'follow'; a.t = 0; a.pose = NINTH_POSE.follow;
+      f.upSpecialUsed = false; f.airJumps = AIR_JUMPS;      // (free to get home if it ended off the stage)
+    }
+    return;
+  }
+  if (a.phase === 'follow') { a.pose = NINTH_POSE.follow; if (a.t >= FLAME_DRAGON.endlag) { f.action = null; endNinthSound(f); } return; }
   f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = 0;          // he holds his ground (hangs in the air)
   if (a.phase === 'summon') {
+    a.songT = (a.songT || 0) + dt / uiRealRate();
+    a.pose = NINTH_POSE.stance;
     const v = nearestFoe(f);
     if (v && v.respawnTimer <= 0) f.face = Math.sign(v.x - f.x) || f.face;
-    const k = a.t / FLAME_DRAGON.summon;
+    const k = a.songT / FLAME_DRAGON.summon;
     shake = Math.max(shake, 2 + 5 * k);
     if (Math.random() < dt * 40) burst(f.x + (Math.random() - 0.5) * 50, f.y - 6, SEVON_FIRE, 2, -Math.PI / 2, 0.5, 260, { grav: -300 });   // fire rising off the floor
-    if (a.t >= FLAME_DRAGON.summon) {
+    if (a.songT >= FLAME_DRAGON.summon) {
       a.phase = 'release'; a.t = 0;
       flameSlash(f, 60, -70, 30); ring(f.x + f.face * 60, f.y - 70);
       shake = Math.max(shake, 14); sfx.whoosh(true); sfx.beam(1);
@@ -8462,8 +8489,8 @@ function updateDragon(s, dt) {
     if (!o || o.respawnTimer > 0 || !o.action || o.action.type !== 'flameDragon') return true;
     const k = Math.min(1, s.t / D.summon), ang = s.t * 10;
     s.x = o.x + Math.cos(ang) * (55 + 25 * k); s.y = o.y - 25 - k * 120 + Math.sin(ang) * 22;
-    if (o.action.phase === 'release') {                       // HE CUTS: it flies off his blade at them
-      s.state = 'fly'; s.t = 0;
+    if (o.action.phase === 'release') {                       // THE SHOUT: he rushes them down AS the dragon
+      s.state = 'fly'; s.t = 0; o.action.phase = 'rush';
       s.x = o.x + o.face * 70; s.y = o.y - 80;
       const v = nearestFoe(o);
       s.target = v && v.respawnTimer <= 0 ? v : null;
@@ -8479,21 +8506,24 @@ function updateDragon(s, dt) {
       s.dir += clamp(d, -D.turn * dt, D.turn * dt);
     }
     s.x += Math.cos(s.dir) * D.speed * dt; s.y += Math.sin(s.dir) * D.speed * dt;
+    if (s.rider && s.x > STAGE.x && s.x < STAGE.x + STAGE.w && s.y > STAGE.y - 40) { s.y = STAGE.y - 40; s.dir = Math.atan2(Math.min(0, Math.sin(s.dir)), Math.cos(s.dir)); }   // (skims the floor, never digs into it)
+    if (Math.random() < dt * 30) ghosts.push({ fig: figureOf(o), life: 0.16, max: 0.16, color: '#ff7a1a' });
     for (const t of fighters) {
       if (t === o || allies(o, t) || s.hit.has(t) || t.respawnTimer > 0 || t.halo > 0 || t.dead || t.poofT > 0 || projPhase(t)) continue;
       if (!circleHitsFighter(s.x, s.y, D.r, t)) continue;
       if (isIntangible(t)) { t.dodgedFlash = 0.35; s.hit.add(t); continue; }   // slipped it with a Z vanish
       s.hit.add(t);
       if (t.minion) { knock(t, D.final, Math.sign(Math.cos(s.dir)) || 1, s.mult, s.x, s.y); continue; }   // clones just get torched on the way through
-      // BITTEN: swallowed in fire and carried along
+      // THE CLASH: a flash and a beat of stillness... then he drives on through them in its jaws
       t.shielding = false;
       s.state = 'carry'; s.t = 0; s.victim = t; s.tickT = 0;
-      if (Math.cos(s.dir) * (o.face || 1) < 0.2) s.dir = Math.atan2(-0.35, o.face || 1);   // carries them away from him, rising
-      hitstop = Math.max(hitstop, 0.08); shake = Math.max(shake, 16); sfx.clash(true); sfx.huge();
-      burst(t.x, t.y - 50, SEVON_FIRE, 40, 0, Math.PI, 700, { grav: -250 });
+      if (Math.cos(s.dir) * (o.face || 1) < 0.2) s.dir = Math.atan2(-0.25, o.face || 1);   // drives them on, away from where he came from
+      hitstop = Math.max(hitstop, 0.22); shake = Math.max(shake, 22); sfx.clash(true); sfx.huge();
+      impactFrame = Math.max(impactFrame, 0.14); impactAt = { x: t.x, y: t.y - 55, ang: 0, all: true, focus: true, invert: true, fire: true };
+      burst(t.x, t.y - 50, SEVON_FIRE, 50, 0, Math.PI, 800, { grav: -250 }); ring(t.x, t.y - 50);
       break;
     }
-    if (s.state === 'fly' && (s.t > D.life || s.x < -600 || s.x > W + 600 || s.y < -900 || s.y > H + 600)) {
+    if (s.state === 'fly' && (s.t > D.life || s.x < STAGE.x - 260 || s.x > STAGE.x + STAGE.w + 260 || s.y < -700 || s.y > STAGE.y + 200)) {   // (missed: it burns out - kept near the stage so he's never stranded)
       burst(s.x, s.y, SEVON_FIRE, 30, 0, Math.PI, 500, { grav: -200 });
       return true;
     }
@@ -8507,14 +8537,23 @@ function updateDragon(s, dt) {
     const dirSign = Math.cos(s.dir) >= 0 ? 1 : -1;
     s.tickT -= dt;
     if (s.tickT <= 0 && s.t < D.carry) { s.tickT += D.tickEvery; knock(t, D.tick, dirSign, s.mult, t.x, t.y - 50); burst(t.x, t.y - 50, SEVON_FIRE, 8, 0, Math.PI, 360, { grav: -250 }); }
-    t.x = s.x - Math.cos(s.dir) * 6; t.y = s.y + 46; t.vx = t.vy = 0; t.ground = false;   // held in its jaws
+    t.x = s.x + Math.cos(s.dir) * (s.rider ? 54 : -6); t.y = s.y + 46; t.vx = t.vy = 0; t.ground = false;   // held in its jaws (ahead of him when he's riding it)
     if (t.action && t.action.type === 'hitstun') t.action.dur = Math.max(t.action.dur, t.action.t + 0.2);
-    if (s.t >= D.carry) {                                     // ...and it EXPLODES
+    if (s.t >= D.carry) {                                     // ...and it all EXPLODES in a sea of flame
       knock(t, D.final, dirSign, s.mult, s.x, s.y);
-      for (let k = 0; k < 6; k++) burst(s.x, s.y, SEVON_FIRE, 18, Math.random() * Math.PI * 2, 0.7, 900, { grav: -200 });
-      ring(s.x, s.y); ring(s.x, s.y - 30);
+      for (let k = 0; k < 10; k++) burst(s.x, s.y, SEVON_FIRE, 22, Math.random() * Math.PI * 2, 0.7, 1100, { grav: -200 });
+      for (let k = 0; k < 4; k++) auraWaves.push({ x: s.x, y: s.y, t: -k * 0.08, dur: 0.7, max: 260 + k * 90, color: k % 2 ? '#ffb02e' : '#ff5a1a' });
+      ring(s.x, s.y); ring(s.x, s.y - 30); ring(s.x, s.y + 30);
+      impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: s.x, y: s.y, ang: 0, all: true, focus: true, fire: true };
+      shake = Math.max(shake, 30); camPunch = 1; sfx.huge();
+      if (s.rider) { s.rider.x = s.x + Math.cos(s.dir) * 70; s.rider.y = Math.min(s.y + 40, s.rider.y); }   // he's come out the far side
       return true;
     }
+  }
+  // SEVON RIDES AT ITS HEAD (he IS the dragon's head) while it flies / carries
+  if (s.rider && (s.state === 'fly' || s.state === 'carry')) {
+    const r = s.rider; r.x = s.x + Math.cos(s.dir) * 8; r.y = s.y + 44; r.vx = r.vy = 0; r.ground = false;
+    r.face = Math.cos(s.dir) >= 0 ? 1 : -1;
   }
   // its body follows the head; it sheds fire as it goes
   s.trail.unshift({ x: s.x, y: s.y });
@@ -8550,7 +8589,8 @@ function drawDragon(s) {
     ctx.lineTo(a.x + nx * w * 0.4 + Math.cos(ang) * 6, a.y + ny * w * 0.4 + Math.sin(ang) * 6);
     ctx.closePath(); ctx.fill();
   }
-  // THE HEAD
+  // THE HEAD (see-through while Sevon's riding it - he's in there, as the dragon's head)
+  if (s.rider && (s.state === 'fly' || s.state === 'carry')) ctx.globalAlpha *= 0.55;
   const h = tr[0], h2 = tr[Math.min(3, n - 1)];
   const ang = Math.atan2(h.y - h2.y, h.x - h2.x), flip = Math.cos(ang) < 0;
   ctx.translate(h.x, h.y); ctx.rotate(ang); if (flip) ctx.scale(1, -1);
@@ -9096,7 +9136,9 @@ function loadNeteroSfx() {
   if (!uiNoteBuf) dec(window.UI_NOTE_B64, b => { uiNoteBuf = b; });
   if (!uiAwakenBuf) dec(window.UI_AWAKEN_B64, b => { uiAwakenBuf = b; });
   if (!kiChargeBuf) dec(window.KI_CHARGE_B64, b => { kiChargeBuf = b; });
-  if (!ssj2SongBuf) dec(window.SSJ2_SONG_B64, b => { ssj2SongBuf = b; });   // Lance's Super Saiyan 2 (Day of Fate)   // Lance's ki charge (DBZ power-up)   // Lance's Ultra Instinct theme ("are you finished?")   // Lance's Ultra Instinct auto-dodge note
+  if (!ssj2SongBuf) dec(window.SSJ2_SONG_B64, b => { ssj2SongBuf = b; });   // Lance's Super Saiyan 2 (Day of Fate)
+  if (!chidoriBuf) dec(window.CHIDORI_B64, b => { chidoriBuf = b; });       // every Chidori
+  if (!ninthFormBuf) dec(window.NINTH_FORM_B64, b => { ninthFormBuf = b; }); // Sevon: 'NINTH FORM... RENGOKU!'   // Lance's ki charge (DBZ power-up)   // Lance's Ultra Instinct theme ("are you finished?")   // Lance's Ultra Instinct auto-dodge note
 }
 // ---- Naruto shadow clone jutsu "poof" (sounds/clone-poof.wav, 2.28-3.6s of your clip) - Colbalias's clone summon ----
 let clonePoofBuf = null, lastPoof = null;
@@ -9141,8 +9183,28 @@ function stopBuffer(h, fade = 0.12) {
   try { h.s.stop(t + fade + 0.02); } catch (e) {}
 }
 
+// THE CHIDORI SOUND (sounds/chidori-sfx.js): every Chidori - Colby's / Colten's Chidori Impale and Annihilator, Colbalias's
+// Red Chidori, Colby's God Speed: Lightning Blade - chirps with it from the wind-up for as long as it's charging / flying
+let chidoriBuf = null;
+function chidoriLive(f) {
+  const a = f.action;
+  if (a && a.type === 'attack' && a.move.chidori && !f.minion) return a.phase === 'startup' || a.phase === 'charge' || (a.phase === 'active' && (!a.rc || a.rc.phase === 'spin' || a.rc.phase === 'fly'));
+  if (ult && ult.user === f && ult.def && ult.def.godChidori) return ult.phase === 'charge' || ult.phase === 'dash';
+  return false;
+}
+function syncChidoriSound(f) {
+  if (chidoriLive(f)) {
+    if (!f.chidoriSnd && soundOn && actx && chidoriBuf) {
+      const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
+      src.buffer = chidoriBuf; src.loop = true; src.loopStart = 0.15; src.loopEnd = Math.min(chidoriBuf.duration, 1.6);
+      g.gain.value = 0.85; src.connect(g).connect(audioOut()); src.start(t);
+      f.chidoriSnd = { s: src, g };
+    }
+  } else if (f.chidoriSnd) { stopBuffer(f.chidoriSnd, 0.25); f.chidoriSnd = null; }
+}
 // Called every frame: charge sound on while charging, off the moment it's fired or interrupted
 function syncKame(f) {
+  syncChidoriSound(f);
   if (isKameCharging(f)) startKameCharge(f); else stopKameCharge(f);
   const a = f.action;                                                      // Colbalias's Hellfire Shot
   if (a && a.type === 'attack' && a.move.chargeShot && a.charging && !ult) startShotCharge(f); else stopShotCharge(f);
@@ -14579,9 +14641,10 @@ function basePose(p) {
     if (a.pose) return { ...a.pose };
     return { ...pose({ bob: -6, lean: -0.05, legA: [0.55, 0.3], legB: [-0.5, 0.2], armA: [0.3, -0.2] }) };   // standing over them
   }
-  if (a && a.type === 'flameDragon') {                 // Sevon: blade raised overhead, breathing in... then the cut
-    if (a.phase === 'summon') { const ps = { ...SEVON_MOVES.blazingUniverse.wind }; ps.lean += Math.sin(p.anim * 60) * 0.03; return ps; }
-    return { ...SEVON_MOVES.blazingUniverse.strike };
+  if (a && a.type === 'flameDragon') {                 // Sevon: the stance and the breath... riding the dragon... the follow-through
+    const ps = { ...(a.pose || NINTH_POSE.stance) };
+    if (a.phase === 'summon') ps.lean += Math.sin(p.anim * 60) * 0.03;
+    return ps;
   }
   if (a && a.type === 'ultStart') {
     const def = a.def || CHARACTERS[p.char].ult;
@@ -18192,8 +18255,8 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
       ['I (FULL METER)', 'FLAME HASHIRA', 'A burning aura - faster and stronger.'],
-      ['I (TRANSFORMED)', 'Flame Breathing: Flame Dragon', 'Fire spirals up round him into a great DRAGON OF FLAME - he cuts forward and it roars off his blade, chasing the nearest enemy anywhere on the stage. Whoever it bites is carried along burning, then it explodes. Shields do not stop it; a well-timed Z vanish does.'],
-      ['DOWN + I (TRANSFORMED)', 'Ninth Form: Rengoku', 'A lunge into a flurry of flaming slashes ending in a roaring fire tiger.'] ] },
+      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'He sinks into his stance and breathes in as a DRAGON OF FLAME coils round him - then on the shout he RUSHES THEM DOWN as the dragon, riding at its head with his blade out, chasing the nearest enemy. It catches them, drives on through them in its jaws and EXPLODES in a sea of flame. Shields do not stop it; a well-timed Z vanish does.'],
+      ['DOWN + I (TRANSFORMED)', 'Fifth Form: Flame Tiger', 'A lunge into a flurry of flaming slashes ending in a roaring fire tiger.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'TOTAL CONCENTRATION (down K): +12% damage, +18% speed, quicker attacks, and flames on every windup and hit - but it strains him: 1.5% damage every second.',
       'He CAN\'T enter Total Concentration at 200% or more.',
