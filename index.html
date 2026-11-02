@@ -7294,23 +7294,31 @@ const AURA_ARMOR = { threshold: 900, kb: 0.85, color: '#7dffb0' };
 const SEVON_FIRE = ['#ff5a1a', '#ffb02e', '#ffe066', '#e0301e'];
 const flameSlash = (f, x, y, n = 10) => burst(f.x + f.face * x, f.y + y, SEVON_FIRE, n, Math.PI / 2, 1.3, 380, { grav: -300 });
 const SEVON_DIVE = 2300;   // Sevon's down air: how fast he drops (normal max fall is 1200)
+const RISE = { vy: 1450, vx: 200, window: 0.55 };   // Sevon's up K: the lift, and how long after it K = Sky Flame Slash
 const SEVON_MOVES = {
   counter: STICKMAN_MOVES.counter,
   // ---------- J on the ground: FLAME CUTS (J J J) ----------
-  jab: { name: 'Flame Cut', startup: 0.05, active: 0.06, endlag: 0.12, combo: 'jab2', lunge: 300, lungeFriction: 0.4,
-    hitboxes: [{ x: 72, y: -66, r: 32, dmg: 3, base: 130, growth: 0.5, angle: 50 }, { x: 34, y: -64, r: 28, dmg: 3, base: 130, growth: 0.5, angle: 50 }],
-    wind: pose({ lean: -0.1, bob: -8, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [2.3, 0.5], armB: [2.0, 0.6], sw: 2.7 }),
-    strike: pose({ lean: 0.35, bob: -8, legA: [0.9, 0.6], legB: [-0.7, 0.1], armA: [1.45, 0.1], armB: [1.3, 0.2], sw: 1.35 }),
-    fire(f) { flameSlash(f, 60, -66, 6); sfx.slash && sfx.slash(); } },
-  jab2: { name: 'Rising Flame', startup: 0.04, active: 0.07, endlag: 0.12, combo: 'jab3', lunge: 320, lungeFriction: 0.4,
-    hitboxes: [{ x: 66, y: -84, r: 34, dmg: 3, base: 160, growth: 0.5, angle: 72 }, { x: 30, y: -70, r: 28, dmg: 3, base: 160, growth: 0.5, angle: 72 }],
-    wind: pose({ lean: 0.2, bob: -12, legA: [0.9, 0.8], legB: [-0.6, 0.3], armA: [0.8, 0.2], armB: [0.7, 0.3], sw: 0.6 }),
-    strike: pose({ lean: -0.15, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.5, 0.2], armB: [2.3, 0.3], sw: 2.9 }),
+  // J J J: FLAME THRUST > RISING FLAME > FLAME CRASH - a fast, long STAB straight out in front, then the katana swept
+  // from the floor UP over his head... and, with it up there, brought straight back DOWN. (Faster than Colby's scythe.)
+  jab: { name: 'Flame Thrust', startup: 0.04, active: 0.07, endlag: 0.11, combo: 'jab2', lunge: 280, lungeFriction: 0.4,
+    hitboxes: [{ x: 42, y: -64, r: 24, dmg: 3, base: 120, growth: 0.5, angle: 35 }, { x: 86, y: -64, r: 24, dmg: 3, base: 120, growth: 0.5, angle: 35 },
+               { x: 130, y: -64, r: 24, dmg: 3, base: 120, growth: 0.5, angle: 35 }],          // (one hit - a long, thin reach)
+    wind: pose({ lean: -0.2, bob: -8, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [0.5, 1.3], armB: [0.4, 1.4], sw: 1.57 }),     // drawn back at the hip, point forward
+    strike: pose({ lean: 0.45, bob: -10, legA: [1.0, 0.6], legB: [-0.8, 0.1], armA: [1.57, 0], armB: [1.45, 0.1], sw: 1.57 }),   // run straight through
+    fire(f) { flameSlash(f, 100, -64, 6); sfx.slash && sfx.slash(); } },
+  jab2: { name: 'Rising Flame', startup: 0.04, active: 0.1, endlag: 0.12, combo: 'jab3', lunge: 200, lungeFriction: 0.4, sweep: true,
+    hitboxes: [{ x: 62, y: -28, r: 30, dmg: 3, base: 150, growth: 0.4, angle: 80, from: 0, to: 0.04 },
+               { x: 62, y: -84, r: 32, dmg: 3, base: 150, growth: 0.4, angle: 80, from: 0.03, to: 0.07 },
+               { x: 28, y: -132, r: 30, dmg: 3, base: 150, growth: 0.4, angle: 80, from: 0.06, to: 0.1 }],
+    wind: pose({ lean: 0.25, bob: -14, legA: [0.95, 0.8], legB: [-0.6, 0.3], armA: [0.7, 0.2], armB: [0.6, 0.3], sw: 0.6 }),     // blade low in front
+    strike: pose({ lean: -0.15, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.7, 0.1], armB: [2.5, 0.2], sw: 3.0 }),    // swept up over his head
     fire(f) { flameSlash(f, 50, -90, 7); sfx.slash && sfx.slash(); } },
-  jab3: { name: 'Flame Crash', startup: 0.07, active: 0.08, endlag: 0.24, lunge: 380, lungeFriction: 0.4,
-    hitboxes: [{ x: 78, y: -52, r: 40, dmg: 6, base: 380, growth: 4.8, angle: 40 }, { x: 36, y: -60, r: 32, dmg: 6, base: 380, growth: 4.8, angle: 40 }],
-    wind: pose({ lean: -0.3, bob: -6, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [2.9, 0.2], armB: [2.7, 0.3], sw: 3.0 }),
-    strike: pose({ lean: 0.5, bob: -14, legA: [1.0, 0.8], legB: [-0.8, 0.1], armA: [1.3, 0.1], armB: [1.15, 0.2], sw: 1.1 }),
+  jab3: { name: 'Flame Crash', startup: 0.05, active: 0.1, endlag: 0.24, lunge: 300, lungeFriction: 0.4, sweep: true,
+    hitboxes: [{ x: 34, y: -130, r: 32, dmg: 6, base: 380, growth: 4.8, angle: 40, from: 0, to: 0.04 },
+               { x: 74, y: -80, r: 38, dmg: 6, base: 380, growth: 4.8, angle: 40, from: 0.03, to: 0.07 },
+               { x: 80, y: -30, r: 38, dmg: 6, base: 380, growth: 4.8, angle: 40, from: 0.06, to: 0.1 }],
+    wind: pose({ lean: -0.15, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.7, 0.1], armB: [2.5, 0.2], sw: 3.0 }),     // (still up there from the swipe)
+    strike: pose({ lean: 0.5, bob: -14, legA: [1.0, 0.8], legB: [-0.8, 0.1], armA: [1.2, 0.1], armB: [1.05, 0.2], sw: 0.95 }),   // brought straight down in front
     fire(f) { flameSlash(f, 70, -50, 14); shake = Math.max(shake, 6); sfx.slash && sfx.slash(); } },
   // ---------- J + direction ----------
   // SIDE J: FLAME SLASH - one wide cut, and the flames off the blade ROLL OUTWARD: the hit reaches further and further
@@ -7417,38 +7425,44 @@ const SEVON_MOVES = {
   // UP K (recovery): SECOND FORM - FLAME WHEEL. Like Link's spin attack in Smash: he spins with the katana held straight out,
   // RISING as he goes (a little hop on the ground, a real climb in the air), the blade sweeping round both sides and catching
   // them over and over, then one last wide swing launches them. The whole twirl is wreathed in a ring of fire.
-  upRanged: { name: 'Second Form: Flame Wheel', startup: 0.07, active: 0.5, endlag: 0.3, landLag: 0.2,
-    hitboxes: (() => {
-      const hb = [];
-      for (let i = 0; i < 5; i++) hb.push({ x: (i % 2 ? -1 : 1) * 46, y: -66, r: 52, dmg: 2.2, base: 900, growth: 0, angle: 87, from: i * 0.08, to: i * 0.08 + 0.07, group: i });   // (carries them up WITH him)
-      for (const sx of [1, -1]) hb.push({ x: sx * 44, y: -70, r: 56, dmg: 5, base: 440, growth: 5.2, angle: sx > 0 ? 62 : 118, from: 0.42, to: 0.5, group: 5 });
-      return hb;
-    })(),
-    wind: pose({ bob: -14, lean: 0.25, legA: [0.9, 1.0], legB: [-0.6, 0.6], armA: [-0.9, -0.2], armB: [-0.8, -0.1], sw: 4.3 }),   // blade held back low
-    strike: pose({ lean: 0, bob: -4, legA: [0.4, 0.5], legB: [-0.4, 0.7], armA: [1.57, 0], armB: [1.45, 0.05], sw: 1.57 }),       // blade straight out
+  // UP K: RISING FLAME SLASH (his recovery, like the Fire Emblem swordsmen's): a wide slash sweeping UP in front of him
+  // that carries him up like a jump - and anyone it catches goes up WITH him. At the top, K = SKY FLAME SLASH (skySlash).
+  upRanged: { name: 'Rising Flame Slash', startup: 0.06, active: 0.3, endlag: 0.2, landLag: 0.2, sweep: true,
+    hitboxes: [{ x: 58, y: -40, r: 40, dmg: 3, base: 160, growth: 0, angle: 88, from: 0, to: 0.1, group: 0 },
+               { x: 56, y: -92, r: 42, dmg: 3, base: 160, growth: 0, angle: 88, from: 0.1, to: 0.2, group: 1 },
+               { x: 30, y: -140, r: 40, dmg: 4, base: 160, growth: 0, angle: 88, from: 0.2, to: 0.3, group: 2 }],
+    wind: pose({ lean: 0.3, bob: -16, legA: [1.0, 1.0], legB: [-0.6, 0.5], armA: [0.5, 0.3], armB: [0.4, 0.4], sw: 0.5 }),       // crouched, blade low
+    strike: pose({ lean: -0.2, bob: 0, legA: [0.4, 0.6], legB: [-0.3, 1.0], armA: [2.9, 0.05], armB: [2.7, 0.1], sw: 3.05 }),     // risen, blade overhead
     fire(f, mult, c, a) {
-      if (!f.upSpecialUsed) {
-        f.upSpecialUsed = true; a.rise = f.ground ? 640 : 1350;           // (a hop on the ground, a real climb in the air)
-        f.vy = -a.rise; f.ground = false; f.y -= 2; a.air = true;
-      }
-      ring(f.x, f.y - 60); sfx.whoosh(true);
+      a.carry = [];
+      if (!f.upSpecialUsed) { f.upSpecialUsed = true; f.vy = -RISE.vy; f.vx = f.face * RISE.vx; f.ground = false; f.y -= 2; a.air = true; }
+      flameSlash(f, 40, -90, 12); sfx.whoosh(true); sfx.slash && sfx.slash();
     },
+    onHit(f, t, a) { if (a && a.carry && t.action && t.action.type === 'hitstun' && !a.carry.includes(t)) a.carry.push(t); },
     step(f, a, dt) {
-      if (a.phase !== 'active') { a.poseOverride = null; return false; }
-      const k = a.t / 0.5;
-      if (a.rise) f.vy = Math.min(f.vy, -a.rise * (1 - 0.8 * k));       // keeps climbing (slowing) through the spin
-      const w = a.t * 32, c = Math.cos(w);                               // spinning round - the blade sweeps both sides
-      a.poseOverride = { ...pose({ lean: 0, bob: -4, legA: [0.4, 0.5], legB: [-0.4, 0.7], armA: [1.57, 0], armB: [1.45, 0.05], sw: 1.57 }), turnX: c };
-      // the ring of fire round the spin
-      for (let q = 0; q < 2; q++) {
-        const an = w + q * Math.PI, rx = 62, ry = 18;
-        if (Math.random() < dt * 70) burst(f.x + Math.cos(an) * rx, f.y - 62 + Math.sin(an) * ry, SEVON_FIRE, 2, Math.PI / 2, 1.2, 160, { grav: -380 });
+      if (a.phase === 'active' && a.carry) for (const t of a.carry) {              // carried up with him
+        if (!fighters.includes(t) || t.respawnTimer > 0 || !t.action || t.action.type !== 'hitstun') continue;
+        t.x = f.x + f.face * 46; t.y = f.y - 10; t.vx = f.vx; t.vy = f.vy;
+        t.action.locked = true; t.action.dur = Math.max(t.action.dur, t.action.t + 0.35);
       }
-      if (Math.random() < dt * 25) ghosts.push({ fig: figureOf(f), life: 0.12, max: 0.12, color: '#ff7a1a' });
-      if (a.t >= 0.42 && !a.burst) { a.burst = true; burst(f.x, f.y - 66, SEVON_FIRE, 30, 0, Math.PI, 560, { grav: -250 }); ring(f.x, f.y - 66); }
+      if (a.phase === 'end' && !a.topped) {                                       // the top: let go of them, hanging just above
+        a.topped = true; f.riseTop = RISE.window;
+        if (a.carry) for (const t of a.carry) if (t.action && t.action.type === 'hitstun') {
+          t.action.locked = false; t.vx = 0; t.vy = Math.min(t.vy, -160); t.action.dur = Math.max(t.action.dur, t.action.t + 0.45);
+        }
+      }
       return false;
     } },
-  // DOWN K: THIRD FORM - BLAZING UNIVERSE: a hop, then a huge flaming crescent brought down in front of him
+  // ...at the top of it (or just to hold his height): K = SKY FLAME SLASH - a big slash down through the space in front of
+  // him that HOLDS him in the air while he does it, and sends whatever he carried up flying
+  skySlash: { name: 'Sky Flame Slash', startup: 0.06, active: 0.16, endlag: 0.22, landLag: 0.14, sweep: true, floatWhile: () => true,
+    hitboxes: [{ x: 40, y: -112, r: 40, dmg: 8, base: 440, growth: 5.6, angle: 40, from: 0, to: 0.06 },
+               { x: 82, y: -64, r: 46, dmg: 8, base: 440, growth: 5.6, angle: 40, from: 0.04, to: 0.12 },
+               { x: 62, y: -20, r: 40, dmg: 8, base: 440, growth: 5.6, angle: 40, from: 0.1, to: 0.16 }],
+    wind: pose({ lean: -0.3, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [2.9, 0.2], armB: [2.7, 0.3], sw: 3.1 }),
+    strike: pose({ lean: 0.45, legA: [0.9, 1.3], legB: [0.3, 0.9], armA: [1.2, 0.1], armB: [1.05, 0.2], sw: 1.0 }),
+    fire(f) { f.riseTop = 0; flameSlash(f, 60, -64, 16); shake = Math.max(shake, 7); sfx.whoosh(true); sfx.slash && sfx.slash(); },
+    step(f, a, dt) { f.vy = 0; f.vx *= Math.exp(-dt * 8); return false; } },
   blazingUniverse: { name: 'Third Form: Blazing Universe',     // (his old down K - retired for Total Concentration) startup: 0.14, active: 0.2, endlag: 0.3, landLag: 0.16, hop: 420, charge: true,
     hitboxes: [{ x: 50, y: -90, r: 46, dmg: 8, base: 300, growth: 3, angle: 70, from: 0, to: 0.08, group: 0 },
                { x: 70, y: -30, r: 50, dmg: 13, base: 460, growth: 7, angle: 65, from: 0.06, to: 0.2, group: 0 }],
@@ -7616,8 +7630,21 @@ const ODM = { hookSpeed: 3400, hookLife: 0.5, hookR: 20, dur: 4, maxDist: 1500, 
               spinHit: { dmg: 2.2, base: 40, growth: 0, angle: 40, noStop: true },
               spinFinal: { dmg: 6, base: 480, growth: 6.2, angle: 45 },
               steel: '#c9ced8' };
+const ODM_LEDGE = { reach: 820, hold: 3, sag: 60, reel: 2600 };   // falling below the ledge: the hook grabs the LEDGE (then K = reel up onto it)
 function fireOdmHook(f) {
-  if (f.minion || f.odmHook || f.odm) return;
+  if (f.minion || f.odmHook || f.odm || f.odmLedge) return;
+  if (!stageDef.pit && !f.ground && f.vy >= 0 && f.y > STAGE.y + 10) {          // below the ledge and falling: go for the LEDGE
+    const side = f.x < STAGE.x + STAGE.w / 2 ? -1 : 1, ex = side < 0 ? STAGE.x : STAGE.x + STAGE.w;
+    const sx = f.x + (Math.sign(ex - f.x) || 1) * 16, sy = f.y - 52;
+    if (Math.hypot(ex - sx, STAGE.y - sy) < ODM_LEDGE.reach && (f.x - ex) * side > -60) {
+      const ang = Math.atan2(STAGE.y - sy, ex - sx);
+      f.face = Math.sign(ex - f.x) || f.face;
+      f.odmHook = { x: sx, y: sy, vx: Math.cos(ang) * ODM.hookSpeed, vy: Math.sin(ang) * ODM.hookSpeed, life: ODM.hookLife, ledge: side, ex };
+      burst(f.x - f.face * 10, f.y - 46, ['#ffffff', '#d8dde6'], 8, f.face > 0 ? Math.PI : 0, 0.5, 300, { grav: 0 });
+      sfx.whoosh(false);
+      return;
+    }
+  }
   // aim: the nearest foe ANYWHERE on the stage (he turns to face them) - the hook then HOMES in on them in flight,
   // so it almost always lands... but now and then (ODM.missChance) it's fired a hair off and sails past
   const sx = f.x + f.face * 16, sy = f.y - 52;
@@ -7640,9 +7667,18 @@ function odmBreak(f) {
 }
 // every frame (Sevon): the hook in flight, and the tether
 function updateOdm(f, dt) {
-  if (f.respawnTimer > 0 || f.out) { f.odmHook = null; f.odm = null; return; }
+  if (f.respawnTimer > 0 || f.out) { f.odmHook = null; f.odm = null; f.odmLedge = null; f.riseTop = 0; return; }
+  f.riseTop = f.ground ? 0 : Math.max(0, (f.riseTop || 0) - dt);   // (the window for Sky Flame Slash)
   const H = f.odmHook;
-  if (H) {
+  if (H && H.ledge) {                                               // the hook flying at the LEDGE
+    const tx = H.ex, ty = STAGE.y, ang = Math.atan2(ty - H.y, tx - H.x);
+    H.vx = Math.cos(ang) * ODM.hookSpeed; H.vy = Math.sin(ang) * ODM.hookSpeed;
+    H.x += H.vx * dt; H.y += H.vy * dt; H.life -= dt;
+    if (Math.hypot(tx - H.x, ty - H.y) < 40) {                      // BITES into the corner of the stage
+      f.odmLedge = { side: H.ledge, ex: H.ex, time: ODM_LEDGE.hold }; f.odmHook = null;
+      burst(tx, ty, ['#ffffff', ODM.steel, '#ffd23f'], 10, 0, Math.PI, 300, { grav: 200 }); sfx.block();
+    } else if (H.life <= 0) f.odmHook = null;
+  } else if (H) {
     const T = H.target;
     if (H.homing && T && fighters.includes(T) && T.respawnTimer <= 0 && !isIntangible(T)) {   // TRACKING: steers onto them
       const want = Math.atan2((T.y - 45) - H.y, T.x - H.x), cur = Math.atan2(H.vy, H.vx);
@@ -7664,6 +7700,12 @@ function updateOdm(f, dt) {
     }
     if (H.x < BLAST.left || H.x > BLAST.right || H.y < BLAST.top || H.y > BLAST.bottom) done = true;
     if (done) f.odmHook = null;
+  }
+  const LG = f.odmLedge;
+  if (LG) {                                                         // DANGLING from the ledge on the cable
+    LG.time -= dt;
+    if (LG.time <= 0 || f.ground || (f.action && ['hitstun', 'ledge', 'grabbed', 'thrown', 'ultVictim'].includes(f.action.type))) f.odmLedge = null;
+    else if (!(f.action && f.action.type === 'odmLedge')) f.vy = Math.min(f.vy, ODM_LEDGE.sag);   // (the cable holds him - he barely sinks)
   }
   const O = f.odm;
   if (O) {
@@ -7693,6 +7735,25 @@ function startOdmSpin(f) {
   sfx.whoosh(true); sfx.whoosh(false);
 }
 function stepOdm(f, a, dt, inp) {
+  if (a.type === 'odmLedge') {                                      // REELED UP to the ledge... and onto it
+    const LG = f.odmLedge;
+    if (!LG) { f.action = null; return; }
+    const hx = LG.ex + LG.side * (f.w / 2 + 3), hy = STAGE.y + hurtH(f) - 14;
+    const dx = hx - f.x, dy = hy - f.y, d = Math.hypot(dx, dy) || 1;
+    f.vx = dx / d * ODM_LEDGE.reel; f.vy = dy / d * ODM_LEDGE.reel; f.face = -LG.side;
+    a.odmPose = pose({ lean: 0.3, bob: 0, legA: [0.5, 0.9], legB: [-0.2, 0.7], armA: [2.6, 0.2], armB: [2.4, 0.3], sw: 2.2 });
+    if (Math.random() < dt * 50) burst(f.x, f.y - 46, ['#ffffff', '#d8dde6'], 1, Math.PI / 2, 0.5, 220, { grav: 0 });
+    if (d < 34 || a.t > 0.5) {
+      f.odmLedge = null;
+      if (fighters.some(o => o !== f && o.action && o.action.type === 'ledge' && o.action.side === LG.side)) { f.action = null; f.vx = f.vy = 0; return; }   // (someone's on it)
+      const fresh = !f.ledgeUsed; f.ledgeUsed = true;
+      f.action = { type: 'ledge', t: 0, side: LG.side, ex: LG.ex, phase: 'hang', heldUp: false };
+      f.vx = f.vy = 0; f.airJumps = AIR_JUMPS; f.airDodges = AIR_DODGES; f.upSpecialUsed = false; f.flyUsed = false; f.shielding = false;
+      if (fresh) f.invuln = Math.max(f.invuln || 0, LEDGE.invuln);
+      dust(LG.ex, STAGE.y, 4, 0.6); sfx.grab();
+    }
+    return;
+  }
   const O = f.odm, t = O && O.t;
   if (!t) { f.action = { type: 'land', t: 0, dur: 0.2 }; return; }
   // Z VANISH at ANY point while the cable's connected (reeling, spinning, even mid-slashes): he cuts the line and
@@ -7804,10 +7865,10 @@ function drawOdmCables() {
     if (!f.look || !f.look.odm || f.respawnTimer > 0) continue;
     drawLeviSpin(f);
     const H = f.odmHook, O = f.odm;
-    const end = H ? { x: H.x, y: H.y } : O && O.t ? { x: O.t.x, y: O.t.y - 50 } : null;
+    const end = H ? { x: H.x, y: H.y } : O && O.t ? { x: O.t.x, y: O.t.y - 50 } : f.odmLedge ? { x: f.odmLedge.ex, y: STAGE.y } : null;
     if (!end) continue;
     const sx = f.x + f.face * 6, sy = f.y - 46;
-    const sag = O && !H ? Math.min(40, Math.hypot(end.x - sx, end.y - sy) * 0.06) : 0;
+    const sag = (O || f.odmLedge) && !H ? Math.min(40, Math.hypot(end.x - sx, end.y - sy) * 0.06) : 0;
     ctx.save();
     ctx.strokeStyle = sketch ? '#333' : ODM.steel; ctx.lineWidth = 2; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo((sx + end.x) / 2, (sy + end.y) / 2 + sag, end.x, end.y); ctx.stroke();
@@ -12154,6 +12215,7 @@ function chooseMove(f, inp, btn) {
     if (inp.dir) return 'fair';
     return 'nair';
   }
+  if (!f.ground && f.riseTop > 0 && f.moveset.skySlash && !inp.up && !inp.down) { if (inp.dir) f.face = inp.dir; return 'skySlash'; }   // Sevon: K at the top of his rising slash
   if (inp.up) return 'upRanged';                 // up + K is always the recovery move, ground or air
   // In the air, K has its own set of moves (if the character has them). You don't turn around in
   // the air, so holding away from where you face gives the BACK version.
@@ -12195,6 +12257,7 @@ function startAttack(f, inp, btn) {
     if (s && Math.hypot(s.x - f.x, s.y - (f.y - 20)) < SCYTHE_THROW.pickup) { pickupScythe(f, s); return; }
   }
   // SEVON: neutral K while his ODM hook is stuck in someone = REEL IN (then again = the LEVI SPIN)
+  if (btn === 'spc' && f.look && f.look.odm && f.odmLedge && !inp.up) { f.spcBuf = 0; f.action = { type: 'odmLedge', t: 0 }; sfx.whoosh(true); return; }   // dangling: K = reel up onto the ledge
   if (btn === 'spc' && f.look && f.look.odm && f.odm && !inp.dir && !inp.up && !inp.down && odmAdvance(f)) { f.spcBuf = 0; return; }
   const key = chooseMove(f, inp, btn);
   // COLBALIAS: summoning a shadow clone is INSTANT - no attack animation, he keeps running/jumping at full
@@ -12669,7 +12732,7 @@ function stepAction(f, inp, dt) {
   if (a.type === 'swapped') { if (!a.by.action || a.by.action.type !== 'gazeSwap') f.action = null; return; }
   if (a.type === 'ultStart') stepUltStart(f, a, dt);
   if (a.type === 'flydash') return stepFlyDash(f, a, dt);
-  if (a.type === 'odmReel' || a.type === 'odmSpin') return stepOdm(f, a, dt, inp);   // Sevon's ODM gear: reeling in / the Levi spin
+  if (a.type === 'odmReel' || a.type === 'odmSpin' || a.type === 'odmLedge') return stepOdm(f, a, dt, inp);   // Sevon's ODM gear: reeling in / the Levi spin
   if (a.type === 'flyRecover') { f.vx *= Math.exp(-dt * 3); }
   if (a.type === 'ultSeq' || a.type === 'ultVictim') return;    // driven by updateUlt
   if (a.type === 'holding') return stepHolding(f, a, inp, dt);
@@ -13243,7 +13306,7 @@ function updateFighter(f, inp, dt) {
     (a.type === 'attack' && a.move.floatWhile && a.move.floatWhile(f, a)) ||
     a.type === 'flydash' || a.type === 'ultBeam' || a.type === 'flameDragon' || a.type === 'uiTransform' || a.type === 'ssj2Cut' || a.type === 'shipUlt' || a.type === 'kiBarrage' || a.type === 'impaled' || a.type === 'ledge' || a.type === 'gazeSwap' || a.type === 'swapped' || (a.type === 'hitstun' && a.crit) || a.type === 'timeStop' ||
     (a.type === 'hitstun' && (a.impaled || (a.flat && a.t < a.flat))) ||   // skewered on the Red Chidori / launched dead flat (Hundred Clone Rush)
-    a.type === 'odmReel' || a.type === 'odmSpin' ||                  // Sevon flying on his ODM gear
+    a.type === 'odmReel' || a.type === 'odmSpin' || a.type === 'odmLedge' ||   // Sevon flying on his ODM gear
     (a.type === 'attack' && a.phase === 'active' && a.move.hover && !f.ground) ||      // Shuriken Kick holds its height
     (a.type === 'attack' && a.phase === 'active' && (a.move.rapid || a.move.beam) && !f.ground));   // hovers while firing ki
   if (!floating) {
@@ -18875,7 +18938,7 @@ const MOVESETS = {
       'Slow and heavy: you always see his swings coming - but every one hits about 15% harder, and in his plate he is hard to launch.' ] } ] },
   SEVON: { blurb: 'The Flame Hashira: a fast samurai with flaming sword forms, ODM gear to grapple onto you, and Total Concentration breathing.', sections: [
     { title: 'GROUND J', rows: [
-      ['J J J', 'Flame Cut > Rising Flame > Flame Crash', 'A three-hit flaming sword string.'],
+      ['J J J', 'Flame Thrust > Rising Flame > Flame Crash', 'A fast, long-reaching STAB straight out, then the katana swept from the floor up over his head, then brought straight back down.'],
       ['SIDE J', 'Flame Slash', 'One wide cut - the flames off the blade roll outward, so it reaches further and further through the swing (about 3 body-lengths at the end). Hold to charge.'],
       ['UP J', 'Sun Arc', 'A rising arc of flame over his head.'],
       ['DOWN J', 'Flame Sweep', 'A low flaming sweep.'],
@@ -18887,12 +18950,12 @@ const MOVESETS = {
       ['AIR UP J', 'Sky Flame', 'A slash straight up over his head.'],
       ['AIR DOWN J', 'Falling Flame Wheel', 'A full send: he wheels into a ball of flame and drops STRAIGHT DOWN, way faster than falling - spikes anyone underneath, and gets him back to the stage fast.'] ] },
     { title: 'K (BREATH OF FLAME + ODM GEAR)', rows: [
-      ['K', 'ODM Hook', 'Fires the grapple hook at the nearest opponent ANYWHERE on the stage - it tracks them in flight and almost always lands (a Z vanish shakes it off, and once in a while it misses). If it sticks, they are TETHERED for 4 seconds.'],
+      ['K', 'ODM Hook', 'Fires the grapple hook at the nearest opponent ANYWHERE on the stage - it tracks them in flight and almost always lands (a Z vanish shakes it off, and once in a while it misses). If it sticks, they are TETHERED for 4 seconds. Falling below the ledge, it grabs the LEDGE instead: K again reels him up onto it.'],
       ['K (TETHERED)', 'Reel In', 'Fires the gas and yanks himself straight to them.'],
       ['K (AGAIN)', 'Levi Spin', 'Whirls at them like a saw blade. While the cable holds it ALWAYS reaches them - only a last-second shield or Z vanish stops it.'],
       ['Z VANISH (TETHERED)', 'Cut the Line', 'At ANY point while the cable is connected: cut it and vanish - the hook is ready to fire again straight away.'],
       ['SIDE K', 'Batarang', 'Throws a bat-shaped blade - hold any of the 8 directions as he winds up to aim it. It flies STRAIGHT on at full speed until it leaves the arena - press side K again while it is still out and it BOOMERANGS back to his hand, cutting on the way back too. One at a time.'],
-      ['UP K', 'Second Form: Flame Wheel', 'His recovery, like Link\'s spin attack: he spins with the katana held out in a ring of fire, rising as he goes, hitting both sides over and over - the last swing launches them.'],
+      ['UP K', 'Rising Flame Slash', 'His recovery: a wide slash sweeping up in front of him that carries him up like a jump - and carries anyone it catches up with him. At the top, K = SKY FLAME SLASH: a big slash that holds him in the air and sends them flying.'],
       ['DOWN K', 'Total Concentration', 'Switches his breathing form on / off (ground or air). See below.'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
