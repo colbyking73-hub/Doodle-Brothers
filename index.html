@@ -7989,7 +7989,7 @@ const CHARACTERS = {
   COLTEN: {
     moves: COLTEN_MOVES,
     // THE KNIGHT: slow on his feet, in plate armor - heavy, hard to launch, and every swing hits like a truck
-    stats: { runSpeed: 560, airSpeed: 470, jumpVel: 1140, doubleJumpVel: 1020, weight: 1.16 },
+    stats: { runSpeed: 560, airSpeed: 470, jumpVel: 1140, doubleJumpVel: 1020, weight: 1.0 },   // (1.16 -> 1.0: easier to launch - he topped the round robin)
     look: {
       body: '#9aa4ae',          // steel plate (his green is on the tabard and the plume)
       knight: { steel: '#b9c1ca', dark: '#6c7580', tabard: '#2f9a3a', trim: '#e8c64a' },   // KNIGHT ARMOR (neck down) - see drawKnightArmor
@@ -8008,7 +8008,7 @@ const CHARACTERS = {
   SEVON: {
     moves: SEVON_MOVES,
     // The flame samurai: quick on his feet, average weight - and the ODM gear gets him wherever he needs to be
-    stats: { runSpeed: 720, airSpeed: 590, jumpVel: 1230, doubleJumpVel: 1110, weight: 1.0 },
+    stats: { runSpeed: 720, airSpeed: 590, jumpVel: 1230, doubleJumpVel: 1110, weight: 0.97 },   // (1.0 -> 0.97: a bit easier to launch)
     look: {
       body: '#2f6fe0',          // blue
       haori: true,              // Rengoku's white haori with the flame hem (see drawHaori)
@@ -11082,6 +11082,8 @@ function spawnUltBeam(f, aim = 0) {
 const TRANSFORM = { power: 1.2, speed: 1.1, drain: ULT_MAX / 14 };   // drain: full meter lasts ~14 seconds
 // Some characters' transformations are tuned differently (Lance's Super Saiyan: less power, more speed)
 const tfStats = f => (f.lanceForm && LANCE_FORMS[f.lanceForm]) || (f.ui ? UI_STATS : null) || (f.char && CHARACTERS[f.char] && CHARACTERS[f.char].transformStats) || TRANSFORM;
+// BALANCE: per-fighter damage (round robin, Nov 2026: Colten 85% and Sevon 60% wins - both are meant to sit UNDER Colbalias)
+const CHAR_POWER = { COLTEN: 0.75, SEVON: 0.95 };
 function powerOf(f) {
   if (!f) return 1;
   if (f.strikeClone) return powerOf(f.owner);                    // his J-string clones hit with HIS power (it's his combo)
@@ -11090,6 +11092,7 @@ function powerOf(f) {
          (f.tc ? TC.dealt : 1) *                                                      // Sevon's TOTAL CONCENTRATION
          (f.look && f.look.glassJaw ? GLASS_JAW.dmgBonus : 1) *                         // Colbalias: hits harder to make up for his glass jaw + debuffs
          (f.look && f.look.heavyHits ? 0.92 : 1) *                                     // Captain Heel: a touch less damage (he topped the CPU tournament)
+         (CHAR_POWER[f.char] || 1) *                                                    // per-fighter balance (see CHAR_POWER)
          (f.revenge > 0 ? 1 + f.revenge : 1) *                                        // Aiden's stored REVENGE power
          hypePower(f);                                                                // Aiden's HYPE (weaker at low hype)
 }
@@ -14413,8 +14416,9 @@ function update(dt) {
     }
   }
 
-  if (!uiCut) updateProjectiles(dt);                       // (frozen while Lance's Ultra Instinct plays)
-  else if (uiCut.action.type === 'flameDragon') updateProjectiles(dt, 'dragon');   // (Sevon's cutscene: only his dragon moves)
+  const cutNow = uiCut && uiCut.action ? uiCut.action.type : null;   // (the cutscene can END partway through this frame - KO'd, landed...)
+  if (!cutNow) updateProjectiles(dt);                      // (frozen while Lance's Ultra Instinct plays)
+  else if (cutNow === 'flameDragon') updateProjectiles(dt, 'dragon');   // (Sevon's cutscene: only his dragon moves)
   updateScythes(dt);
   weaponWatchdog(dt);
   updateAuraWaves(dt);
