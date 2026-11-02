@@ -271,7 +271,10 @@ function nativePads() {
 // JOY-CONS: a pair of Joy-Cons shows up as TWO controllers - "Joy-Con (L)" and "Joy-Con (R)". They're put back together
 // as ONE controller: the left one's stick (movement) + D-pad + L / ZL / minus, the right one's stick (as the right stick /
 // C-stick) + A B X Y + R / ZR / plus. (A single Joy-Con on its own stays a controller of its own.)
-const JOYCON_L = /joy-?con[^a-z]*\(?l\)?(?![a-z])|joy-?con.*left/i, JOYCON_R = /joy-?con[^a-z]*\(?r\)?(?![a-z])|joy-?con.*right/i;
+// (names vary: "Joy-Con (L)" on PCs, "Nintendo Switch Left Joy-Con" from Android's driver, "Joy-Con L"...)
+const jcSide = id => !/joy-?con/i.test(id || '') ? null
+  : /\bleft\b|\(l\)|joy-?con\s*l\b/i.test(id) ? 'L' : /\bright\b|\(r\)|joy-?con\s*r\b/i.test(id) ? 'R' : null;
+const JOYCON_L = { test: id => jcSide(id) === 'L' }, JOYCON_R = { test: id => jcSide(id) === 'R' };
 const mag2 = (g, a, b) => Math.hypot(g.axes[a] || 0, g.axes[b] || 0);
 function mergeJoyCons(list) {
   const li = list.findIndex(g => g && g.connected && JOYCON_L.test(g.id) && !JOYCON_R.test(g.id));
@@ -17680,15 +17683,18 @@ function menuDevices(dt = 0) {
     const prev = menuPadPrev[i] || { B: [], sx: 0, sy: 0 };
     const t = n => B[n] && !prev.B[n];
     let ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
+    if (Math.hypot(ax, ay) < 0.22 && Math.hypot(gp.axes[2] || 0, gp.axes[3] || 0) > 0.5) { ax = gp.axes[2] || 0; ay = gp.axes[3] || 0; }   // (menus: either stick moves the cursor)
     if (Math.hypot(ax, ay) < 0.22) ax = ay = 0;                       // dead zone
     const nx = (B[15] ? 1 : 0) - (B[14] ? 1 : 0) || ax, ny = (B[13] ? 1 : 0) - (B[12] ? 1 : 0) || ay;
     const sx = ax > 0.6 ? 1 : ax < -0.6 ? -1 : 0, sy = ay > 0.6 ? 1 : ay < -0.6 ? -1 : 0;
     out.push({ dev: 'pad' + i, nav: { x: nx, y: ny }, okHeld: !!B[0], tap: {
       up: t(12) || (sy === -1 && prev.sy !== -1), down: t(13) || (sy === 1 && prev.sy !== 1),
       left: t(14) || (sx === -1 && prev.sx !== -1), right: t(15) || (sx === 1 && prev.sx !== 1),
-      ok: t(0), back: t(1), start: t(9), alt: t(3), turbo: t(2), esc: false, leave: t(8), pause: t(9) } });
+      ok: t(0), back: t(1), start: t(9), alt: t(3), turbo: t(2), esc: false, leave: t(8), pause: t(9), update: t(7) } });   // (R2 / ZR = UPDATE in menus)
     menuPadPrev[i] = { B, sx, sy };
   }
+  // R2 / ZR in the menus (never mid-fight - it's block there, nor while setting controls) = UPDATE, like F5
+  if (scene !== 'fight' && scene !== 'controls' && out.some(d => d.tap.update)) updateKey();
   // Auto-repeat for lists: holding a direction keeps stepping
   for (const d of out) {
     const r = navRepeat[d.dev] || (navRepeat[d.dev] = { t: 0, dir: '' });
@@ -18759,10 +18765,10 @@ function updateStatusText() {
   const here = window.appInfo && window.appInfo.version ? ' (v' + window.appInfo.version + ')' : '';
   if (u.state === 'checking') return 'CHECKING FOR UPDATES...';
   if (u.state === 'downloading') return (u.quick ? 'GETTING UPDATE' : 'DOWNLOADING FULL UPDATE') + v + '  ' + (u.percent || 0) + '%';
-  if (u.state === 'ready') return 'UPDATE' + v + ' READY - PICK UPDATE NOW (OR PRESS F5)';
+  if (u.state === 'ready') return 'UPDATE' + v + ' READY - PICK UPDATE NOW (OR PRESS F5 / R2)';
   if (u.state === 'building') return 'NEW VERSION' + v + ' - WAITING FOR GITHUB TO FINISH BUILDING IT...';
-  if (u.state === 'latest') return (u.applied && u.applied === (window.appInfo && window.appInfo.version) ? 'UPDATED TO v' + u.applied : 'UP TO DATE' + here) + '  -  F5: CHECK AGAIN';
-  if (u.state === 'error') return 'COULD NOT CHECK FOR UPDATES - F5: TRY AGAIN';
+  if (u.state === 'latest') return (u.applied && u.applied === (window.appInfo && window.appInfo.version) ? 'UPDATED TO v' + u.applied : 'UP TO DATE' + here) + '  -  F5 / R2: CHECK AGAIN';
+  if (u.state === 'error') return 'COULD NOT CHECK FOR UPDATES - F5 / R2: TRY AGAIN';
   return null;
 }
 const canApplyUpdate = () => scene !== 'fight' && !netplay && !window.sbNetOpen;   // (never mid-match or in an online lobby)
@@ -18793,7 +18799,7 @@ function drawUpdateToast(dt) {
   updToast.t += dt;
   if (!key || scene === 'home' || (scene === 'fight' && updToast.t > 6)) return;
   const ready = u.state === 'ready';
-  const txt = ready ? 'UPDATE v' + u.version + ' READY  -  ' + (canApplyUpdate() ? 'PRESS F5 TO UPDATE' : 'F5 AFTER THE MATCH')
+  const txt = ready ? 'UPDATE v' + u.version + ' READY  -  ' + (canApplyUpdate() ? 'PRESS F5 / R2 TO UPDATE' : 'F5 / R2 AFTER THE MATCH')
                     : 'DOWNLOADING UPDATE v' + u.version + '  ' + (u.percent || 0) + '%';
   withMenuDrawing(() => {
     sctx.font = 'bold 15px "Arial Black", sans-serif'; sctx.textAlign = 'right';
