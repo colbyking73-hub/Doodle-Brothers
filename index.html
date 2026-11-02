@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Doodle Brothers</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Patrick+Hand&family=Permanent+Marker&display=swap" rel="stylesheet">
 <!-- Fight sound effects (your mp3, wrapped so it loads even when the page is opened straight from disk) -->
@@ -56,7 +56,7 @@ Math.random = () => simRng ? simRng() : realRandom();
 
 const W = 1280, H = 720;
 const PIX = 3;                                  // size of one "pixel" in screen pixels
-const LW = Math.ceil(W / PIX), LH = Math.ceil(H / PIX);
+let LW = Math.ceil(W / PIX), LH = Math.ceil(H / PIX);   // (the low-res canvas grows with the screen - see fit)
 
 const canvas = document.getElementById('game');
 const sctx = canvas.getContext('2d');            // full-size screen (HUD + text go here)
@@ -69,19 +69,35 @@ let ctx = loCtx;                                 // whichever canvas the world i
 // just scaled up by RS (render scale) - so COMBAT GODS / SKETCHBOOK stay crisp at any size (fullscreen, big
 // monitors). Only the PIXEL style is chunky, on purpose (it draws small and blows that up).
 let RS = 1;
+// ANY SCREEN SHAPE (phones, a Galaxy Z Fold folded or unfolded, ultrawide monitors): the canvas fills the WHOLE window.
+// Everything is still laid out in 1280x720 game units - that box sits in the middle (offset OX / OY) of a screen that's
+// SW x SH game units big. The fight just shows MORE of the world round the edges (more to the sides on a long phone,
+// more above and below on a squarer one); backgrounds are scaled up to cover it all; menus and the HUD stay centred.
+let SW = W, SH = H, OX = 0, OY = 0;
+const screenT = c => c.setTransform(RS, 0, 0, RS, OX * RS, OY * RS);                 // game units -> the screen
+function coverXf(c) {                                                              // a 1280x720 backdrop, scaled to COVER the screen
+  const k = Math.max(SW / W, SH / H);
+  c.translate(-OX + (SW - W * k) / 2, -OY + (SH - H * k) / 2); c.scale(k, k);
+}
+function withCover(c, fn) { c.save(); coverXf(c); try { fn(); } finally { c.restore(); } }
 function fit() {
-  const s = Math.min(innerWidth / W, innerHeight / H);
-  canvas.style.width = W * s + 'px';
-  canvas.style.height = H * s + 'px';
-  canvas.style.marginTop = (innerHeight - H * s) / 2 + 'px';
-  canvas.style.marginLeft = 'auto';
+  const iw = Math.max(1, innerWidth), ih = Math.max(1, innerHeight);
+  const s = Math.min(iw / W, ih / H);                                              // (CSS px per game unit: the 1280x720 box fits)
+  SW = iw / s; SH = ih / s; OX = (SW - W) / 2; OY = (SH - H) / 2;
+  canvas.style.width = iw + 'px';
+  canvas.style.height = ih + 'px';
+  canvas.style.marginTop = '0px';
+  canvas.style.marginLeft = '0px';
   // (capped at 2x so huge screens stay fast; QUALITY: PERFORMANCE caps it at 1x - far fewer pixels to fill on slower PCs)
   const cap = window.__lowQuality ? 1 : 2;
   RS = Math.max(0.5, Math.min(cap, s * (window.devicePixelRatio || 1)));
-  const cw = Math.round(W * RS), ch = Math.round(H * RS);
+  const cw = Math.round(SW * RS), ch = Math.round(SH * RS);
   if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+  LW = Math.ceil(SW / PIX); LH = Math.ceil(SH / PIX);
+  if (lo.width !== LW || lo.height !== LH) { lo.width = LW; lo.height = LH; }
 }
 addEventListener('resize', fit);
+if (window.visualViewport) visualViewport.addEventListener('resize', fit);   // (phones: folding / unfolding, the address bar)
 fit();
 
 const FONT = '"Press Start 2P", monospace';
@@ -565,7 +581,7 @@ function applyCamera(c) { const z = camZ(); c.translate(W / 2, H / 2); c.scale(z
 function toScreen(x, y) { const z = camZ(); return { x: (x - cam.x) * z + W / 2, y: (y - cam.y) * z + H / 2 }; }
 function viewBounds() {
   const z = camZ();
-  return { l: cam.x - W / 2 / z, r: cam.x + W / 2 / z, t: cam.y - H / 2 / z, b: cam.y + H / 2 / z };
+  return { l: cam.x - SW / 2 / z, r: cam.x + SW / 2 / z, t: cam.y - SH / 2 / z, b: cam.y + SH / 2 / z };
 }
 
 // =====================================================================
@@ -4870,7 +4886,7 @@ function drawCrew(U) {
 function drawDeckSky(U) {                                          // (screen space, behind everything)
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, sketch ? '#f4ecd8' : '#1a0f2e'); g.addColorStop(0.55, sketch ? '#f4ecd8' : '#6b2a3a'); g.addColorStop(1, sketch ? '#efe2c4' : '#f08a3c');
-  ctx.fillStyle = g; ctx.fillRect(-60, -60, W + 120, H + 120);
+  ctx.fillStyle = g; ctx.fillRect(-OX - 60, -OY - 60, SW + 120, SH + 120);
   if (!sketch) { ctx.fillStyle = 'rgba(255,230,180,0.85)'; ctx.beginPath(); ctx.arc(W * 0.78, H * 0.22, 46, 0, Math.PI * 2); ctx.fill(); }   // the moon
 }
 function drawDeckWorld(U) {                                        // (world space)
@@ -11375,7 +11391,7 @@ function drawSsj2Cut(f) {
   sc.save();
   const fadeOut = clamp((C.len - T) / 0.7, 0, 1);            // the last moments fade back into the fight
   sc.globalAlpha = fadeOut;
-  sc.fillStyle = '#000'; sc.fillRect(0, 0, W, H);
+  sc.fillStyle = '#000'; sc.fillRect(-OX, -OY, SW, SH);
   // ---- the red line, then the lava pouring out of it ----
   const x0 = -80, y0 = H * 0.30, x1 = W + 80, y1 = H * 0.64, ang = Math.atan2(y1 - y0, x1 - x0), len = Math.hypot(x1 - x0, y1 - y0);
   if (T >= C.line) {
@@ -11454,9 +11470,9 @@ function drawSsj2Cut(f) {
   sc.restore();
   ctx = ctx0;
   // the burst: a white flash
-  if (T >= C.burst && burstK < 1) { sc.globalAlpha = fadeOut * (1 - burstK); sc.fillStyle = '#ffffff'; sc.fillRect(0, 0, W, H); }
+  if (T >= C.burst && burstK < 1) { sc.globalAlpha = fadeOut * (1 - burstK); sc.fillStyle = '#ffffff'; sc.fillRect(-OX, -OY, SW, SH); }
   // letterbox
-  sc.globalAlpha = fadeOut; sc.fillStyle = '#000'; sc.fillRect(0, 0, W, 54); sc.fillRect(0, H - 54, W, 54);
+  sc.globalAlpha = fadeOut; sc.fillStyle = '#000'; sc.fillRect(-OX, -OY, SW, 54 + OY); sc.fillRect(-OX, H - 54, SW, 54 + OY);
   sc.restore();
 }
 // (spikyAuraPath, but onto any canvas)
@@ -14681,7 +14697,7 @@ function sketchColor(c) {
 
 function drawPaper() {
   ctx.fillStyle = PAPER;
-  ctx.fillRect(-60, -60, W + 120, H + 120);
+  ctx.fillRect(-OX - 60, -OY - 60, SW + 120, SH + 120);
   // A few faint smudges so the paper isn't perfectly clean
   ctx.fillStyle = 'rgba(120,110,90,0.025)';
   for (let i = 0; i < 5; i++) {
@@ -14768,7 +14784,7 @@ function drawBackground() {
   g.addColorStop(0.6, '#332c29');
   g.addColorStop(1, '#56493f');
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(-OX, -OY, SW, SH);
 
   // Drifting smoke bands
   for (const c of smoke) {
@@ -14911,7 +14927,7 @@ function drawHellBackground() {
   g.addColorStop(0.45, '#3a0705');
   g.addColorStop(0.8, '#8a1606');
   g.addColorStop(1, '#ff4a12');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = g; ctx.fillRect(-OX, -OY, SW, SH);
   // Big hellish glow pulsing behind the mountains
   ctx.fillStyle = `rgba(255,90,20,${0.08 + 0.08 * pulse})`;
   ctx.beginPath(); ctx.ellipse(W / 2, 470, 760, 230, 0, 0, Math.PI * 2); ctx.fill();
@@ -14972,7 +14988,7 @@ function drawHellBackground() {
     ctx.fillRect(snap(x), snap(y), sz, sz);
   }
   // Heat haze tint, breathing with the glow
-  ctx.fillStyle = `rgba(255,40,0,${0.03 + 0.04 * pulse})`; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = `rgba(255,40,0,${0.03 + 0.04 * pulse})`; ctx.fillRect(-OX, -OY, SW, SH);
 }
 function drawHellStage() {
   const s = STAGE, pulse = 0.5 + 0.5 * Math.sin(time * 3);
@@ -16959,7 +16975,7 @@ function drawImpactFrame() {
   // Fill the whole screen first, then draw the fighters/lightning through the camera
   const inv = impactAt && impactAt.invert, fire = impactAt && impactAt.fire && !sketch;
   ctx.fillStyle = sketch ? (inv ? '#111' : PAPER) : fire ? (inv ? '#ff7a1a' : '#1c0300') : (inv ? '#ffffff' : '#000000');
-  ctx.fillRect(-60, -60, W + 120, H + 120);
+  ctx.fillRect(-OX - 60, -OY - 60, SW + 120, SH + 120);
   ctx.save();
   applyCamera(ctx);
   drawImpactFrameWorld();
@@ -17107,7 +17123,7 @@ function drawUltHUD() {
     const ct = ult.t;
     // Letterbox bars slide in
     const bar = 92 * Math.min(1, ct / 0.35);
-    sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, bar); sctx.fillRect(0, H - bar, W, bar);
+    sctx.fillStyle = '#000'; sctx.fillRect(-OX, -OY, SW, bar + OY); sctx.fillRect(-OX, H - bar, SW, bar + OY);
     // "REAPED." fades in
     if (ct > 2.0) {
       sctx.save();
@@ -17118,7 +17134,7 @@ function drawUltHUD() {
     // Fade to black at the end, then the fight resumes
     if (ct > CUT_TIME - 0.6) {
       sctx.fillStyle = `rgba(0,0,0,${Math.min(1, (ct - (CUT_TIME - 0.6)) / 0.45)})`;
-      sctx.fillRect(0, 0, W, H);
+      sctx.fillRect(-OX, -OY, SW, SH);
     }
   }
 }
@@ -17130,39 +17146,39 @@ function drawHUD() {
     const U = ult;
     if (U.scene) {
       const bar = 64;
-      sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, bar); sctx.fillRect(0, H - bar, W, bar);
+      sctx.fillStyle = '#000'; sctx.fillRect(-OX, -OY, SW, bar + OY); sctx.fillRect(-OX, H - bar, SW, bar + OY);
       if (U.caption) {
         const big = /SNAP|NUCLEAR/.test(U.caption);
         text(U.caption, W / 2, H - 22, big ? 22 : 14, big ? '#ffd23f' : '#ffffff', 'center');
       }
     }
-    if (U.white > 0) { sctx.fillStyle = `rgba(255,255,255,${clamp(U.white, 0, 1)})`; sctx.fillRect(0, 0, W, H); }
+    if (U.white > 0) { sctx.fillStyle = `rgba(255,255,255,${clamp(U.white, 0, 1)})`; sctx.fillRect(-OX, -OY, SW, SH); }
     if (ultBanner) drawUltHUD();
     return;
   }
   if (fighters.some(f => f.action && f.action.type === 'flameDragon' && f.action.phase !== 'follow')) {   // Sevon's NINTH FORM: letterbox
-    sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, 54); sctx.fillRect(0, H - 54, W, 54);
+    sctx.fillStyle = '#000'; sctx.fillRect(-OX, -OY, SW, 54 + OY); sctx.fillRect(-OX, H - 54, SW, 54 + OY);
     if (ultBanner) drawUltHUD();
     return;
   }
   const ss2F = fighters.find(f => f.action && f.action.type === 'ssj2Cut');
   if (ss2F) { drawSsj2Cut(ss2F); if (ultBanner) drawUltHUD(); return; }   // Lance's Super Saiyan 2 cutscene: the whole screen
   if (fighters.some(f => f.action && f.action.type === 'uiTransform')) {   // Lance's Ultra Instinct: letterbox + his speech bubble
-    sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, 54); sctx.fillRect(0, H - 54, W, 54);
+    sctx.fillStyle = '#000'; sctx.fillRect(-OX, -OY, SW, 54 + OY); sctx.fillRect(-OX, H - 54, SW, 54 + OY);
     drawUiBubble();
     if (ultBanner) drawUltHUD();
     return;
   }
   if (ult && ult.def.rush && ult.phase === 'talk') {                // Lance's line: cinematic bars + the line as a subtitle
     const k = Math.min(1, ult.t / 0.25), bar = 70 * k;
-    sctx.fillStyle = '#000'; sctx.fillRect(0, 0, W, bar); sctx.fillRect(0, H - bar, W, bar);
+    sctx.fillStyle = '#000'; sctx.fillRect(-OX, -OY, SW, bar + OY); sctx.fillRect(-OX, H - bar, SW, bar + OY);
     const words = ult.t < RUSH.talk * 0.55 ? 'OK THEN...' : 'OK THEN... GUESS IT\'S MY TURN.';
     if (ult.t > 0.3) text(words, W / 2, H - 28, 14, '#ffd23f', 'center');
     return;
   }
   // Damage cards (just the two players - not Colbalias's clones)
   fighters.slice(0, REAL_FIGHTERS).forEach((f, i) => {
-    const x = hudCardX(i), y = H - 96;   // (2-4 cards, centered)
+    const x = hudCardX(i), y = H - 96 + OY;   // (2-4 cards, centered - on the screen's real bottom edge, whatever its shape)
     if (sketch) {
       // Sticky note, slightly crooked, with a pen-colored stripe
       sctx.save();
@@ -17536,8 +17552,9 @@ function drawUltCutscene() {
 function render() {
   // Pixel mode: draw the world small, then blow it up with chunky pixels.
   // Smooth mode: draw straight onto the full-size screen.
+  sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.fillStyle = '#000'; sctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx = pixelMode ? loCtx : sctx;
-  ctx.setTransform(pixelMode ? 1 / PIX : RS, 0, 0, pixelMode ? 1 / PIX : RS, 0, 0);
+  { const k = pixelMode ? 1 / PIX : RS; ctx.setTransform(k, 0, 0, k, OX * k, OY * k); }
   ctx.imageSmoothingEnabled = false;
   // (3-4 PLAYER matches: no screen shake - it gets nauseating with that much going on - except during ultimates)
   if (shake > 0 && (REAL_FIGHTERS <= 2 || ultRunning())) ctx.translate(snap((realRandom() - 0.5) * shake), snap((realRandom() - 0.5) * shake));
@@ -17548,18 +17565,18 @@ function render() {
     drawDeckScene(ult);                               // Captain Heel's grab ultimate: on board the pirate ship
   } else {
     // Background is drawn straight to the screen; everything in the world goes through the camera
-    if (sketch) drawPaper(); else drawBackground();
+    withCover(ctx, () => { if (sketch) drawPaper(); else drawBackground(); });   // (scaled to cover any screen shape)
     if (!sketch) {
       // ATMOSPHERIC HAZE: knock the backdrop back (darker, flatter, less contrast) so the fighters pop off
       // it - like the soft, muted backgrounds behind the figures in an animated stick fight
       ctx.fillStyle = stageDef.hell ? 'rgba(26,4,3,0.36)' : 'rgba(34,29,27,0.42)';
-      ctx.fillRect(-60, -60, W + 120, H + 120);
+      ctx.fillRect(-OX - 60, -OY - 60, SW + 120, SH + 120);
     }
     if (ult) {
       // Ultimate: the world drops into darkness (blood-red for the cutscene) so the fighters pop
       ctx.fillStyle = ult.phase === 'cutscene' ? (sketch ? 'rgba(120,0,0,0.18)' : 'rgba(40,0,0,0.62)')
                                                : (sketch ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.55)');
-      ctx.fillRect(-60, -60, W + 120, H + 120);
+      ctx.fillRect(-OX - 60, -OY - 60, SW + 120, SH + 120);
       if (ult.phase !== 'cutscene') drawSpeedLines();
     }
     ctx.save();
@@ -17600,11 +17617,11 @@ function render() {
     ctx.restore();
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  sctx.setTransform(RS, 0, 0, RS, 0, 0);            // (the screen is drawn on in game units, scaled to the real size)
+  screenT(sctx);                                     // (the screen is drawn on in game units, scaled to the real size)
   if (pixelMode) {
     pixelate();
     sctx.imageSmoothingEnabled = false;
-    sctx.drawImage(lo, 0, 0, LW * PIX, LH * PIX);
+    sctx.drawImage(lo, -OX, -OY, LW * PIX, LH * PIX);
   }
   if (impactFrame <= 0) drawHUD();
 }
@@ -17683,7 +17700,7 @@ function menuDevices(dt = 0) {
 
 // ---- Mouse: moves the keyboard player's cursor; left click = pick, right click = back ----
 const mouse = { x: 0, y: 0, click: false, right: false, moved: false };
-function canvasPoint(e) { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; }
+function canvasPoint(e) { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left) * SW / r.width - OX, y: (e.clientY - r.top) * SH / r.height - OY }; }
 canvas.addEventListener('mousemove', e => { if (IS_ANDROID) return; const p = canvasPoint(e); mouse.x = p.x; mouse.y = p.y; mouse.moved = true; });
 canvas.addEventListener('mousedown', e => { if (IS_ANDROID) return; const p = canvasPoint(e);   // (ANDROID: controllers only - taps do nothing)
  mouse.x = p.x; mouse.y = p.y; if (e.button === 2) mouse.right = true; else { mouse.click = true; mouse.down = true; } });
@@ -18197,8 +18214,9 @@ function drawCursor(p, i) {
   sctx.restore();
   text(p.name, x - 6, y - 8, 9, col, 'right');
 }
-function drawMenuBackground(accent) {
-  sctx.fillStyle = '#120d0d'; sctx.fillRect(0, 0, W, H);
+function drawMenuBackground(accent) { withCover(sctx, () => drawMenuBackdrop(accent)); }
+function drawMenuBackdrop(accent) {
+  sctx.fillStyle = '#120d0d'; sctx.fillRect(-OX, -OY, SW, SH);
   // big diagonal stripes drifting slowly (Smash-style)
   sctx.save();
   for (let k = -4; k < 16; k++) {
@@ -18208,13 +18226,13 @@ function drawMenuBackground(accent) {
   }
   const g = sctx.createRadialGradient(W / 2, H / 2, 100, W / 2, H / 2, 800);
   g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.65)');
-  sctx.fillStyle = g; sctx.fillRect(0, 0, W, H);
+  sctx.fillStyle = g; sctx.fillRect(-OX, -OY, SW, SH);
   sctx.restore();
 }
 function withMenuDrawing(fn) {
   const keep = [pixelMode, sketch, ctx];
   pixelMode = false; sketch = false; ctx = sctx;
-  sctx.setTransform(RS, 0, 0, RS, 0, 0); sctx.globalAlpha = 1;
+  screenT(sctx); sctx.globalAlpha = 1;
   try { fn(); } finally { [pixelMode, sketch, ctx] = keep; }
 }
 
@@ -18713,7 +18731,7 @@ function drawControls() {
     text('+ / CONTROLLER X / CLICK THE +  =  ADD ANOTHER BUTTON TO IT (UP TO ' + CTL_MAX_BINDS + ')', W / 2, H - 14, 8, '#ffd23f', 'center', false);
     if (ctl.gcCal) {                                         // GAMECUBE SETUP: which button to press now
       const C = ctl.gcCal, [, label] = GC_CAL_STEPS[C.step];
-      sctx.fillStyle = 'rgba(8,6,6,0.82)'; sctx.fillRect(0, 0, W, H);
+      sctx.fillStyle = 'rgba(8,6,6,0.82)'; sctx.fillRect(-OX, -OY, SW, SH);
       sctx.fillStyle = '#1d1716'; sctx.fillRect(W / 2 - 360, H / 2 - 120, 720, 240);
       sctx.fillStyle = '#9a7aff'; sctx.fillRect(W / 2 - 360, H / 2 - 120, 720, 6);
       text('GAMECUBE SETUP  ' + (C.step + 1) + ' / ' + GC_CAL_STEPS.length, W / 2, H / 2 - 70, 12, '#9a7aff', 'center');
@@ -18761,7 +18779,7 @@ const updToast = { key: '', t: 0 };
 function drawAndroidPadPrompt() {
   if (!IS_ANDROID || getPads().some(g => g && g.connected)) return;
   withMenuDrawing(() => {
-  sctx.fillStyle = 'rgba(8,6,6,0.88)'; sctx.fillRect(0, 0, W, H);
+  sctx.fillStyle = 'rgba(8,6,6,0.88)'; sctx.fillRect(-OX, -OY, SW, SH);
   text('CONNECT A BLUETOOTH CONTROLLER', W / 2, H / 2 - 30, 22, '#ffd23f', 'center');
   text('Doodle Brothers on Android is played with a controller - pair one in your phone’s Bluetooth settings.', W / 2, H / 2 + 14, 9, '#ffffff', 'center', false);
   text('Xbox / PlayStation / Switch Pro / a pair of JOY-CONS (they count as one) all work.  Then press A.', W / 2, H / 2 + 38, 9, '#b4b4bb', 'center', false);
@@ -19507,7 +19525,7 @@ function doodleRect(x, y, w, h, k, stroke = INK, lw = 3) {
   }
 }
 function drawNotebook() {
-  sctx.fillStyle = PAPER; sctx.fillRect(0, 0, W, H);
+  sctx.fillStyle = PAPER; sctx.fillRect(-OX, -OY, SW, SH);
   sctx.strokeStyle = 'rgba(80,130,210,0.28)'; sctx.lineWidth = 1.5;   // ruled lines
   for (let y = 76; y < H; y += 32) { sctx.beginPath(); sctx.moveTo(0, y); sctx.lineTo(W, y); sctx.stroke(); }
   sctx.strokeStyle = 'rgba(220,60,60,0.45)'; sctx.lineWidth = 2;      // the red margin line
@@ -19699,10 +19717,10 @@ function drawOptions() { const th = menuTheme(); if (th === 'sketch') drawOption
 
 // ---- COMBAT GODS ----
 function drawCGBackground() {
-  sctx.fillStyle = '#0b0708'; sctx.fillRect(0, 0, W, H);
+  sctx.fillStyle = '#0b0708'; sctx.fillRect(-OX, -OY, SW, SH);
   const g = sctx.createRadialGradient(W / 2, 230, 40, W / 2, 230, 720);
   g.addColorStop(0, 'rgba(150,20,20,0.55)'); g.addColorStop(0.5, 'rgba(70,8,8,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-  sctx.fillStyle = g; sctx.fillRect(0, 0, W, H);
+  sctx.fillStyle = g; sctx.fillRect(-OX, -OY, SW, SH);
   for (let k = 0; k < 14; k++) {                                   // faint speed lines streaking across
     const y = (hash(k * 3.1) * H + menuTime * (40 + hash(k) * 60)) % H, x = ((menuTime * 900 * (0.6 + hash(k + 2))) + hash(k + 5) * W * 2) % (W * 2) - W / 2;
     sctx.fillStyle = 'rgba(255,255,255,0.05)'; sctx.fillRect(x, y, 260, 2);
@@ -19715,7 +19733,7 @@ function drawCGBackground() {
   }
   const v = sctx.createRadialGradient(W / 2, H / 2, 300, W / 2, H / 2, 820);   // vignette
   v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.75)');
-  sctx.fillStyle = v; sctx.fillRect(0, 0, W, H);
+  sctx.fillStyle = v; sctx.fillRect(-OX, -OY, SW, SH);
 }
 function cgSlash(x, y, w, h, color, k = 0) {                       // a ragged brush stroke
   sctx.fillStyle = color;
@@ -19930,7 +19948,7 @@ function pauseChoose() {
 }
 function drawPause() {
   withMenuDrawing(() => {
-    sctx.fillStyle = 'rgba(10,8,8,0.72)'; sctx.fillRect(0, 0, W, H);
+    sctx.fillStyle = 'rgba(10,8,8,0.72)'; sctx.fillRect(-OX, -OY, SW, SH);
     slantRect(W / 2 - 260, 150, 520, 70, 26, '#a8261e');
     text('PAUSED', W / 2, 198, 30, '#ffffff', 'center');
     PAUSE_ITEMS.forEach((it, k) => {
