@@ -8050,6 +8050,22 @@ const CHARACTERS = {
   },
 };
 const CHAR_NAMES = Object.keys(CHARACTERS);
+// ALT SKINS (Smash-style): one alternate look per fighter, picked with the SKIN button on your card on the select
+// screen. Only the LOOK changes - same moves, same stats. (lookFor() merges the alt over the fighter's normal look.)
+const CHAR_ALTS = {
+  LANCE:     { name: 'PURPLE', swatch: '#7b3fd1', look: { body: '#7b3fd1', gi: { main: '#f2761e', dark: '#c4560f', blue: '#5a2aa8' } } },
+  SEVON:     { name: 'BLUE RANGER', swatch: '#1f55d6', look: { body: '#1f55d6', haori: false, flameHair: false, ranger: true } },
+  COLBY:     { name: 'WHITE', swatch: '#ececec', look: { body: '#ececec' } },
+  COLBALIAS: { name: 'BLACK', swatch: '#161616', look: { body: '#161616' } },
+  AIDEN:     { name: 'BLACK BONES', swatch: '#1e1e1e', look: { body: '#1e1e1e', detail: '#6b6b6b', eyepatchColor: '#f4f4f4', beard: '#3a3a3a',
+                                                             hat: { main: '#f2f2f2', fold: '#dadada', pipe: '#141414', emblem: '#141414' } } },
+};
+const altLooks = {};
+function lookFor(ch, alt) {
+  const c = CHARACTERS[ch];
+  if (!alt || !CHAR_ALTS[ch]) return c.look || {};
+  return altLooks[ch] || (altLooks[ch] = { ...c.look, ...CHAR_ALTS[ch].look });
+}
 
 // ---------------- CHARGEABLE FIRST JAB (everyone - Falcon Punch style) ----------------
 // Hold the first hit of your neutral J (or Colby's bare-handed first punch). Let go quickly = the normal
@@ -8735,12 +8751,13 @@ function makeFighter(o) {
   resetFighter(f, false);
   return f;
 }
-function setCharacter(f, charName) {
+function setCharacter(f, charName, alt = 0) {
   const c = CHARACTERS[charName];
   f.char = charName;
   f.moveset = c.moves;
   f.stats = { ...DEFAULT_STATS, ...c.stats };
-  f.look = c.look || {};
+  f.alt = alt && CHAR_ALTS[charName] ? 1 : 0;
+  f.look = lookFor(charName, f.alt);                          // (the ALT SKIN, if they picked it)
   f.w = 26 * (f.look.scale || 1); f.h = 90 * (f.look.scale || 1);   // bigger characters = bigger hurtbox
   f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false; f.ui = false; f.lanceForm = 0; f.formBase = null; stopUiSong(f);
   f.weapon = (c.look && c.look.weapon) || null;                // Colby / Colten start with their own weapon
@@ -15598,7 +15615,7 @@ function drawFigure(fig, opts = {}) {
   // hanging off the back), and over it a big black tricorne - a tall rounded crown, the wide brim swooping up at both
   // tips, gold piping all the way round, and a big white SKULL over CROSSED CUTLASSES on the front.
   if (look.pirateHat) {
-    const hc = opts.tint || (sketch ? main : '#141215'), red = opts.tint || (sketch ? main : '#d0202a');
+    const HT = look.hat || {}, hc = opts.tint || (sketch ? main : HT.main || '#141215'), red = opts.tint || (sketch ? main : '#d0202a');
     const sway = Math.sin(time * 4) * 1.5, X = dx => head.x + dx, Y = dy => head.y + dy;
     // the bandana: a band across the forehead, knotted at the back, two tails flapping down behind
     ctx.fillStyle = red;
@@ -15628,11 +15645,11 @@ function drawFigure(fig, opts = {}) {
     ctx.fillStyle = hc; hatPath(); ctx.fill();
     if (sketch && !opts.tint) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }
     if (!opts.tint && !sketch) {
-      ctx.fillStyle = '#211d22'; hatPath(0.86, 1); ctx.fill();       // the turned-up front fold, a shade lighter
-      ctx.strokeStyle = '#c9a443'; ctx.lineWidth = 1.3; hatPath(); ctx.stroke();   // GOLD PIPING round the whole edge
+      ctx.fillStyle = HT.fold || '#211d22'; hatPath(0.86, 1); ctx.fill();       // the turned-up front fold, a shade lighter
+      ctx.strokeStyle = HT.pipe || '#c9a443'; ctx.lineWidth = 1.3; hatPath(); ctx.stroke();   // GOLD PIPING round the whole edge (alt: black)
       // the classic SKULL AND CROSSBONES (a touch smaller to suit the slimmer hat)
       ctx.save(); ctx.translate(head.x, head.y - 22); ctx.scale(0.8, 0.8); ctx.translate(-head.x, -(head.y - 22));
-      const sx = head.x, sy = head.y - 22, bone = '#f2efe6';
+      const sx = head.x, sy = head.y - 22, bone = HT.emblem || '#f2efe6';
       ctx.strokeStyle = bone; ctx.fillStyle = bone; ctx.lineCap = 'round';
       for (const s of [1, -1]) {                                    // two bones crossed in an X behind the skull, knobbly ends
         const x0 = sx - s * 11, y0 = sy + 10, x1 = sx + s * 11, y1 = sy - 6;
@@ -15671,6 +15688,7 @@ function drawFigure(fig, opts = {}) {
     }
   }
   if (look.flameHair) drawFlameHair(head, f, opts, main, fig);   // SEVON: swept-back ginger hair, orange tips
+  if (look.ranger) drawRangerSuit(hip, shoulder, head, pz, f, opts);   // SEVON's alt: the BLUE RANGER - helmet, chest diamonds, belt, boots
   // COLTEN: rectangle reading glasses
   if (look.glasses && !opts.tint) {
     ctx.strokeStyle = sketch ? main : '#141414'; ctx.lineWidth = 1.8;
@@ -15707,7 +15725,47 @@ function drawFigure(fig, opts = {}) {
   else limb(shoulder, pz.armA, 16, 15, f);
   if (look.greatsword && !grip && !fig.noScythe) (look.katana ? drawKatana : drawGreatsword)(shoulder, pz, f, opts);   // the greatsword (Sevon: katana), in his front hand
   if (look.auraArmor && fig.transformed && !opts.tint && !sketch) drawAuraArmor(hip, shoulder, head, f);
+  if (look.ranger && !opts.tint) drawRangerGloves(shoulder, pz, f, look);   // (white gloves, over his hands on the hilt)
   ctx.restore();
+}
+// BLUE RANGER (Sevon's alt skin): the blue suit with the white diamond band across the chest, a silver belt with the
+// gold morpher buckle, white boots and gloves, and the helmet - blue dome, black visor, silver mouth plate.
+function drawRangerSuit(hip, shoulder, head, pz, f, opts) {
+  if (opts.tint) return;
+  const W = sketch ? '#ffffff' : '#f6f6f6', ux = (shoulder.x - hip.x) / TORSO, uy = (shoulder.y - hip.y) / TORSO, nx = -uy, ny = ux;
+  // white diamonds across the chest
+  ctx.fillStyle = W;
+  for (let k = -1; k <= 1; k++) {
+    const cx = hip.x + ux * 17 + nx * k * 4.2, cy = hip.y + uy * 17 + ny * k * 4.2, d = 3.2;
+    ctx.beginPath(); ctx.moveTo(cx + ux * d, cy + uy * d); ctx.lineTo(cx + nx * d, cy + ny * d); ctx.lineTo(cx - ux * d, cy - uy * d); ctx.lineTo(cx - nx * d, cy - ny * d); ctx.closePath(); ctx.fill();
+  }
+  // silver belt + gold buckle
+  ctx.strokeStyle = '#c8ccd4'; ctx.lineWidth = 4;
+  const bx = hip.x + ux * 3, by = hip.y + uy * 3;
+  ctx.beginPath(); ctx.moveTo(bx - nx * 6, by - ny * 6); ctx.lineTo(bx + nx * 6, by + ny * 6); ctx.stroke();
+  ctx.fillStyle = '#f2c84b'; ctx.fillRect(bx + f * 2 - 3, by - 3, 6, 6);
+  // white boots
+  const foot = leg => { const [th, bend] = leg; const mid = { x: hip.x + Math.sin(th) * LEG_UP * f, y: hip.y + Math.cos(th) * LEG_UP };
+    const a2 = th - bend; return { mid, end: { x: mid.x + Math.sin(a2) * LEG_LOW * f, y: mid.y + Math.cos(a2) * LEG_LOW } }; };
+  ctx.strokeStyle = W; ctx.lineWidth = sketch ? 7 : 9; ctx.lineCap = 'round';
+  for (const leg of [pz.legB, pz.legA]) { const L = foot(leg); ctx.beginPath(); ctx.moveTo(lerp(L.mid.x, L.end.x, 0.55), lerp(L.mid.y, L.end.y, 0.55)); ctx.lineTo(L.end.x, L.end.y); ctx.stroke(); }
+  // the HELMET: blue dome over the whole head...
+  ctx.fillStyle = '#1f55d6'; ctx.beginPath(); ctx.arc(head.x, head.y, 13.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#163f9e'; ctx.beginPath(); ctx.arc(head.x - f * 2, head.y + 1, 13.5, Math.PI * 0.35, Math.PI * 0.95); ctx.fill();   // (shade under the jaw)
+  // ...the black visor (the triceratops crest dipping to a point in the middle)...
+  const X = dx => head.x + f * dx, Y = dy => head.y + dy;
+  ctx.fillStyle = '#0d0d10';
+  ctx.beginPath(); ctx.moveTo(X(-1), Y(-7)); ctx.lineTo(X(12), Y(-7)); ctx.lineTo(X(13.5), Y(-1)); ctx.lineTo(X(9), Y(2)); ctx.lineTo(X(6), Y(-2)); ctx.lineTo(X(2), Y(1)); ctx.closePath(); ctx.fill();
+  if (!sketch) { ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(X(f > 0 ? 3 : -8), Y(-6), 5, 1.4); }   // glint
+  // ...and the silver mouth plate
+  ctx.fillStyle = '#c8ccd4'; ctx.beginPath(); ctx.moveTo(X(5), Y(4)); ctx.lineTo(X(12.5), Y(3)); ctx.lineTo(X(11), Y(9)); ctx.lineTo(X(6), Y(9.5)); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(X(f > 0 ? -2 : -1) - 0.5, Y(-13), 3, 7);   // white stripe down the crown
+  ctx.lineCap = 'round';
+}
+function drawRangerGloves(shoulder, pz, f, look) {
+  const h1 = swordHold(shoulder, pz, f).hand, h2 = look.greatsword ? swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9) : null;
+  ctx.fillStyle = sketch ? '#ffffff' : '#f6f6f6';
+  for (const h of [h1, h2]) if (h) { ctx.beginPath(); ctx.arc(h.x, h.y, 4.6, 0, Math.PI * 2); ctx.fill(); }
 }
 // COLTEN'S GREATSWORD: a long, broad blade held in his front hand. Its angle comes from the pose ("sw");
 // poses without one just hold it in line with his forearm.
@@ -17262,7 +17320,8 @@ const teamRect = c => ({ x: c.x + 14, y: c.y + 78, w: 112, h: 22 });     // (TEA
 const presetRectOn = c => ({ x: c.x + 14, y: c.y + 106, w: 150, h: 20 }); // (humans) click = next controls preset
 const toggleRect = c => ({ x: c.x + c.w - 96, y: c.y + 14, w: 84, h: 28 });
 const levelRect = c => ({ x: c.x + 14, y: c.y + c.h - 78, w: 150, h: 26 });
-const devRect = c => ({ x: c.x + 14, y: c.y + 50, w: 204, h: 22 });   // CONTROL METHOD picker: < KEYBOARD + MOUSE >  /  < CONTROLLER 1 >
+const devRect = c => ({ x: c.x + 14, y: c.y + 50, w: 204, h: 22 });
+const skinRect = c => ({ x: c.x + c.w - 64, y: c.y + c.h - 76, w: 54, h: 26 });   // ALT SKIN switch (once a fighter's picked)   // CONTROL METHOD picker: < KEYBOARD + MOUSE >  /  < CONTROLLER 1 >
 const CONTROLS_BTN = { x: W - 262, y: 24, w: 238, h: 40 };
 const TURBO_BTN = { x: W - 262 - 200, y: 24, w: 186, h: 40 };
 const TEAMS_BTN = { x: W - 262 - 200 - 190, y: 24, w: 176, h: 40 };   // TEAMS on/off (2v2 etc.)
@@ -17369,6 +17428,12 @@ function selectClick(p) {
     if (q.remote) {                                       // someone else's player (online): theirs to change
       if (inRect(pt, c)) { selMsg = { text: q.name + ' IS PLAYING FROM ANOTHER COMPUTER', t: 1.4 }; return; }
       continue;
+    }
+    if (q.char && CHAR_ALTS[q.char] && inRect(pt, skinRect(c))) {   // ALT SKIN: flip between the normal look and the alt
+      if (q.cpu && netGuest()) { hostOnly(); return; }
+      q.alt = q.alt ? 0 : 1; menuSfx('pick');
+      selMsg = { text: charName(q.char) + ': ' + (q.alt ? CHAR_ALTS[q.char].name : 'CLASSIC'), t: 1.0 };
+      return;
     }
     if (gameOptions.teams && inRect(pt, teamRect(c))) {  // next team
       if (q.cpu && netGuest()) return hostOnly();
@@ -17535,7 +17600,7 @@ function showResults() {
   results = {
     winner: matchOver.winner ? fighters.indexOf(matchOver.winner) : -1,
     team,                                                                // TEAMS: the winning team (null in free-for-all)
-    rows: fighters.slice(0, REAL_FIGHTERS).map((f, i) => ({ name: f.name, char: f.char, color: f.color, stocks: Math.max(0, f.stocks), falls: f.kos, i,
+    rows: fighters.slice(0, REAL_FIGHTERS).map((f, i) => ({ name: f.name, char: f.char, alt: f.alt || 0, color: f.color, stocks: Math.max(0, f.stocks), falls: f.kos, i,
                                                             won: team !== null && team !== undefined ? f.team === team : f === matchOver.winner })),
   };
   matchOver = null; scene = 'results'; menuSfx('go');
@@ -17558,7 +17623,7 @@ function startMatch() {
   players.forEach((pl, i) => {
     if (pl.off) return;
     const f = fighterPool[i];
-    setCharacter(f, pl.char);
+    setCharacter(f, pl.char, pl.alt || 0);
     f.controller = pl.cpu ? 'dummy' : pl.dev;
     f.name = pl.cpu ? (cpus > 1 ? 'CPU ' + (i + 1) : 'CPU') : pl.name;
     f.team = matchTeams ? pl.team : undefined;
@@ -17611,8 +17676,8 @@ function backToSelect() {
 }
 
 // ---- Drawing helpers for menus ----
-function drawPortrait(charName, x, y, scale, slotColor, t = menuTime, face = 1) {
-  const c = CHARACTERS[charName], look = c.look || {};
+function drawPortrait(charName, x, y, scale, slotColor, t = menuTime, face = 1, alt = 0) {
+  const look = lookFor(charName, alt);
   const br = Math.sin(t * 2.2);
   const base = look.idle || pose({ armA: [0.35, -0.6], armB: [-0.25, -0.4] });
   const pz = { ...base, bob: (base.bob || 0) + br * 1.5, lean: (base.lean || 0) + br * 0.02 };
@@ -17835,7 +17900,7 @@ function drawSelect() {
           sctx.globalAlpha = 0.55; sctx.fillStyle = cg; sctx.fillRect(c.x, c.y, c.w, c.h); sctx.globalAlpha = 1;
         }
         sctx.globalAlpha = q.char ? 1 : 0.4;
-        drawPortrait(shown, c.x + c.w / 2 + 40, c.y + c.h - 40, 1.75, col.main, menuTime * 1.1 + i);
+        drawPortrait(shown, c.x + c.w / 2 + 40, c.y + c.h - 40, 1.75, col.main, menuTime * 1.1 + i, 1, q.alt || 0);
         sctx.globalAlpha = 1;
       }
       else text('?', c.x + c.w / 2 + 40, c.y + 150, 64, 'rgba(0,0,0,0.35)', 'center', false);
@@ -17870,6 +17935,17 @@ function drawSelect() {
         const lr = levelRect(c), lh = players.some(p => localHuman(p) && inRect(p.cur, lr));
         sctx.fillStyle = lh ? '#ffffff' : 'rgba(0,0,0,0.6)'; sctx.fillRect(lr.x, lr.y, lr.w, lr.h);
         text((q.level.length > 11 ? '' : 'LV: ') + q.level.slice(3) + ' >', lr.x + 10, lr.y + 18, 9, lh ? '#0e0c0c' : '#ffffff', 'left', false);
+      }
+      if (q.char && CHAR_ALTS[q.char]) {                       // ALT SKIN switch: two swatches, the one in use is lit
+        const sr = skinRect(c), sh = players.some(p => localHuman(p) && inRect(p.cur, sr));
+        sctx.fillStyle = sh ? '#ffffff' : 'rgba(0,0,0,0.65)'; sctx.fillRect(sr.x, sr.y, sr.w, sr.h);
+        const sw = [CHARACTERS[q.char].look.body || col.main, CHAR_ALTS[q.char].swatch];
+        sw.forEach((cc, k) => {
+          const bx = sr.x + 15 + k * 24, by = sr.y + sr.h / 2, on = (q.alt || 0) === k;
+          sctx.fillStyle = on ? '#ffd23f' : '#3a3a3a'; sctx.beginPath(); sctx.arc(bx, by, on ? 10 : 8, 0, Math.PI * 2); sctx.fill();
+          sctx.fillStyle = cc; sctx.beginPath(); sctx.arc(bx, by, on ? 7.5 : 6, 0, Math.PI * 2); sctx.fill();
+        });
+        text('SKIN', sr.x + sr.w / 2, sr.y - 4, 6, '#ffffff', 'center', false);
       }
       sctx.fillStyle = 'rgba(0,0,0,0.7)'; sctx.fillRect(c.x, c.y + c.h - 44, c.w, 44);
       const shownName = q.char ? charName(q.char) : '', longName = shownName.length > 9;
@@ -19340,7 +19416,7 @@ function drawResults() {
       const g = sctx.createRadialGradient(330, 440, 20, 330, 440, 260);
       g.addColorStop(0, 'rgba(255,210,63,0.35)'); g.addColorStop(1, 'rgba(255,210,63,0)');
       sctx.fillStyle = g; sctx.fillRect(60, 160, 540, 520);
-      drawPortrait(win.char, 330, 600, 3.0, win.color, menuTime);
+      drawPortrait(win.char, 330, 600, 3.0, win.color, menuTime, 1, win.alt || 0);   // (in their skin)
       text(charName(win.char), 330, 650, 26, '#ffffff', 'center');
       if (CHAR_INFO[win.char]) text(CHAR_INFO[win.char].title, 330, 676, 9, '#ffd23f', 'center', false);
     }

@@ -97,7 +97,7 @@
 
   // ---------- the room: 4 seats ----------
   // slot = { kind: 'human' | 'cpu' | 'empty', owner (which computer: 0 = host), name, char, team, level, build, ping }
-  const emptySlot = i => ({ kind: 'empty', owner: null, name: 'P' + (i + 1), char: null, team: i % 4, level: 'AI NORMAL', build: null, ping: 0 });
+  const emptySlot = i => ({ kind: 'empty', owner: null, name: 'P' + (i + 1), char: null, alt: 0, team: i % 4, level: 'AI NORMAL', build: null, ping: 0 });
   function newState(role) {
     return {
       role, mid: role === 'host' ? 0 : -1, me: role === 'host' ? 0 : -1, inRoom: false,
@@ -247,7 +247,7 @@
       }
       case 'pick':
         if (N.active || !owned(m.p)) break;
-        N.slots[m.p].char = ROSTER.includes(m.char) ? m.char : null;
+        N.slots[m.p].char = ROSTER.includes(m.char) ? m.char : null; N.slots[m.p].alt = m.alt ? 1 : 0;
         if ([0, 1, 2, 3].includes(m.team)) N.slots[m.p].team = m.team;
         roomChanged(); broadcastRoster(); break;
       case 'in': {                                        // a guest's presses: keep them, and pass them on to everyone else
@@ -360,7 +360,7 @@
         if (N.role === 'host') return;                    // (the host's own seats are driven by its select screen)
         if (!p.mineSeat) {                                 // a seat that just became ours: hand it a controller
           fresh.push(i);
-          Object.assign(p, { mineSeat: true, remote: false, off: false, cpu: false, char: s.char, team: s.team, carry: i,
+          Object.assign(p, { mineSeat: true, remote: false, off: false, cpu: false, char: s.char, alt: s.alt || 0, team: s.team, carry: i,
                              cur: { x: cardRect(i).x + cardRect(i).w / 2, y: 300 } });
         }
         p.name = s.name;
@@ -368,11 +368,11 @@
       }
       p.mineSeat = false;
       if (s.kind === 'human') {
-        Object.assign(p, { remote: true, cpu: false, off: false, dev: null, char: s.char, team: s.team, name: s.name, carry: i });
+        Object.assign(p, { remote: true, cpu: false, off: false, dev: null, char: s.char, alt: s.alt || 0, team: s.team, name: s.name, carry: i });
       } else if (N.role === 'host') {
-        if (p.remote) Object.assign(p, { remote: false, cpu: true, off: s.kind === 'empty', dev: null, char: s.char, name: 'P' + (i + 1), carry: i });
+        if (p.remote) Object.assign(p, { remote: false, cpu: true, off: s.kind === 'empty', dev: null, char: s.char, alt: s.alt || 0, name: 'P' + (i + 1), carry: i });
       } else {
-        Object.assign(p, { remote: false, cpu: true, off: s.kind === 'empty', dev: null, char: s.char, team: s.team, level: s.level,
+        Object.assign(p, { remote: false, cpu: true, off: s.kind === 'empty', dev: null, char: s.char, alt: s.alt || 0, team: s.team, level: s.level,
                            name: s.kind === 'cpu' ? 'CPU' : 'P' + (i + 1), carry: i });
       }
     });
@@ -394,11 +394,11 @@
         const s = N.slots[i];
         if (s.kind === 'human' && s.owner !== 0) return;  // a guest's seat: theirs to change
         if (p.off) { if (s.kind !== 'empty') N.slots[i] = emptySlot(i); N.slots[i].team = p.team || 0; return; }
-        if (p.cpu) { N.slots[i] = { ...emptySlot(i), kind: 'cpu', name: 'CPU', char: p.char, team: p.team || 0, level: p.level }; return; }
+        if (p.cpu) { N.slots[i] = { ...emptySlot(i), kind: 'cpu', name: 'CPU', char: p.char, alt: p.alt || 0, team: p.team || 0, level: p.level }; return; }
         const name = firstLocal ? N.name : 'P' + (i + 1);
         firstLocal = false;
         p.name = name;
-        N.slots[i] = { ...emptySlot(i), kind: 'human', owner: 0, name, char: p.char, team: p.team || 0, build: BUILD };
+        N.slots[i] = { ...emptySlot(i), kind: 'human', owner: 0, name, char: p.char, alt: p.alt || 0, team: p.team || 0, build: BUILD };
       });
       N.opts = { stage: gameOptions.stage || 0, stocks: gameOptions.stocks, teams: !!gameOptions.teams, turbo: !!netTurbo };   // (TURBO: the host's choice, for everyone)
       if (JSON.stringify([N.slots, N.opts]) !== N.lastRoster) broadcastRoster();
@@ -406,9 +406,9 @@
       for (const i of mySlots(N)) {
         const p = players[i];
         if (p.off) { if (!N.sent[i] || !N.sent[i].drop) { N.sent[i] = { drop: true }; toHost({ k: 'droplocal', p: i }); } continue; }
-        const want = { char: p.char || null, team: p.team || 0 };
+        const want = { char: p.char || null, alt: p.alt || 0, team: p.team || 0 };
         const was = N.sent[i];
-        if (!was || was.char !== want.char || was.team !== want.team) { N.sent[i] = want; toHost({ k: 'pick', p: i, ...want }); }
+        if (!was || was.char !== want.char || was.alt !== want.alt || was.team !== want.team) { N.sent[i] = want; toHost({ k: 'pick', p: i, ...want }); }
       }
     }
   }
@@ -480,7 +480,7 @@
     });
     m.slots.forEach((s, i) => {
       const p = players[i];
-      p.off = s.kind === 'empty'; p.char = s.char; p.team = s.team;
+      p.off = s.kind === 'empty'; p.char = s.char; p.alt = s.alt || 0; p.team = s.team;
       p.cpu = s.kind === 'cpu'; p.level = s.level || 'AI NORMAL';
       if (!N.mine.includes(i)) p.dev = s.kind === 'human' ? 'net' : null;   // (our own players keep their controllers)
       p.name = String(s.kind === 'cpu' ? 'CPU' : s.name || 'P' + (i + 1)).slice(0, 12);
