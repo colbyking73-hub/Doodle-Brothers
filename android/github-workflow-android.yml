@@ -1,0 +1,75 @@
+# ANDROID APK: builds the Android app (android/) for every version tag, signs it with the release key (repo secrets
+# ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASS) and attaches DoodleBrothers.apk to that version's Release (made by the
+# Windows build - this waits for it). Can also be run by hand from the Actions tab (Run workflow) to rebuild one.
+name: Android
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to build (e.g. v0.7.18)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # the same game files in a small Android app (android/), signed with the release key (a repo secret) and
+  # attached to the same Release as DoodleBrothers.apk. Phones get QUICK updates from patch.json (android/web/android.js);
+  # a new APK is only needed when the Android app itself changes. (No key yet = a test build only, kept as an artifact.)
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Put the game files in the app
+        run: |
+          W=android/app/src/main/assets/www
+          mkdir -p $W/sounds/battle android/app/src/main/res/mipmap
+          cp index.html net.js patch.json android/web/android.js $W/
+          cp -r lib $W/
+          cp sounds/*.js $W/sounds/
+          cp sounds/menu-mix-*.mp3 $W/sounds/ 2>/dev/null || true
+          cp sounds/battle/*.mp3 $W/sounds/battle/ 2>/dev/null || true
+          cp build/icon.png android/app/src/main/res/mipmap/ic_launcher.png
+      - name: Build
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"; V="${TAG#v}"
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            export KS_PATH="$RUNNER_TEMP/release.p12"
+            gradle -p android assembleRelease -PversionName="$V" --no-daemon
+            cp android/app/build/outputs/apk/release/app-release.apk DoodleBrothers.apk
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret yet - building a TEST (debug) APK only"
+            gradle -p android assembleDebug -PversionName="$V" --no-daemon
+            cp android/app/build/outputs/apk/debug/app-debug.apk DoodleBrothers-test.apk
+          fi
+      - name: Attach to the release
+        if: ${{ hashFiles('DoodleBrothers.apk') != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          for i in $(seq 1 60); do gh release view "$TAG" >/dev/null 2>&1 && break; echo "waiting for the $TAG release (the Windows build makes it)..."; sleep 20; done
+          gh release upload "$TAG" DoodleBrothers.apk --clobber
+      - name: Keep the test build
+        if: ${{ hashFiles('DoodleBrothers-test.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoodleBrothers-test-apk
+          path: DoodleBrothers-test.apk
