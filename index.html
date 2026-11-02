@@ -5070,7 +5070,7 @@ const COLBALIAS_MOVES = {
 // Colbalias hits harder than Colby (he's the final boss): +15% damage, +10% launch on everything
 // COLBALIAS hits the SOFTEST in the game: every move does about a third of its written damage (knockback is left
 // alone, so he can still send people flying) - but he's the FASTEST: every move comes out and recovers 30% quicker.
-const COLBALIAS_TUNE = { dmg: 0.6, speed: 0.7 };   // (was 0.35 - far too soft once he was a playable character: he barely dealt damage)
+const COLBALIAS_TUNE = { dmg: 0.8, speed: 0.7 };   // (0.35 -> 0.6 -> 0.8: he dealt the least damage in the game, ~70%/min vs ~105-120 for Lance / Captain Heel)
 for (const k in COLBALIAS_MOVES) {
   if (k === 'counter') continue;
   const m = COLBALIAS_MOVES[k];
