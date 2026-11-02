@@ -11470,6 +11470,14 @@ function stepUiTransform(f, a, dt) {
         a.pose = LANCE_MOVES.dair.strike2 || LANCE_MOVES.dair.strike;
         uiDamage(f, v, UI.dmg.kick); uiHitFx(v, st.from.x, st.from.y - 40, true, UI.glow);
       } else if (st.type === 'combo') { a.blinkT = 0; a.bigT = st.big || 1.1; }
+      else if (st.type === 'grab') {                         // he blinks onto them in mid-air and grabs a leg
+        ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: UI.color }); if (sfx.vanish) sfx.vanish(0.6); if (sfx.grab) sfx.grab();
+        a.gD = Math.sign(st.to.x - st.from.x) || 1;
+      } else if (st.type === 'blitz') {                      // kicked straight up off the floor...
+        ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: UI.color });
+        f.x = st.from.x + 30; f.y = gy; f.face = -1; a.pose = LANCE_MOVES.uair.strike;
+        uiDamage(f, v, UI.dmg.kick * 0.5); uiHitFx(v, st.from.x, st.from.y - 55, true, UI.glow); uiNote(0.5);
+      }
     }
     if (st.type === 'combo') {                               // a teleport flurry right where they are
       v.x = st.from.x; v.y = st.from.y;
@@ -11487,6 +11495,67 @@ function stepUiTransform(f, a, dt) {
         a.pose = pose({ lean: 0.1, bob: -8, legA: [0.5, 0.4], legB: [-0.45, 0.3], armA: [0.9, -0.6] });   // waiting for them
       }
       a.cam = { x: (st.from.x + st.to.x) / 2, y: Math.min(st.from.y, st.to.y) - 90, z: 1.05, speed: 5 };
+    } else if (st.type === 'grab') {                         // GRAB: swung round twice in the air... HURLED into the stage
+      const D = a.gD || 1, A = st.from, G1 = 0.12, SW = 0.58, TH = 0.76;
+      if (k < G1) {                                          // hanging upside down by the leg
+        v.x = A.x; v.y = A.y; v.action.pose = uiFlyPose(Math.PI * 0.9);
+        f.x = A.x - D * 30; f.y = A.y + 40; f.face = D;
+        a.pose = pose({ lean: -0.2, bob: -4, legA: [0.6, 1.2], legB: [0.2, 0.9], grip: [30, -96] });
+      } else if (k < SW) {                                   // ...swung round and round, faster and faster
+        const q = (k - G1) / (SW - G1), th = Math.PI * 4 * q * q, R = 95;
+        f.x = A.x - D * 10; f.y = A.y + 40;
+        v.x = f.x + D * Math.cos(th) * R; v.y = f.y - 60 + Math.sin(th) * R;
+        v.action.pose = uiFlyPose(D * (th + Math.PI / 2));
+        f.face = Math.cos(th) >= 0 ? D : -D;
+        a.pose = pose({ lean: -0.2, bob: -4, legA: [0.6, 1.2], legB: [0.2, 0.9], grip: [(v.x - f.x) * f.face, v.y - f.y] });
+        if (Math.random() < rdt * 50) ghosts.push({ fig: figureOf(v), life: 0.14, max: 0.14, color: '#ffffff' });
+        if (q > 0.6 && Math.random() < rdt * 12) auraWaves.push({ x: f.x, y: f.y - 60, t: 0, dur: 0.3, max: 140, color: UI.glow });
+        a.throwFrom = { x: v.x, y: v.y };
+      } else if (k < TH) {                                   // ...and THROWN down into the stage
+        const q = (k - SW) / (TH - SW), F = a.throwFrom || A;
+        if (once('gthrow' + i)) sfx.whoosh(true);
+        v.x = lerp(F.x, st.to.x, q); v.y = lerp(F.y, gy, q * q); v.action.pose = uiFlyPose(D * Math.PI / 2);
+        a.pose = pose({ lean: 0.5, bob: -4, legA: [0.9, 1.4], legB: [0.3, 1.0], armA: [0.4, 0] });
+        if (Math.random() < rdt * 40) ghosts.push({ fig: figureOf(v), life: 0.12, max: 0.12, color: '#ffffff' });
+      } else {
+        if (once('gslam' + i)) {
+          cracks.push({ x: st.to.x, y: gy, life: 3, max: 3, seed: st.to.x + 7, size: 2.2 });
+          dust(st.to.x, gy, 28, 3.2); ring(st.to.x, gy - 10); ring(st.to.x, gy - 30); shake = Math.max(shake, 26); sfx.huge();
+          impactFrame = Math.max(impactFrame, 0.09); impactAt = { x: st.to.x, y: gy - 20, ang: 0, all: false, focus: true };
+          uiDamage(f, v, UI.dmg.bounce); uiNote(0.6);
+          ghosts.push({ fig: figureOf(f), life: 0.25, max: 0.25, color: UI.color }); if (sfx.vanish) sfx.vanish(0.5);
+          f.x = st.to.x + D * 120; f.y = gy; f.face = -D;           // he blinks down and lands beside the crater
+        }
+        const q = (k - TH) / (1 - TH);
+        v.x = st.to.x; v.y = gy - Math.sin(q * Math.PI) * 80; v.action.pose = uiFlyPose(Math.PI * 0.5 + q * 3);
+        a.pose = pose({ lean: 0.2, bob: -12, legA: [0.8, 0.8], legB: [-0.6, 0.3], armA: [0.4, 0] });   // landed, low
+      }
+      a.cam = k < SW ? { x: A.x, y: A.y - 40, z: 1.2, speed: 5 }                 // up on the swing...
+                     : { x: (A.x + st.to.x) / 2, y: gy - 140, z: 1.05, speed: 6 };   // ...then down with the throw
+    } else if (st.type === 'blitz') {                        // SPEED BLITZ: cross-stage teleport kicks, side to side
+      const P = st.to, UP = 0.18, N = 6, W = 440;
+      if (k < UP) {                                          // ...they go up
+        const q = easeOut(k / UP);
+        v.x = lerp(st.from.x, P.x, q); v.y = lerp(st.from.y, P.y, q); v.action.pose = uiFlyPose(q * 4);
+      } else if (k < 0.96) {
+        const pk = (k - UP) / (0.96 - UP) * N, j = Math.min(N - 1, Math.floor(pk)), q = pk - j;
+        const d = j % 2 ? -1 : 1, dy = [0, -50, 35, -25, 15, -60][j];
+        const x0 = P.x - d * W, x1 = P.x + d * W, px = lerp(x0, x1, easeInOut(q));
+        f.x = px; f.y = P.y + 20 + dy; f.face = d;
+        a.pose = j === N - 1 ? LANCE_MOVES.highKick.strike : j % 2 ? LANCE_MOVES.kick2.strike : (LANCE_MOVES.fair.strike || LANCE_MOVES.kick2.strike);
+        for (let g = 0; g < 2; g++) { const gf = figureOf(f); gf.x = lerp(px, x0, (g + 1) * 0.06); ghosts.push({ fig: gf, life: 0.12, max: 0.12, color: UI.color }); }   // a white streak behind him
+        if (q >= 0.5 && once('bz' + i + '_' + j)) {          // ...and hits them as he goes through
+          const big = j === N - 1;
+          uiDamage(f, v, UI.dmg.kick * (big ? 0.8 : 0.35)); uiHitFx(v, P.x, v.y - 55, big || j % 2 === 0, UI.glow); uiNote(big ? 0.7 : 0.45);
+          if (sfx.vanish) sfx.vanish(0.4); a.jolt = d * 26;
+        }
+        a.jolt = (a.jolt || 0) * Math.exp(-rdt * 10);
+        v.x = P.x + a.jolt; v.y = P.y + Math.sin(T * 9) * 6; v.action.pose = uiFlyPose(a.jolt / 26 * 0.8 + j * 1.3);
+      } else {                                               // he stops dead beside them
+        v.x = P.x; v.y = P.y; f.x = P.x + 60; f.y = P.y + 20; f.face = -1;
+        a.pose = pose({ lean: 0.1, bob: -8, legA: [0.5, 0.4], legB: [-0.45, 0.3], armA: [0.9, -0.6] });
+      }
+      a.cam = { x: P.x, y: P.y - 40, z: 0.92, speed: 6 };
     } else if (st.type === 'slam') {                         // spiked down... SLAMMED into the stage, bouncing off it
       const down = 0.45;
       if (k < down) { const q = k / down; v.x = lerp(st.from.x, st.to.x, q); v.y = lerp(st.from.y, gy, q * q); v.action.pose = uiFlyPose(Math.PI * 0.5); }
@@ -11560,7 +11629,7 @@ function stepUiTransform(f, a, dt) {
     a.pose = LANCE_MOVES.neutralRanged.strike;
     v.x = KX - 120 * k; v.y = KY - 40 * k; v.action.pose = uiFlyPose(-8 - k * 10);   // pushed back in it
     { const x0 = f.x + f.face * 40, y0 = f.y - 62, dx = v.x - x0, dy = (v.y - 55) - y0, L = Math.hypot(dx, dy) || 1;   // straight THROUGH them
-      a.beam = { x0, y0, x1: x0 + dx / L * (L + 260), y1: y0 + dy / L * (L + 260), k }; }
+      a.beam = { x0, y0, x1: x0 + dx / L * (L + 3000), y1: y0 + dy / L * (L + 3000), k }; }   // (on past them and right off the screen)
     a.tickT = (a.tickT || 0) - rdt;
     if (a.tickT <= 0) { a.tickT = 0.1; uiDamage(f, v, UI.dmg.beam); burst(v.x, v.y - 55, ['#ffffff', kiColor(f)], 4, 0, Math.PI, 400, { grav: 0 }); }
     shake = Math.max(shake, 8);
@@ -11583,8 +11652,9 @@ const UI_CHAIN = [
   { type: 'combo', dur: 1.0, low: true },
   { type: 'kick', dur: 0.45, to: [-300, -110], pose: 'kick2', arc: 40, catch: true },
   { type: 'kick', dur: 0.4, to: [-260, -420], pose: 'uair', arc: 0, catch: true },
-  { type: 'combo', dur: 1.1 },
-  { type: 'slam', dur: 0.8, to: [-150, 0] },
+  { type: 'grab', dur: 1.5, to: [-110, 0] },          // grabbed in the air, swung round and round, HURLED into the stage
+  { type: 'combo', dur: 1.0, low: true },
+  { type: 'blitz', dur: 1.5, to: [0, -230] },          // kicked up - then SPEED BLITZED from one side of the stage to the other
   { type: 'kick', dur: 0.5, to: [190, -60], pose: 'dashAttack', arc: 30, catch: true },
   { type: 'combo', dur: 1.2 },
   { type: 'kick', dur: 0.45, to: [160, -380], pose: 'upRanged', arc: 0, catch: true },
@@ -11601,7 +11671,7 @@ function uiBuildChain(cx, gy, t0, t1) {
     const step = { ...st, t0: t, t1: t + dur, from: { ...pos } };
     if (st.to) step.to = { x: cx + st.to[0], y: gy + st.to[1] };
     if (st.type === 'combo') step.from = { x: pos.x, y: Math.min(pos.y, gy - (st.low ? 45 : 40)) };
-    if (step.to) pos = { x: step.to.x, y: st.type === 'slam' ? gy - 45 : step.to.y };
+    if (step.to) pos = { x: step.to.x, y: st.type === 'slam' || st.type === 'grab' ? gy - 45 : step.to.y };
     t += dur;
     return step;
   });
