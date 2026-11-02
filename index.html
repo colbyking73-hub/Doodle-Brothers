@@ -7200,6 +7200,7 @@ const AURA_ARMOR = { threshold: 900, kb: 0.85, color: '#7dffb0' };
 // =====================================================================
 const SEVON_FIRE = ['#ff5a1a', '#ffb02e', '#ffe066', '#e0301e'];
 const flameSlash = (f, x, y, n = 10) => burst(f.x + f.face * x, f.y + y, SEVON_FIRE, n, Math.PI / 2, 1.3, 380, { grav: -300 });
+const SEVON_DIVE = 2300;   // Sevon's down air: how fast he drops (normal max fall is 1200)
 const SEVON_MOVES = {
   counter: STICKMAN_MOVES.counter,
   // ---------- J on the ground: FLAME CUTS (J J J) ----------
@@ -7277,11 +7278,28 @@ const SEVON_MOVES = {
     wind: pose({ lean: 0.1, legA: [0.9, 1.6], legB: [0.3, 1.0], armA: [1.2, 0.2], armB: [1.1, 0.3], sw: 1.2 }),
     strike: pose({ lean: -0.2, legA: [0.5, 1.2], legB: [0.1, 0.8], armA: [3.0, 0.05], armB: [2.9, 0.1], sw: 3.1 }),
     fire(f) { flameSlash(f, 10, -118, 10); } },
-  dair: { name: 'Flame Drop', startup: 0.1, active: 0.12, endlag: 0.22, landLag: 0.16, spike: true,
-    hitboxes: [{ x: 14, y: -6, r: 32, dmg: 10, base: 380, growth: 6, angle: -80 }],
-    wind: pose({ lean: -0.2, legA: [0.8, 1.6], legB: [0.4, 1.2], armA: [2.9, 0.2], armB: [2.8, 0.3], sw: 3.1 }),
-    strike: pose({ lean: 0.3, legA: [0.5, 1.2], legB: [0.1, 0.9], armA: [0.4, 0.05], armB: [0.35, 0.1], sw: 0.05 }),   // stabbed straight down
-    fire(f) { flameSlash(f, 14, -6, 10); } },
+  // DOWN AIR J: FALLING FLAME WHEEL - a full send. A tiny hitch, then he tucks into a blazing forward wheel and DROPS like
+  // a meteor, straight down, way past normal fall speed, spinning the whole way. Anyone underneath gets SPIKED down with
+  // him; over the stage it's the fastest way back to the floor (he lands in a burst of flame). (fastFall = no fall cap)
+  dair: { name: 'Falling Flame Wheel', startup: 0.07, active: 0.9, endlag: 0.16, landLag: 0.14, spike: true, slamLand: true,
+    fastFall: true, flip: true, flipTurns: 7,
+    hitboxes: [{ x: 0, y: -48, r: 40, dmg: 9, base: 520, growth: 5.5, angle: -88, group: 0 },
+               { x: 0, y: -4, r: 32, dmg: 9, base: 520, growth: 5.5, angle: -88, group: 0 }],
+    // when it CONNECTS in the air he bounces off them (so a spike off the stage isn't a suicide) - a whiff off the stage is
+    onHit(f, t, a) { if (!f.ground && !t.ground) { f.vy = -620; a.phase = 'end'; a.t = 0; burst(f.x, f.y, SEVON_FIRE, 14, Math.PI / 2, 1.4, 420, { grav: -100 }); } },
+    wind: pose({ lean: -0.3, bob: -6, legA: [0.9, 1.7], legB: [0.5, 1.5], armA: [2.6, 0.3], armB: [2.4, 0.4], sw: 2.9 }),   // pulled up, blade back
+    strike: pose({ lean: 0.2, legA: [1.3, 2.0], legB: [0.9, 1.9], armA: [1.6, 0.05], armB: [1.4, 0.2], sw: 1.55 }),       // tucked ball, blade out
+    step(f, a, dt) {
+      if (a.phase === 'startup') { f.vy = Math.min(f.vy, 0) * 0.3; f.vx *= Math.exp(-dt * 8); }   // the hitch at the top
+      else if (a.phase === 'active') {
+        f.vy = SEVON_DIVE; f.vx *= Math.exp(-dt * 7);                   // straight down, FAST
+        for (let i = 0; i < 3; i++) particles.push({ x: f.x + (realRandom() - 0.5) * 50, y: f.y - 20 - realRandom() * 60, vx: (realRandom() - 0.5) * 80, vy: -200 - realRandom() * 200,
+          life: 0.3, max: 0.3, size: realRandom() < 0.4 ? 3 : 2, color: SEVON_FIRE[(realRandom() * 4) | 0], type: 'bit', grav: -150 });
+        if (Math.floor(a.t / 0.06) !== Math.floor((a.t - dt) / 0.06)) ghosts.push({ fig: figureOf(f), life: 0.14, max: 0.14, color: '#ff7a1a' });
+      } else if (f.vy > MAX_FALL) f.vy = MAX_FALL;
+      return false;
+    },
+    fire(f) { flameSlash(f, 0, -40, 10); sfx.whoosh(true); } },
   // ---------- K ----------
   // NEUTRAL K: ODM HOOK - see ODM / stepOdm
   neutralRanged: { name: 'ODM Hook', startup: 0.035, active: 0.04, endlag: 0.1, landLag: 0.06, noClash: true,
@@ -12935,7 +12953,7 @@ function updateFighter(f, inp, dt) {
     // off the side of the stage and spike people with down air without falling to your death.
     if (!inHitstun && !(a && a.type === 'attack' && (a.move.heavenAxe || a.move.fastFall))) f.vy = Math.min(f.vy, MAX_FALL);   // (Heaven's Axe falls faster than normal)
     // Down-air spike: you hang in the air while the spike is out, so you can reach people below the ledge and still get back
-    if (a && a.type === 'attack' && a.air && a.move.spike && a.phase !== 'end') f.vy = Math.min(f.vy, SPIKE_HANG);
+    if (a && a.type === 'attack' && a.air && a.move.spike && !a.move.fastFall && a.phase !== 'end') f.vy = Math.min(f.vy, SPIKE_HANG);   // (not a full-send dive)
   }
 
   const wasGround = f.ground;
@@ -15321,25 +15339,36 @@ function drawFigure(fig, opts = {}) {
     const L = form === 2 ? 1.16 : 1, Wd = form === 2 ? 0.82 : 1;
     const X = dx => head.x + f * dx, Y = dy => head.y + dy;
     const wind = clamp((fig.vx || 0) * f / 900, -1, 1) * 0.28 + clamp((fig.vy || 0) / 1400, -1, 1) * 0.12;   // blown back by his movement
-    // [base x, base y (head-local, +x = toward his face), angle (0 = up, + = toward his face), length, half-width, curl]
-    const BACK = [[-10, -2, -2.15, 15, 4.5, 0.12], [-7, -6, -1.75, 23, 5, -0.14], [-5, -9, -1.25, 30, 5.5, -0.12],
-                  [-2, -11, -0.75, 36, 6, -0.1], [1, -12, -0.28, 40, 6, -0.07], [5, -11, 0.18, 33, 5.5, 0.02]];
-    const MID = [[-9, -4, -1.55, 18, 5, -0.12], [-5, -9, -0.98, 25, 5, -0.1], [-1, -11, -0.48, 29, 5, -0.04],
-                 [4, -11, 0.22, 24, 5, 0.1], [9, -8, 0.8, 17, 4.5, 0.2]];
-    const FRONT = form === 2 ? [[6, -11, 2.75, 19, 3, 0.22]]
-                             : [[11, -7, 2.25, 11, 3, 0.12], [8, -10, 2.55, 15, 3.5, 0.16], [4, -11, 2.85, 12, 3, 0.2]];
-    const spike = ([bx, by, ang, len, w, curl], i, grow = 1) => {
-      const front = ang > 1.5;                                          // forelocks hang, they don't blow as much
-      const a = ang + Math.sin(time * 11 + i * 1.9) * (front ? 0.05 : 0.08) - (front ? wind * 0.3 : wind);
-      const ln = len * L * grow * (front ? 1 : 1 + 0.05 * Math.sin(time * 9 + i * 2.3)), ww = w * Wd * grow;
-      const dx = Math.sin(a), dy = -Math.cos(a), nx = Math.cos(a), ny = Math.sin(a);
-      const cx = bx + dx * ln * 0.55 + nx * curl * ln, cy = by + dy * ln * 0.55 + ny * curl * ln;
-      const tx = bx + dx * ln + nx * curl * ln * 1.3, ty = by + dy * ln + ny * curl * ln * 1.3;
-      ctx.beginPath(); ctx.moveTo(X(bx - nx * ww), Y(by - ny * ww));
-      ctx.quadraticCurveTo(X(cx - nx * ww * 0.55), Y(cy - ny * ww * 0.55), X(tx), Y(ty));
-      ctx.quadraticCurveTo(X(cx + nx * ww * 0.55), Y(cy + ny * ww * 0.55), X(bx + nx * ww), Y(by + ny * ww));
+    // Like Goku's: every spike grows OUT of the scalp, then bends toward ONE shared flow - up and back - so the tips all
+    // head for the same general area but fan out different ways. Broad bases, smooth flame-like curves, few spikes.
+    // [root (where on the scalp: 0 = top, + = toward his face), length, base half-width (rad), spread off the flow]
+    const FLOW = -0.42;                                                  // the shared direction (0 = up, - = back)
+    const BACK = [[-1.95, 24, 0.5, -0.95], [-1.35, 34, 0.5, -0.6], [-0.75, 42, 0.5, -0.3], [-0.15, 46, 0.48, -0.05], [0.45, 36, 0.44, 0.2]];
+    const MID = [[-1.65, 22, 0.46, -0.78], [-1.0, 31, 0.48, -0.44], [-0.35, 37, 0.48, -0.15], [0.3, 30, 0.44, 0.12], [0.9, 21, 0.4, 0.45]];
+    const FRONT = form === 2 ? [[0.95, 15, 0.26, 2.95]]
+                             : [[1.35, 9, 0.24, 2.7], [1.0, 12, 0.28, 2.95], [0.62, 10, 0.24, 3.15]];
+    const spike = ([root, len, w, spread], i, grow = 1) => {
+      const front = spread > 1.5;                                       // forelocks hang down, they don't blow much
+      const sway = Math.sin(time * 9 + i * 1.9) * (front ? 0.04 : 0.07);
+      const ln = len * L * grow * (front ? 1 : 1 + 0.045 * Math.sin(time * 8 + i * 2.3)), ww = w * Wd * grow;
+      const R = 11.5, cx0 = 0, cy0 = -1;
+      const root1 = root - ww, root2 = root + ww;                        // the base: an arc of the scalp
+      const b1 = { x: cx0 + Math.sin(root1) * R, y: cy0 - Math.cos(root1) * R }, b2 = { x: cx0 + Math.sin(root2) * R, y: cy0 - Math.cos(root2) * R };
+      const ta = (front ? spread : FLOW + spread) + sway - (front ? wind * 0.3 : wind);
+      const out = { x: Math.sin(root), y: -Math.cos(root) };            // straight out of the scalp...
+      const tip = { x: cx0 + out.x * R * 0.6 + Math.sin(ta) * ln, y: cy0 + out.y * R * 0.6 - Math.cos(ta) * ln };   // ...bending to the flow
+      // a broad flame shape: the curve bulges out of the scalp first, then bends over toward the flow
+      const B = { x: (b1.x + b2.x) / 2, y: (b1.y + b2.y) / 2 }, hw = Math.hypot(b2.x - b1.x, b2.y - b1.y) / 2;
+      const bend = front ? 0.04 : 0.2, dx = tip.x - B.x, dy = tip.y - B.y, dl = Math.hypot(dx, dy) || 1;
+      const M = { x: B.x + dx * 0.42 + out.x * ln * bend, y: B.y + dy * 0.42 + out.y * ln * bend };
+      let nx = -dy / dl, ny = dx / dl;
+      if ((b1.x - B.x) * nx + (b1.y - B.y) * ny < 0) { nx = -nx; ny = -ny; }   // (n points toward the b1 side)
+      const c1 = { x: M.x + nx * hw * 0.95, y: M.y + ny * hw * 0.95 }, c2 = { x: M.x - nx * hw * 0.95, y: M.y - ny * hw * 0.95 };
+      ctx.beginPath(); ctx.moveTo(X(b1.x), Y(b1.y));
+      ctx.quadraticCurveTo(X(c1.x), Y(c1.y), X(tip.x), Y(tip.y));
+      ctx.quadraticCurveTo(X(c2.x), Y(c2.y), X(b2.x), Y(b2.y));
       ctx.closePath();
-      return { bx, by, cx, cy, tx, ty };
+      return { bx: (b1.x + b2.x) / 2, by: (b1.y + b2.y) / 2, cx: (c1.x + c2.x) / 2, cy: (c1.y + c2.y) / 2, tx: tip.x, ty: tip.y };
     };
     const layer = (list, col, streak, i0) => {
       const out = [];
@@ -18347,7 +18376,7 @@ const MOVESETS = {
       ['AIR FWD J', 'Falling Flame', 'A downward cut in front.'],
       ['AIR BACK J', 'Reverse Flame', 'A cut behind him.'],
       ['AIR UP J', 'Sky Flame', 'A slash straight up over his head.'],
-      ['AIR DOWN J', 'Flame Drop', 'The blade stabbed straight down - spikes.'] ] },
+      ['AIR DOWN J', 'Falling Flame Wheel', 'A full send: he wheels into a ball of flame and drops STRAIGHT DOWN, way faster than falling - spikes anyone underneath, and gets him back to the stage fast.'] ] },
     { title: 'K (BREATH OF FLAME + ODM GEAR)', rows: [
       ['K', 'ODM Hook', 'Fires the grapple hook at the nearest opponent ANYWHERE on the stage - it tracks them in flight and almost always lands (a Z vanish shakes it off, and once in a while it misses). If it sticks, they are TETHERED for 4 seconds.'],
       ['K (TETHERED)', 'Reel In', 'Fires the gas and yanks himself straight to them.'],
