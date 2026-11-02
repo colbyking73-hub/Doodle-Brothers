@@ -1,5 +1,5 @@
 {
-    "version":  "0.7.10",
+    "version":  "0.7.11",
     "shell":  "2c7f2e991c796adb",
     "files":  {
                   "build/icon.png":  {
@@ -7,8 +7,8 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "9ead4508142834d4f5e8be5cd49af6e2680f47cbb504daec8f8f1e5fd186f7ed",
-                                     "size":  1298572
+                                     "hash":  "8f390ef220d87ef4b47d77295ba6d8bacb9de3ba639d73defdfcf49801475fd5",
+                                     "size":  1306097
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
@@ -106,6 +106,10 @@
                                                              "hash":  "049518102cf5bd7c93dcf7547fb5fa22d6c64aaddedbf96673a6d9a2f77961ee",
                                                              "size":  4350252
                                                          },
+                  "sounds/chidori-sfx.js":  {
+                                                "hash":  "3923fb7dd479ad68e0a20096ac4d95c025ab6596f112f6af5d9a6cd8cae23237",
+                                                "size":  54128
+                                            },
                   "sounds/clone-poof-sfx.js":  {
                                                    "hash":  "571b4fb114ed3db0180939b9bd935790062c3c7f87aa03e84dee76b4511d298b",
                                                    "size":  155320
@@ -150,6 +154,10 @@
                                                     "hash":  "270a0a73ddb2d674604f5616e5f78553bbf30cad730079fba346035bedb03f67",
                                                     "size":  200009
                                                 },
+                  "sounds/ninth-form-sfx.js":  {
+                                                   "hash":  "78a6c053bc4d2c2b70467e47310664b382067ea7fe3a6c139e2c55c6c648cef2",
+                                                   "size":  308763
+                                               },
                   "sounds/rko-sfx.js":  {
                                             "hash":  "53acdba5aee2a5dc57f00c6b8efa50a83e3e1e6c9bdccf5993e0e5f273134e3c",
                                             "size":  100109
