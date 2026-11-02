@@ -14192,7 +14192,12 @@ function update(dt) {
   const held = [];
   for (const v of fighters) { const a = v.action; if (a && (a.type === 'thrown' || a.type === 'grabbed') && a.holder) held.push([v, v.damage, a.holder]); }
   updateSim(dt);
-  for (const [v, d0, h] of held) if (v.damage > d0) v.damage = d0 + (v.damage - d0) * GRAB_DMG.all * (GRAB_DMG[h.char] || 1);
+  for (const [v, d0, h] of held) {
+    if (v.damage > d0) v.damage = d0 + (v.damage - d0) * GRAB_DMG.all * (GRAB_DMG[h.char] || 1);
+    // a CLONE that got grabbed: when the grab / throw is over (thrown, let go, broke free) it just vanishes -
+    // unless Colbalias is TRANSFORMED (raging clones are tougher: they keep fighting)
+    if (v.minion && !v.dead && !(v.owner && v.owner.transformed) && !(v.action && (v.action.type === 'thrown' || v.action.type === 'grabbed'))) killMinion(v);
+  }
 }
 function updateSim(dt) {
   time += dt;
