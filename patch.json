@@ -1,22 +1,23 @@
 {
-    "version":  "0.7.17",
+    "version":  "0.7.18",
     "shell":  "2c7f2e991c796adb",
+    "android":  "2a63fd61f22e5cba",
     "files":  {
                   "build/icon.png":  {
                                          "hash":  "645d2a649501e8209cda9abef113ac4591f5793f91447026663df69dc354a849",
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "8ad59e64a1db6c5ef34b5a8693a8584c51fa9063573dd2e95b81ca516f164918",
-                                     "size":  1359326
+                                     "hash":  "508190bcb7cd331ec9b886b0ebad618f9a0fee3778ce6dfc25a8ca89ff85768c",
+                                     "size":  1379271
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
                                             "size":  92865
                                         },
                   "net.js":  {
-                                 "hash":  "7771ec0d2f0441c0b167a4b1c218b756fedb062cd703f6771c4cc9dc849efc6f",
-                                 "size":  55301
+                                 "hash":  "5a05d4ca7027e4b260979d938c26effa889a796fbacad4c0ce9049eb019819fe",
+                                 "size":  62196
                              },
                   "sounds/battle/battle-without-honor-or-humanity.mp3":  {
                                                                              "hash":  "eda0873dca9a6311e4534976a0744dbef308d28731e1b775be9f4cc1145694fc",
