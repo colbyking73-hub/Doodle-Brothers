@@ -7178,7 +7178,9 @@ function buildEcho(src) {
 // COLTEN THE KNIGHT: his own kit again - big, slow, GIANT greatsword slashes (the old Ganondorf-style set), made even
 // slower and heavier: every swing takes longer to come out and to recover from, and hits a lot harder. A third hit on
 // his J string: GIANT'S CRASH, the sword raised overhead and brought straight down.
-const COLTEN_KNIGHT = { startup: 1.2, endlag: 1.15, dmg: 1.15, base: 1.06, reach: 1.08 };
+const COLTEN_KNIGHT = { startup: 1.2, active: 1.8, endlag: 1.0, dmg: 1.15, base: 1.06, reach: 1.08 };
+// (active x1.8: every swing PLAYS OUT across its hit window - the blade visibly travels from the wind-up to the finish,
+//  and the wind-up itself rises at a pace you can see (windUp). He's slow: you should always see it coming.)
 COLTEN_GANON.jab2.combo = 'jab3';
 COLTEN_GANON.jab3 = { name: "Giant's Crash", startup: 0.2, active: 0.1, endlag: 0.42, sweep: true, lunge: 180, lungeFriction: 0.5,
   hitboxes: [...bladeHits(40, -150, 110, -170, 3, { dmg: 10, base: 470, growth: 6.5, angle: 50 }, { from: 0, to: 0.04 }),
@@ -7190,13 +7192,21 @@ function buildKnight(src) {
   const K = COLTEN_KNIGHT, out = {};
   for (const [k, m] of Object.entries(src)) {
     if (!m || typeof m !== 'object') { out[k] = m; continue; }
-    const e = { ...m, startup: m.startup * K.startup, endlag: m.endlag * K.endlag };
-    if (m.hitboxes) e.hitboxes = m.hitboxes.map(h => ({ ...h, x: h.x * K.reach, r: (h.r || 26) * 1.05, dmg: Math.round(h.dmg * K.dmg * 10) / 10, base: h.base * K.base }));
+    const e = { ...m, startup: m.startup * K.startup, endlag: m.endlag * K.endlag, active: m.active * K.active, windUp: true };
+    if (m.strike2At) e.strike2At = m.strike2At * K.active;
+    if (!m.strike2 && !m.flip) e.sweep = true;                 // the swing follows its arc across the whole hit window
+    if (m.hitboxes) e.hitboxes = m.hitboxes.map(h => ({ ...h, x: h.x * K.reach, r: (h.r || 26) * 1.05, dmg: Math.round(h.dmg * K.dmg * 10) / 10, base: h.base * K.base,
+                                                      ...(h.from !== undefined ? { from: h.from * K.active } : {}), ...(h.to !== undefined ? { to: h.to * K.active } : {}) }));
     out[k] = e;
   }
   return out;
 }
 const COLTEN_MOVES = buildKnight(COLTEN_GANON);
+// SIDE K: GATE THROW - whatever weapon he's holding goes spinning across the stage (it hovers, K calls it back, or it drops
+// and he walks over and picks it up). A STOLEN weapon: his own Dragonslayer falls back into his hand out of the Gate.
+COLTEN_MOVES.sideRanged = { name: 'Gate Throw', startup: 0.16, active: 0.06, endlag: 0.36, landLag: 0.16, throwScythe: true,
+  wind: COLTEN_GANON.sideGround.wind, strike: COLTEN_GANON.sideGround.strike,
+  fire(f) { throwScythe(f); } };
 // COLBY'S SCYTHE, toned down (he was the strongest character): every scythe move is a bit slower to start and to
 // recover, and so is the scythe throw (which also flies a little slower). Colby only - Colten keeps his own speeds.
 const COLBY_NERF = { scythe: 1.17, recover: 1.14, throwStart: 1.3, throwRecover: 1.2, throwSpeed: 0.88 };
@@ -8166,6 +8176,7 @@ CHARACTERS.COLBY.transformStats = { power: 1.1, speed: 1.3 };   // the lightning
 CHARACTERS.COLBY.look.transformAura = '#7fd8ff';
 CHARACTERS.COLBY.look.godSpeed = true;
 CHARACTERS.COLBY.bareMoves = COLBY_PUNCHES;  // used while his scythe is thrown
+CHARACTERS.COLTEN.bareMoves = COLBY_PUNCHES; // Colten empty-handed (his Dragonslayer thrown and not picked back up)
 // AIDEN'S TAUNTS - three little skits (see HEEL_TAUNT / heelTauntStep / drawHeelTauntProps):
 //   UP   : RUM BARREL - hops up onto a barrel of rum, lights a cigar... puffs - and the smoke pours straight out of his
 //          ribcage (he's a SKELETON). Realises, hops down, flicks the cigar at the barrel: KA-BOOM.
@@ -8782,6 +8793,7 @@ function setCharacter(f, charName, alt = 0) {
   f.w = 26 * (f.look.scale || 1); f.h = 90 * (f.look.scale || 1);   // bigger characters = bigger hurtbox
   f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false; f.ui = false; f.lanceForm = 0; f.formBase = null; stopUiSong(f);
   f.weapon = (c.look && c.look.weapon) || null;                // Colby / Colten start with their own weapon
+  f.gateSword = false; f.spareSwordT = 0;
 }
 function resetFighter(f, atSpawn) {
   Object.assign(f, {
@@ -9873,6 +9885,7 @@ function stepGrab(f, a, dt) {
     t.face = -f.face;
     t.action = { type: 'grabbed', t: 0, holder: f, escape: 1.0 + t.damage * 0.015 };   // more % = harder to escape
     f.action = { type: 'holding', t: 0, victim: t, pummelCD: 0 };
+    if (f.char === 'COLTEN' && !f.minion) coltenDisarm(f, t);           // COLTEN: the grab RIPS their weapon out of their hands
     sfx.grab();
     hitstop = Math.max(hitstop, 0.06);
     shake = Math.max(shake, 4);
@@ -12106,7 +12119,8 @@ function startAttack(f, inp, btn) {
   if (f.noScythe && btn === 'spc' && !inp.up && !inp.down && recallScythe(f)) { f.spcBuf = 0; return; }
   if (f.noScythe && btn === 'spc' && !inp.dir && !inp.up && !inp.down) {   // neutral K right next to it = pick it up
     // his own (not flying), or ANY weapon lying on the floor - the rival's too
-    const s = scythes.find(q => q.state !== 'fly' && q.state !== 'recall' && (q.owner === f || q.state === 'stuck' || q.state === 'fall'));
+    const s = scythes.find(q => q.state !== 'fly' && q.state !== 'recall' && (q.owner === f || q.state === 'stuck' || q.state === 'fall') &&
+                               (f.char === 'COLTEN' || q.weapon === nativeWeapon(f)));   // (COLTEN takes any weapon; everyone else only their own)
     if (s && Math.hypot(s.x - f.x, s.y - (f.y - 20)) < SCYTHE_THROW.pickup) { pickupScythe(f, s); return; }
   }
   // SEVON: neutral K while his ODM hook is stuck in someone = REEL IN (then again = the LEVI SPIN)
@@ -12167,7 +12181,19 @@ const moveUsesScythe = m => !!m && !!((m.strike && (m.strike.sc || m.strike.sw !
 // RIVALS: if one throws his weapon at the other while the other is EMPTY-HANDED (his own weapon thrown),
 // the other CATCHES it out of the air and keeps it as long as he holds it. A KO puts every weapon back with
 // its owner.
-const WEAPONS = { scythe: { name: 'SCYTHE', owner: 'COLBY' }, sword: { name: 'GREATSWORD', owner: 'COLTEN' } };
+// COLTEN wielding Sevon's KATANA: Sevon's sword work on J, his sword forms on K, and side K throws it
+const COLTEN_KATANA_KIT = (() => {
+  const S = SEVON_MOVES, k = {};
+  for (const key of ['counter', 'jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 'dashAttack', 'nair', 'fair', 'bair', 'uair', 'dair', 'upRanged']) if (S[key]) k[key] = S[key];
+  k.neutralRanged = S.unknowingFire;
+  k.downRanged = S.blazingUniverse || S.downGround;
+  k.sideRanged = { name: 'Gate Throw', startup: 0.14, active: 0.06, endlag: 0.34, landLag: 0.16, throwScythe: true,
+    wind: S.sideRanged.wind, strike: S.sideRanged.strike, fire(f) { throwScythe(f); } };
+  return k;
+})();
+// (katana: Sevon never runs out - when Colten rips it away he just draws a SPARE. So it has no "owner" to go home to.)
+const WEAPONS = { scythe: { name: 'SCYTHE', owner: 'COLBY' }, sword: { name: 'DRAGONSLAYER', owner: 'COLTEN' },
+                  katana: { name: 'KATANA', owner: 'SEVON', kit: COLTEN_KATANA_KIT, spare: true } };
 const CATCH = { window: 0.22, reach: 14 };   // press K within this many seconds of it reaching you (a little extra reach)
 // Wielding the RIVAL'S weapon: Colby is quick with Colten's greatsword (faster swings, same power);
 // Colten is a brute with Colby's scythe (hits harder, swings slower). Only their weapon moves change.
@@ -12176,6 +12202,7 @@ const nativeWeapon = f => (CHARACTERS[f.char] && CHARACTERS[f.char].look && CHAR
 const weaponUser = f => !!nativeWeapon(f) && !f.minion;
 function weaponLook(w) {
   if (w === 'scythe') { const L = CHARACTERS.COLBY.look; return { scythe3d: true, greatsword: false, bleed: true, idle: L.idle, carry: L.carry, stow: L.stow }; }
+  if (w === 'katana') return { scythe3d: false, greatsword: true, katana: true, bleed: false, fireHits: true, idle: CHARACTERS.SEVON.look.idle, carry: undefined, stow: undefined };
   return { scythe3d: false, greatsword: true, bleed: false, idle: CHARACTERS.COLTEN.look.idle, carry: undefined, stow: undefined };
 }
 function equipWeapon(f, w) {
@@ -12183,10 +12210,11 @@ function equipWeapon(f, w) {
   f.weapon = w;
   const R = w && w !== nativeWeapon(f) ? RIVAL_WIELD[f.char] : null;    // holding the rival's weapon
   f.weaponSpeed = R ? R.speed : 1; f.weaponPower = R ? R.power : 1;
-  if (!w) { f.noScythe = true; f.moveset = C.moves; f.look = C.look; return; }   // empty-handed: his own kicks + bare-handed string
+  const base = lookFor(f.char, f.alt);                                            // (keeps their alt skin)
+  if (!w) { f.noScythe = true; f.moveset = C.moves; f.look = base; return; }      // empty-handed: his own kicks + bare-handed string
   f.noScythe = false;
-  if (w === nativeWeapon(f)) { f.moveset = C.moves; f.look = C.look; }           // his own weapon: his own kit
-  else { f.moveset = CHARACTERS[WEAPONS[w].owner].moves; f.look = { ...C.look, ...weaponLook(w) }; }   // the rival's weapon
+  if (w === nativeWeapon(f)) { f.moveset = C.moves; f.look = base; }             // his own weapon: his own kit
+  else { f.moveset = WEAPONS[w].kit || CHARACTERS[WEAPONS[w].owner].moves; f.look = { ...base, ...weaponLook(w) }; }   // someone else's weapon: THEIR moveset
 }
 // The rival catches a thrown weapon out of the air
 function catchWeapon(t, s) {
@@ -12198,6 +12226,35 @@ function catchWeapon(t, s) {
   hitstop = Math.max(hitstop, 0.08); shake = Math.max(shake, 8);
   sfx.shing ? sfx.shing() : sfx.block();
 }
+// ---------------- COLTEN: MASTER OF ALL WEAPONS (Gilgamesh) ----------------
+// His grab tears the weapon out of their hands and it's HIS until he throws it (side K) - and he fights with THEIR moveset.
+// His own Dragonslayer goes into the GATE (a golden ripple in the air) and falls back into his hand when he throws the stolen
+// one away. Colby is left bare-handed until he gets his scythe back; Sevon just gets a "!" and draws a spare katana.
+function gateFx(x, y) {
+  for (let k = 0; k < 3; k++) auraWaves.push({ x, y, t: -k * 0.08, dur: 0.45, max: 50 + k * 22, color: '#ffd23f' });
+  burst(x, y, ['#ffd23f', '#fff3a8', '#ffffff'], 18, 0, Math.PI, 300, { grav: 0 });
+  ring(x, y); sfx.shing ? sfx.shing() : sfx.block();
+}
+function coltenDisarm(f, t) {
+  if (t.minion) return;
+  let w = null;
+  if (t.char === 'SEVON') w = 'katana';
+  else if (t.weapon && !t.noScythe && WEAPONS[t.weapon] && t.weapon !== nativeWeapon(f)) w = t.weapon;
+  if (!w) return;
+  if (!WEAPONS[w].spare) equipWeapon(t, null);                         // (Colby: bare-handed until he gets it back)
+  if (f.weapon && f.weapon === nativeWeapon(f)) { f.gateSword = true; gateFx(f.x - f.face * 26, f.y - 120); }   // his own: into the Gate
+  else if (f.weapon) scythes.push({ owner: f, weapon: f.weapon, x: f.x - f.face * 20, y: f.y - 70, vx: -f.face * 220, vy: -320,   // another stolen one: dropped
+                                    dir: f.face, ang: 0, state: 'fall', t: 0, hit: new Set(), lostT: 0 });
+  equipWeapon(f, w);
+  t.damage += 3; t.hitFlash = 0.1;
+  burst(t.x + t.face * 20, t.y - 60, ['#ffffff', '#cfd8e6', '#ffd23f'], 16, 0, Math.PI, 380, { grav: 400 });
+  painTexts.push({ x: f.x, y: f.y - 150, t: 1.1, max: 1.1, text: 'TOOK THE ' + WEAPONS[w].name + '!', big: true });
+  if (WEAPONS[w].spare) {                                              // SEVON: "!" - then he draws a spare
+    painTexts.push({ x: t.x, y: t.y - 128, t: 1.0, max: 1.0, text: '!', big: true, ult: true });
+    t.spareSwordT = 0.9; if (sfx.parry) sfx.parry();
+  }
+  hitstop = Math.max(hitstop, 0.1); shake = Math.max(shake, 8);
+}
 // KO: whatever he held goes back to its owner, and his own weapon comes back to him
 function giveWeaponBack(w) {
   const o = fighters.find(q => !q.minion && nativeWeapon(q) === w);
@@ -12206,6 +12263,7 @@ function giveWeaponBack(w) {
   equipWeapon(o, w);
 }
 function resetWeapons(f) {
+  f.gateSword = false;
   const mine = nativeWeapon(f);
   if (!mine && !f.weapon) return;
   const held = f.weapon;
@@ -12215,7 +12273,9 @@ function resetWeapons(f) {
   }
   if (held && held !== mine) giveWeaponBack(held);
   if (mine) {
-    for (const o of fighters) if (o !== f && o.weapon === mine) equipWeapon(o, null);   // take his own back from whoever had it
+    for (const o of fighters) if (o !== f && o.weapon === mine) {                       // take his own back from whoever had it
+      if (o.gateSword) { o.gateSword = false; equipWeapon(o, nativeWeapon(o)); } else equipWeapon(o, null);
+    }
     for (let i = scythes.length - 1; i >= 0; i--) if (scythes[i].weapon === mine) scythes.splice(i, 1);
     equipWeapon(f, mine);
   }
@@ -12223,6 +12283,10 @@ function resetWeapons(f) {
 function throwScythe(f) {
   const w = f.weapon || nativeWeapon(f) || 'scythe';
   equipWeapon(f, null);
+  if (f.gateSword && w !== nativeWeapon(f)) {                 // COLTEN threw a STOLEN weapon: his own drops out of the Gate into his hand
+    f.gateSword = false; equipWeapon(f, nativeWeapon(f));
+    gateFx(f.x - f.face * 18, f.y - 120);
+  }
   scythes.push({ owner: f, weapon: w, x: f.x + f.face * 40, y: f.y - 72, vx: f.face * SCYTHE_THROW.speed * (f.char === 'COLBY' ? COLBY_NERF.throwSpeed : 1), vy: -40, dir: f.face,
                  ang: 0, state: 'fly', t: 0, hit: new Set(), lostT: 0 });
   sfx.whoosh(true);
@@ -12263,10 +12327,20 @@ function pickupScythe(f, s) {
 const WEAPON_LOST_T = 0.8;
 const weaponLost = {};
 function weaponWatchdog(dt) {
+  for (const f of fighters) if (f.spareSwordT > 0) {                   // Sevon drawing his SPARE katana
+    f.spareSwordT -= dt;
+    if (f.spareSwordT <= 0) { burst(f.x + f.face * 18, f.y - 60, ['#ffffff', '#ff7a1a'], 10, 0, Math.PI, 300, { grav: 0 }); sfx.shing ? sfx.shing() : sfx.block(); }
+  }
+  for (let i = scythes.length - 1; i >= 0; i--) {                       // a thrown KATANA lying around: Sevon walks over it = takes it back
+    const q = scythes[i]; if (q.weapon !== 'katana' || q.state !== 'stuck') continue;
+    q.stuckT = (q.stuckT || 0) + dt;
+    const sv = fighters.find(o => o.char === 'SEVON' && o.respawnTimer <= 0 && Math.hypot(o.x - q.x, (o.y - 30) - q.y) < 70);
+    if (sv || q.stuckT > 12) { scythes.splice(i, 1); if (sv) { burst(q.x, q.y - 20, ['#ffffff', '#ff7a1a'], 10, -Math.PI / 2, 0.8, 260); sfx.shing ? sfx.shing() : sfx.block(); } }
+  }
   for (const w of Object.keys(WEAPONS)) {
     const owner = fighters.find(f => !f.minion && nativeWeapon(f) === w && !f.out);
     if (!owner) { weaponLost[w] = 0; continue; }
-    const held = fighters.some(f => !f.minion && f.weapon === w && !f.out);
+    const held = fighters.some(f => !f.minion && !f.out && (f.weapon === w || (f.gateSword && nativeWeapon(f) === w)));   // (in Colten's GATE counts as held)
     const inWorld = scythes.some(s => s.weapon === w);
     if (held || inWorld) { weaponLost[w] = 0; continue; }
     weaponLost[w] = (weaponLost[w] || 0) + dt;
@@ -12291,13 +12365,13 @@ function updateScythes(dt) {
     // RIVAL CATCH: an empty-handed weapon user (not the thrower) who PRESSES K (B) as it reaches him catches
     // it, and it's his now. Mistime it (or don't press) and it hits him like any thrown weapon.
     if (s.state === 'fly' || s.state === 'hover') {
-      const c = fighters.find(t => t !== s.owner && weaponUser(t) && t.noScythe && t.respawnTimer <= 0 && !isIntangible(t) &&
+      const c = fighters.find(t => t !== s.owner && t.char === 'COLTEN' && weaponUser(t) && t.noScythe && t.respawnTimer <= 0 && !isIntangible(t) &&   // (only COLTEN catches other people's weapons)
                                    time - (t.spcTapT ?? -9) <= CATCH.window &&
                                    !(t.action && ['hitstun', 'grabbed', 'thrown', 'ultVictim', 'dizzy'].includes(t.action.type)) &&
                                    circleHitsFighter(s.x, s.y, SCYTHE_THROW.r + CATCH.reach, t));
       if (c) { scythes.splice(i, 1); c.action = null; c.spcBuf = 0; c.spcTapT = -9; catchWeapon(c, s); continue; }
     }
-    const SW = s.weapon === 'sword' ? 1.2 : 1;                 // the greatsword hits harder when thrown
+    const SW = s.weapon === 'sword' ? 1.2 : s.weapon === 'katana' ? 0.85 : 1;   // the Dragonslayer hits harder when thrown, a katana lighter
     if (s.state === 'fly') {
       s.x += s.vx * dt; s.y += s.vy * dt; s.ang += s.dir * SCYTHE_THROW.spin * dt;
       if (Math.random() < dt * 40) particles.push({ x: s.x, y: s.y, vx: 0, vy: 0, life: 0.08, max: 0.08, size: 1, color: '#cfd8e6', type: 'bit', grav: 0 });
@@ -12381,25 +12455,38 @@ function updateScythes(dt) {
 }
 // a thrown GREATSWORD: spinning end over end in the air, planted point-down in the floor when it lands
 function drawThrownSword(s) {
+  // the DRAGONSLAYER in the air / planted in the floor point-down
   ctx.save();
   const stuck = s.state === 'stuck';
-  ctx.translate(snap(s.x), snap(s.y - (stuck ? 60 : 0)));
+  ctx.translate(snap(s.x), snap(s.y - (stuck ? 80 : 0)));
   ctx.rotate(stuck ? Math.PI / 2 + s.dir * 0.08 : s.ang);
   ctx.lineCap = 'round';
-  const blade = [[-30, 9], [64, 6], [86, 0], [64, -6], [-30, -9]];
-  ctx.fillStyle = sketch ? PAPER : '#4a4f5c';
-  ctx.beginPath(); blade.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = sketch ? '#222' : '#0e0c0c'; ctx.lineWidth = 2; ctx.stroke();
-  if (!sketch) { ctx.fillStyle = '#c9d2de'; ctx.beginPath(); [[-30, 9], [64, 6], [86, 0], [64, 3], [-30, 5]].forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fill(); }
-  ctx.strokeStyle = sketch ? '#222' : '#b08d3a'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(-32, -14); ctx.lineTo(-32, 14); ctx.stroke();                 // crossguard
-  ctx.strokeStyle = sketch ? '#222' : '#3a2614';
-  ctx.beginPath(); ctx.moveTo(-34, 0); ctx.lineTo(-54, 0); ctx.stroke();                    // grip
+  const poly = pts => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); };
+  ctx.fillStyle = sketch ? PAPER : '#3d4047'; poly([[-40, 13], [86, 13], [108, -1], [98, -13], [-40, -13]]); ctx.fill();
+  ctx.strokeStyle = sketch ? '#222' : '#1b1c20'; ctx.lineWidth = 1.8; ctx.stroke();
+  if (!sketch) { ctx.fillStyle = '#8c939c'; poly([[-40, 13], [86, 13], [108, -1], [86, 10], [-40, 10]]); ctx.fill(); }
+  ctx.strokeStyle = sketch ? '#222' : '#2b2d32'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(-42, -17); ctx.lineTo(-42, 17); ctx.stroke();                 // crossbar
+  ctx.strokeStyle = sketch ? '#222' : '#2a1c10'; ctx.lineWidth = 5.5;
+  ctx.beginPath(); ctx.moveTo(-44, 0); ctx.lineTo(-74, 0); ctx.stroke();                    // grip
+  ctx.restore();
+}
+function drawThrownKatana(s) {
+  ctx.save();
+  const stuck = s.state === 'stuck';
+  ctx.translate(snap(s.x), snap(s.y - (stuck ? 50 : 0)));
+  ctx.rotate(stuck ? Math.PI / 2 + s.dir * 0.06 : s.ang);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = sketch ? '#222' : '#0e0c0c'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(-20, 0); ctx.quadraticCurveTo(25, -4, 70, -2); ctx.stroke();
+  ctx.strokeStyle = sketch ? PAPER : '#e3e8ef'; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(-18, 0); ctx.quadraticCurveTo(25, -4, 70, -2); ctx.stroke();
+  ctx.fillStyle = sketch ? '#222' : '#c9a443'; ctx.beginPath(); ctx.ellipse(-22, 0, 3, 7, 0, 0, Math.PI * 2); ctx.fill();   // tsuba
+  ctx.strokeStyle = sketch ? '#222' : '#7a1e14'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-25, 0); ctx.lineTo(-44, 0); ctx.stroke();   // red-wrapped grip
   ctx.restore();
 }
 function drawThrownScythes() {
   for (const s of scythes) {
     if (s.weapon === 'sword') drawThrownSword(s);
+    else if (s.weapon === 'katana') drawThrownKatana(s);
     else {
     ctx.save();
     ctx.translate(snap(s.x), snap(s.y - (s.state === 'stuck' ? 6 : 0)));
@@ -13603,7 +13690,7 @@ function aiDecide(f, o, ai, L) {
   }
   // Threw the scythe? Go get it (unless the opponent is right on top of us, or he's fighting bare-handed for now)
   if (f.noScythe && f.ground && !stayBare) {
-    const s = scythes.find(q => q.owner === f && q.state === 'stuck');
+    const s = scythes.find(q => (q.owner === f || q.weapon === nativeWeapon(f) || f.char === 'COLTEN') && q.state === 'stuck');   // (their own, wherever it ended up)
     if (s && !(adx < 80 && Math.random() < 0.5)) {
       if (Math.hypot(s.x - f.x, s.y - (f.y - 20)) < SCYTHE_THROW.pickup * 0.8) { ai.tapSpc = true; return; }
       ai.dir = Math.sign(s.x - f.x);
@@ -13613,7 +13700,7 @@ function aiDecide(f, o, ai, L) {
   }
 
   // Empty-handed and the RIVAL'S thrown weapon is about to reach us: press K to catch it
-  if (weaponUser(f) && f.noScythe && scythes.some(s => s.owner !== f && (s.state === 'fly' || s.state === 'hover') &&
+  if (f.char === 'COLTEN' && weaponUser(f) && f.noScythe && scythes.some(s => s.owner !== f && (s.state === 'fly' || s.state === 'hover') &&
                                                       Math.hypot(s.x - f.x, s.y - (f.y - 50)) < 90) && Math.random() < 0.5 * (L.defend + 0.5)) {
     ai.tapSpc = true; return;
   }
@@ -14799,7 +14886,9 @@ function basePose(p) {
     const m = a.move;
     if (a.poseOverride) return { ...a.poseOverride };       // moves that animate themselves (Alolan Whip, Cross Chop)
     if (a.phase === 'startup' || a.phase === 'charge') {
-      const w = { ...m.wind };
+      const w = m.windUp && a.phase === 'startup'                // (Colten: the wind-up RISES into place - you see it coming)
+        ? lerpPose(movementPose(p), m.wind, easeOut(clamp(a.t / Math.max(0.02, m.startup * 0.85), 0, 1)))
+        : { ...m.wind };
       if (a.phase === 'charge') w.lean += Math.sin(p.anim * 70) * 0.05;   // shaking with power
       return w;
     }
@@ -15037,7 +15126,7 @@ function tickPose(f, dt) {
 
 function figureOf(p) {
   return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, face: p.face, pose: p.disp || getPose(p), squash: p.squash,
-           color: bodyColorOf(p), ink: inkOf(p), look: p.look, transformed: !!p.transformed, noScythe: !!p.noScythe, ui: !!p.ui, lanceForm: p.lanceForm || 0 };
+           color: bodyColorOf(p), ink: inkOf(p), look: p.look, transformed: !!p.transformed, noScythe: !!p.noScythe || p.spareSwordT > 0, ui: !!p.ui, lanceForm: p.lanceForm || 0 };
 }
 
 // Characters can have their own body color (Colby is red). If both players pick the same character,
@@ -15833,38 +15922,40 @@ function swordHold(shoulder, pz, f) {
 // TWO-HANDED GRIP: his other hand holds the hilt just below the first one (toward the pommel)
 const swordSecondHand = (shoulder, pz, f, gap = 9) => { const s = swordHold(shoulder, pz, f); return { x: s.hand.x - s.ux * gap, y: s.hand.y - s.uy * gap }; };   // (gap: how far down the hilt)
 function drawGreatsword(shoulder, pz, f, opts) {
+  // THE DRAGONSLAYER (Guts): "too big to be called a sword" - a massive slab of raw iron, as wide as he is, parallel edges
+  // all the way up to a blunt angled point, a plain iron crossbar and a long leather-wrapped grip. Dark, heavy, battered.
   const { hand, ux, uy } = swordHold(shoulder, pz, f);              // (ux, uy = along the blade)
   const nx = -uy, ny = ux;                                         // across it
   const P = (along, across) => ({ x: hand.x + ux * along + nx * across, y: hand.y + uy * along + ny * across });
-  const outline = opts.outline || 0;
-  ctx.save();
+  const o = opts.outline || 0;
+  const blade = (e = 0) => [P(8, 13 + e), P(134 + e, 13 + e), P(156 + e * 1.5, -1), P(146 + e, -13 - e), P(8, -13 - e)];
+  const poly = pts => { ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); };
+  ctx.save(); ctx.lineCap = 'round';
   if (opts.tint) {                                                  // outline / silhouette pass: one solid shape
-    ctx.fillStyle = opts.tint;
-    const pts = [P(-14, 3 + outline / 2), P(118 + outline / 2, 0), P(-14, -3 - outline / 2)];
-    ctx.beginPath(); ctx.moveTo(P(8, 9 + outline / 2).x, P(8, 9 + outline / 2).y);
-    for (const p of [P(102, 6 + outline / 2), P(124 + outline, 0), P(102, -6 - outline / 2), P(8, -9 - outline / 2)]) ctx.lineTo(p.x, p.y);
-    ctx.closePath(); ctx.fill();
-    ctx.lineWidth = 5 + outline; ctx.strokeStyle = opts.tint;
-    ctx.beginPath(); ctx.moveTo(P(-14, 0).x, P(-14, 0).y); ctx.lineTo(P(8, 0).x, P(8, 0).y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(P(6, -13).x, P(6, -13).y); ctx.lineTo(P(6, 13).x, P(6, 13).y); ctx.stroke();
+    ctx.fillStyle = opts.tint; poly(blade(o / 2)); ctx.fill();
+    ctx.strokeStyle = opts.tint; ctx.lineWidth = 6 + o;
+    ctx.beginPath(); ctx.moveTo(P(-26, 0).x, P(-26, 0).y); ctx.lineTo(P(8, 0).x, P(8, 0).y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(P(7, -17).x, P(7, -17).y); ctx.lineTo(P(7, 17).x, P(7, 17).y); ctx.stroke();
     ctx.restore(); return;
   }
-  // grip + pommel
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = '#3a2614'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(P(-14, 0).x, P(-14, 0).y); ctx.lineTo(P(6, 0).x, P(6, 0).y); ctx.stroke();
-  ctx.fillStyle = '#b08d3a'; ctx.beginPath(); ctx.arc(P(-15, 0).x, P(-15, 0).y, 3.5, 0, Math.PI * 2); ctx.fill();
-  // crossguard
-  ctx.strokeStyle = '#b08d3a'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(P(6, -14).x, P(6, -14).y); ctx.lineTo(P(6, 14).x, P(6, 14).y); ctx.stroke();
-  // the broad blade, tapering to a point
-  const blade = [P(8, 9), P(102, 6), P(124, 0), P(102, -6), P(8, -9)];
-  ctx.fillStyle = '#4a4f5c';
-  ctx.beginPath(); blade.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#c9d2de';                                       // bright cutting edge
-  ctx.beginPath(); [P(8, 9), P(102, 6), P(124, 0), P(102, 3), P(8, 5)].forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = '#2c2f37'; ctx.lineWidth = 1.5;                // fuller down the middle
-  ctx.beginPath(); ctx.moveTo(P(12, -1).x, P(12, -1).y); ctx.lineTo(P(92, -1).x, P(92, -1).y); ctx.stroke();
+  // the long grip, leather wrapped, and a small iron pommel
+  ctx.strokeStyle = '#2a1c10'; ctx.lineWidth = 5.5;
+  ctx.beginPath(); ctx.moveTo(P(-26, 0).x, P(-26, 0).y); ctx.lineTo(P(6, 0).x, P(6, 0).y); ctx.stroke();
+  ctx.strokeStyle = '#5a3d22'; ctx.lineWidth = 1.2;
+  for (let k = -22; k < 4; k += 5) { ctx.beginPath(); ctx.moveTo(P(k, -2.6).x, P(k, -2.6).y); ctx.lineTo(P(k + 3, 2.6).x, P(k + 3, 2.6).y); ctx.stroke(); }
+  ctx.fillStyle = '#3a3c42'; ctx.beginPath(); ctx.arc(P(-28, 0).x, P(-28, 0).y, 3.4, 0, Math.PI * 2); ctx.fill();
+  // a plain iron crossbar
+  ctx.strokeStyle = '#2b2d32'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(P(7, -17).x, P(7, -17).y); ctx.lineTo(P(7, 17).x, P(7, 17).y); ctx.stroke();
+  // the SLAB
+  ctx.fillStyle = sketch ? PAPER : '#3d4047'; poly(blade()); ctx.fill();
+  ctx.strokeStyle = sketch ? '#222' : '#1b1c20'; ctx.lineWidth = 1.6; ctx.stroke();
+  if (!sketch) {
+    ctx.fillStyle = '#6a7079'; poly([P(8, 13), P(134, 13), P(155, 0), P(140, 6), P(8, 7)]); ctx.fill();   // the bevel along the edge
+    ctx.fillStyle = '#8c939c'; poly([P(8, 13), P(134, 13), P(156, -1), P(134, 11), P(8, 11)]); ctx.fill();  // the sharpened edge, catching the light
+    ctx.strokeStyle = '#25272c'; ctx.lineWidth = 1.1;                                                     // battle scars
+    for (const [a1, c1, a2, c2] of [[40, -6, 47, -1], [78, -9, 83, -3], [112, -4, 120, 2], [60, 2, 64, 6]]) { ctx.beginPath(); ctx.moveTo(P(a1, c1).x, P(a1, c1).y); ctx.lineTo(P(a2, c2).x, P(a2, c2).y); ctx.stroke(); }
+  }
   ctx.restore();
 }
 // COLTEN TRANSFORMED: a suit of glowing, see-through AURA ARMOR - helmet, pauldrons, breastplate and greaves
@@ -17322,7 +17413,7 @@ const RANDOM_TILE = ROSTER.length;                 // tile index of the RANDOM t
 const GRID_TILES = ROSTER.length + 1;
 const CHAR_INFO = {
   COLBALIAS: { title: 'THE FINAL BOSS', a: '#5a0000', b: '#0a0000' },
-  COLTEN:   { title: 'THE WARLORD',  a: '#2f7d36', b: '#0c1a0d' },
+  COLTEN:   { title: 'MASTER OF ALL WEAPONS',  a: '#2f7d36', b: '#0c1a0d' },
   SEVON:    { title: 'THE FLAME HASHIRA', a: '#1f4fa8', b: '#2a0c05' },
   AIDEN:  { title: 'STONE COLD SWASHBUCKLER', a: '#b8410f', b: '#1c0b05', name: 'CAPTAIN HEEL' },
   COLBY:    { title: 'THE REAPER',   a: '#7e1c1c', b: '#1a0b0b' },
@@ -18461,7 +18552,7 @@ const MOVESETS = {
       'BLEED: every scythe hit (and the thrown scythe) adds a stack of bleed - up to 10 stacks, each doing 0.5% every 2 seconds.',
       'TWO MOVESETS: with the scythe he has reach and bleed; without it he is a fast puncher with the Annihilator and Time Stop.',
       'TIME METER: fills as he lands hits - at full, bare-handed down K is TIME STOP.',
-      'RIVAL WEAPONS: if Colten throws his greatsword while Colby is empty-handed, Colby can press K to CATCH it and fight with it.' ] } ] },
+      'DISARMED: Colten\'s grab can rip the scythe out of his hands - he fights bare-handed until he picks it back up after Colten throws it.' ] } ] },
   LANCE: { blurb: 'A one-armed ki fighter: fast combos, beams and discs, and a ki mark that lets him teleport right behind you.', sections: [
     { title: 'GROUND J', rows: [
       ['J x6', 'Straight Punch > Backfist > Switch Kicks > Body Hook > Ki Burst', 'A six-hit string thrown with one arm and both legs - the Ki Burst finisher shoves everyone around him away, close enough to keep the combo going.'],
@@ -18585,7 +18676,7 @@ const MOVESETS = {
       'MORE DODGES: 7 Z vanishes in the air and 6 ground dodges (everyone else: 5 / 4) - because summoning spends them.',
       'GLASS JAW: he takes the most knockback in the game - but his own hits do 15% more damage to make up for it. Keep your distance and let the clones work.',
       'D-E-M-O-N METER: fills as he lands hits - full = Hellwave on down K.' ] } ] },
-  COLTEN: { blurb: 'The knight: full plate armor and a HUGE greatsword. The slowest swings in the game - and the hardest hitting. Charge them.', sections: [
+  COLTEN: { blurb: 'The knight - MASTER OF ALL WEAPONS. The Dragonslayer in his hands, and his grab TAKES your weapon and fights you with your own moves.', sections: [
     { title: 'GROUND J', rows: [
       ['J J J', "Warlord Slash > Rising Backhand > Giant's Crash", 'A wide slash, a heavy rising backhand, then the sword brought straight down from overhead.'],
       ['SIDE J', 'Dread Cleaver', 'The sword raised behind his head and brought down in a giant diagonal arc. Hold to charge.'],
@@ -18600,7 +18691,7 @@ const MOVESETS = {
       ['AIR DOWN J', 'Impaler', 'The sword driven straight down beneath him - spikes.'] ] },
     { title: 'K', rows: [
       ['K', 'Warlock Blade', 'A long wind-up, then a giant thrust wreathed in dark energy. Hold to charge - one of the strongest hits in the game.'],
-      ['SIDE K', 'Gerudo Dash', 'Charges across the ground with the blade out, cutting through whoever is there.'],
+      ['SIDE K', 'Gate Throw', 'Throws whatever weapon he is holding. It hovers - K calls it back - or drops, and he picks it up with K. Throw a STOLEN weapon and his Dragonslayer falls back into his hand out of the Gate.'],
       ['UP K', 'Dark Ascension', 'His recovery: rockets up with the sword raised, cutting on the way.'],
       ['DOWN K', "Warlord's Quake", 'Plunges the greatsword into the ground: the floor erupts on both sides of him. Hold to charge.'] ] },
     MS_STD_THROWS,
@@ -18608,8 +18699,10 @@ const MOVESETS = {
       ['I (FULL METER)', 'WARLORD', 'A suit of glowing AURA ARMOR over his plate: small hits don\'t flinch him, and he takes less knockback.'],
       ['I (TRANSFORMED)', "Warlord's Judgment", 'Three giant greatsword swings - every one a CRITICAL hit.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
-      'Slow: about 20% slower to swing and 15% slower to recover than his old set, and slower on his feet.',
-      'Heavy: every swing hits about 15% harder, and in his plate he is one of the hardest fighters to launch.' ] } ] },
+      'GATE OF BABYLON: his GRAB rips the weapon out of their hands. He keeps it - and fights with THEIR moveset (Colby\'s scythe kit, Sevon\'s katana forms) - until he throws it with side K. His Dragonslayer waits in the Gate.',
+      'Colby is left bare-handed until he picks his scythe back up. Sevon gets a "!" and draws a spare katana.',
+      'Only Colten can pick up and use other fighters\' weapons.',
+      'Slow and heavy: you always see his swings coming - but every one hits about 15% harder, and in his plate he is hard to launch.' ] } ] },
   SEVON: { blurb: 'The Flame Hashira: a fast samurai with flaming sword forms, ODM gear to grapple onto you, and Total Concentration breathing.', sections: [
     { title: 'GROUND J', rows: [
       ['J J J', 'Flame Cut > Rising Flame > Flame Crash', 'A three-hit flaming sword string.'],
