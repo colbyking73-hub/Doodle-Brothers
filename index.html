@@ -11215,10 +11215,10 @@ function endTransform(f, ko = false) {
 // The meter doesn't drain during any of it, and nobody else can touch either of them.
 const UI = { color: '#d8e2ff', glow: '#9fb6ff', hair: '#f4f6ff',
   vol: 2.6,                                                // the clip is played LOUD (through a limiter)
-  beats: { bell: 11.9, scream: 14.0, barrage: 16.5, walk: 22.5, past: 23.6, flurry1: 24.6, tl1: 29.0, tl2: 29.6, down: 30.25,
-           flurry2: 31.1, away: 35.6, comeback: 36.3, weave: 37.6, kameCharge: 38.2, kameFire: 41.2, end: 44.3 },
-  barrageHits: 10,
-  dmg: { white: 0.6, flurry: 0.12, kick: 2.2, bounce: 3, weave: 3, beam: 0.22 },   // (about 55% all told - it can't be dodged)
+  beats: { bell: 11.9, scream: 14.0, barrage: 16.5, walk: 18.3, past: 19.3, chain: 20.3,
+           away: 35.6, comeback: 36.3, weave: 37.6, kameCharge: 38.2, kameFire: 41.2, end: 44.3 },
+  barrageHits: 3,                                          // (3 weaves - then he gets to work)
+  dmg: { white: 0.45, flurry: 0.065, kick: 1.3, bounce: 1.8, weave: 2.5, beam: 0.18 },   // (about 55-60% all told - it can't be dodged)
   final: { dmg: 9, base: 620, growth: 6, angle: 35 },
   dodgeInvuln: 0.32, dodgeDist: 95 };
 const UI_STATS = { power: 1, speed: 1 };
@@ -11339,16 +11339,15 @@ function stepUiTransform(f, a, dt) {
     return;
   }
 
-  if (T < B.walk) {                                         // 3) THE BARRAGE: he weaves every one as he walks in
+  if (T < B.walk) {                                         // 3) THE BARRAGE: he weaves three of them as he walks in
     const span = B.walk - B.barrage, k = (T - B.barrage) / span;
     const i = Math.floor(k * UI.barrageHits), sub = k * UI.barrageHits - i;
     f.x = lerp(cx + 35, cx - 20, k); f.y = gy; f.face = -1;
     v.x = cx - 80 + 28 * Math.sin(clamp(sub / 0.6, 0, 1) * Math.PI); v.y = gy; v.face = 1;   // (steps into every swing)
-    const mv = v.moveset || {}, atk = ['jab', 'jab2', 'jab3', 'sideGround', 'kick1', 'kick2', 'dashAttack'].map(q => mv[q]).filter(m => m && m.strike);
+    const mv = v.moveset || {}, atk = ['jab', 'sideGround', 'jab3', 'kick1', 'dashAttack'].map(q => mv[q]).filter(m => m && m.strike);
     const m = atk.length ? atk[i % atk.length] : null;
     v.action.pose = m ? (sub < 0.45 ? m.wind : m.strike) : uiHurtPose(0.5);
-    // his weave: leaning out of the way, a different direction each time
-    const side = [1, -1, 0, 1, -1, 1, 0, -1, 1, -1][i % 10], dodge = Math.sin(clamp((sub - 0.35) / 0.5, 0, 1) * Math.PI);
+    const side = [1, 0, -1][i % 3], dodge = Math.sin(clamp((sub - 0.35) / 0.5, 0, 1) * Math.PI);
     a.pose = side === 0
       ? pose({ lean: 0.5 * dodge, bob: -6 - 22 * dodge, legA: [0.5, 0.4 + 0.8 * dodge], legB: [-0.4, 0.3 + 0.9 * dodge], armA: [0.2, 0.0] })   // ducks under it
       : pose({ lean: -0.55 * side * dodge, bob: -6 - 5 * dodge, legA: [0.45 + 0.15 * Math.sin(T * 7), 0.3], legB: [-0.4 - 0.15 * Math.sin(T * 7), 0.3], armA: [0.25, 0.0] });
@@ -11366,7 +11365,7 @@ function stepUiTransform(f, a, dt) {
     return;
   }
 
-  if (T < B.flurry1) {                                      // 5) ...and a storm of white hits lands on them all at once
+  if (T < B.chain) {                                        // 5) ...and a storm of white hits lands on them all at once
     f.x = cx - 200; f.face = -1; a.pose = pose({ lean: 0.02, bob: -5, legA: [0.35, 0.25], legB: [-0.3, 0.25], armA: [0.25, -0.1] });
     a.hitT = (a.hitT || 0) - rdt;
     if (a.hitT <= 0) {
@@ -11379,76 +11378,70 @@ function stepUiTransform(f, a, dt) {
     return;
   }
 
-  if (T < B.tl1) {                                          // 6) a teleport FLURRY
-    if (once('f1start')) { a.n = 0; a.blinkT = 0; a.bigT = 1.2; v.y = gy - 40; }
-    v.x = cx - 80; v.y = gy - 40;
-    a.blinkT -= rdt; a.bigT -= rdt;
-    if (a.blinkT <= 0) { a.blinkT += 0.11; const big = a.bigT <= 0; if (big) a.bigT = 1.2; uiBlinkStrike(f, a, v, big); }
-    a.cam = { x: v.x, y: v.y - 60, z: 1.55, speed: 5 };
-    return;
-  }
-
-  // 7) TOP LEFT -> TELEPORT KICK further -> TELEPORT, caught and kicked DOWN into the stage
-  const P0 = { x: cx - 80, y: gy - 40 }, P1 = { x: cx - 260, y: gy - 300 }, P2 = { x: cx - 420, y: gy - 470 }, P3 = { x: cx - 300, y: gy };
-  if (T < B.tl2) {
-    if (once('tl1')) {
-      f.x = P0.x + 60; f.y = P0.y + 30; f.face = -1; a.pose = LANCE_MOVES.jab4.strike;
-      uiDamage(f, v, UI.dmg.kick); uiHitFx(v, P0.x, P0.y - 55, true, UI.glow); uiNote(0.6);
-    }
-    const p = uiTween(T, B.tl1, B.tl2, P0.x, P0.y, P1.x, P1.y);
-    v.x = p.x; v.y = p.y; v.action.pose = uiFlyPose(-p.k * 4);
-    a.cam = { x: lerp(cx - 80, P1.x, 0.6), y: gy - 230, z: 1.0, speed: 6 };
-    return;
-  }
-  if (T < B.down) {
-    if (once('tl2')) {
-      ghosts.push({ fig: figureOf(f), life: 0.25, max: 0.25, color: UI.color }); if (sfx.vanish) sfx.vanish(0.6);
-      f.x = P1.x + 55; f.y = P1.y + 40; f.face = -1; a.pose = LANCE_MOVES.highKick.strike;
-      uiDamage(f, v, UI.dmg.kick); uiHitFx(v, P1.x, P1.y - 55, true, UI.glow);
-    }
-    const p = uiTween(T, B.tl2, B.down, P1.x, P1.y, P2.x, P2.y);
-    v.x = p.x; v.y = p.y; v.action.pose = uiFlyPose(-4 - p.k * 4);
-    a.cam = { x: (P1.x + P2.x) / 2, y: gy - 360, z: 0.95, speed: 6 };
-    return;
-  }
-  const DOWN_HIT = B.down + 0.1, LAND = B.down + 0.4;
-  if (T < B.flurry2) {
-    if (once('down')) {
-      ghosts.push({ fig: figureOf(f), life: 0.25, max: 0.25, color: UI.color }); if (sfx.vanish) sfx.vanish(0.6);
-      f.x = P2.x + 10; f.y = P2.y - 90; f.face = -1; a.pose = LANCE_MOVES.dair.wind;   // over them...
-    }
-    if (T >= DOWN_HIT && once('downHit')) { a.pose = LANCE_MOVES.dair.strike2 || LANCE_MOVES.dair.strike; uiDamage(f, v, UI.dmg.kick); uiHitFx(v, P2.x, P2.y - 40, true, UI.glow); }
-    if (T < DOWN_HIT) { v.x = P2.x; v.y = P2.y; }
-    else if (T < LAND) { const p = uiTween(T, DOWN_HIT, LAND, P2.x, P2.y, P3.x, P3.y, k => k * k); v.x = p.x; v.y = p.y; v.action.pose = uiFlyPose(Math.PI * 0.5); }
-    else {                                                   // SLAMMED into the stage - their body bounces off it
-      if (once('slam')) {
-        cracks.push({ x: P3.x, y: gy, life: 4, max: 4, seed: Math.random() * 1000, size: 2 });
-        dust(P3.x, gy, 26, 3); ring(P3.x, gy - 10); shake = Math.max(shake, 24); sfx.huge();
-        impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: P3.x, y: gy - 20, ang: 0, all: false, focus: true };
-        uiDamage(f, v, UI.dmg.bounce);
+  if (T < B.away) {                                         // 6) THE CHAIN: kicked all round the stage, caught, combo'd, kicked again
+    if (!a.chain) a.chain = uiBuildChain(cx, gy, B.chain, B.away);
+    let i = a.chain.findIndex(st => T < st.t1); if (i < 0) i = a.chain.length - 1;
+    const st = a.chain[i], k = clamp((T - st.t0) / (st.t1 - st.t0), 0, 1);
+    if (once('chain' + i)) {                                 // a step starts
+      const prev = a.chain[i - 1];
+      if (prev && prev.catch) {                              // ...the teleport CATCH lands as they arrive
+        a.pose = LANCE_MOVES.jab4.strike; uiDamage(f, v, UI.dmg.kick * 0.6); uiHitFx(v, v.x, v.y - 55, true, UI.glow);
       }
-      const bt = T - LAND, bh = Math.max(0, Math.sin(Math.min(1, bt / 0.45) * Math.PI)) * 90;
-      v.x = P3.x; v.y = gy - bh; v.action.pose = uiFlyPose(Math.PI * 0.5 + bt * 3);
-      f.x = P3.x + 120; f.y = gy; f.face = -1; a.pose = pose({ lean: 0.02, bob: -5, legA: [0.35, 0.25], legB: [-0.3, 0.25], armA: [0.25, -0.1] });   // dropped down beside them
+      if (st.type === 'kick') {                              // struck from the side they're about to fly away from
+        const dx = Math.sign(st.to.x - st.from.x) || 1;
+        ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: UI.color });
+        f.x = st.from.x - dx * 58; f.y = Math.min(st.from.y + 20, gy); f.face = dx;
+        a.pose = LANCE_MOVES[st.pose] ? (LANCE_MOVES[st.pose].strike2 || LANCE_MOVES[st.pose].strike) : LANCE_MOVES.kick2.strike;
+        uiDamage(f, v, UI.dmg.kick); uiHitFx(v, st.from.x, st.from.y - 55, true, UI.glow); uiNote(0.5);
+      } else if (st.type === 'slam') {                       // from right above them - driven into the stage
+        ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: UI.color }); if (sfx.vanish) sfx.vanish(0.6);
+        f.x = st.from.x + 10; f.y = st.from.y - 90; f.face = st.from.x < cx ? 1 : -1;
+        a.pose = LANCE_MOVES.dair.strike2 || LANCE_MOVES.dair.strike;
+        uiDamage(f, v, UI.dmg.kick); uiHitFx(v, st.from.x, st.from.y - 40, true, UI.glow);
+      } else if (st.type === 'combo') { a.blinkT = 0; a.bigT = st.big || 1.1; }
     }
-    a.cam = { x: lerp(P2.x, P3.x, clamp((T - B.down) / 0.5, 0, 1)), y: lerp(gy - 380, gy - 110, clamp((T - B.down) / 0.5, 0, 1)), z: 1.05, speed: 5 };
-    return;
-  }
-
-  if (T < B.away) {                                         // 8) another flurry as they come off the floor
-    if (once('f2start')) { a.blinkT = 0; a.bigT = 1.3; }
-    v.x = P3.x; v.y = gy - 50;
-    a.blinkT -= rdt; a.bigT -= rdt;
-    if (a.blinkT <= 0) { a.blinkT += 0.11; const big = a.bigT <= 0; if (big) a.bigT = 1.3; uiBlinkStrike(f, a, v, big); }
-    a.cam = { x: v.x, y: v.y - 60, z: 1.55, speed: 5 };
+    if (st.type === 'combo') {                               // a teleport flurry right where they are
+      v.x = st.from.x; v.y = st.from.y;
+      a.blinkT -= rdt; a.bigT -= rdt;
+      if (a.blinkT <= 0) { a.blinkT += 0.11; const big = a.bigT <= 0; if (big) a.bigT = 1.1; uiBlinkStrike(f, a, v, big); }
+      a.cam = { x: v.x, y: v.y - 60, z: 1.45, speed: 5 };
+    } else if (st.type === 'kick') {                         // they fly; he blinks ahead to meet them
+      const e = easeOut(k);
+      v.x = lerp(st.from.x, st.to.x, e); v.y = lerp(st.from.y, st.to.y, e) - Math.sin(Math.PI * k) * (st.arc || 0);
+      v.action.pose = uiFlyPose((Math.sign(st.to.x - st.from.x) || 1) * k * 5);
+      if (st.catch && k >= 0.55 && once('tp' + i)) {
+        ghosts.push({ fig: figureOf(f), life: 0.25, max: 0.25, color: UI.color }); if (sfx.vanish) sfx.vanish(0.6);
+        const dx = Math.sign(st.to.x - st.from.x) || 1;
+        f.x = st.to.x + dx * 62; f.y = Math.min(st.to.y + 20, gy); f.face = -dx;
+        a.pose = pose({ lean: 0.1, bob: -8, legA: [0.5, 0.4], legB: [-0.45, 0.3], armA: [0.9, -0.6] });   // waiting for them
+      }
+      a.cam = { x: (st.from.x + st.to.x) / 2, y: Math.min(st.from.y, st.to.y) - 90, z: 1.05, speed: 5 };
+    } else if (st.type === 'slam') {                         // spiked down... SLAMMED into the stage, bouncing off it
+      const down = 0.45;
+      if (k < down) { const q = k / down; v.x = lerp(st.from.x, st.to.x, q); v.y = lerp(st.from.y, gy, q * q); v.action.pose = uiFlyPose(Math.PI * 0.5); }
+      else {
+        if (once('slam' + i)) {
+          cracks.push({ x: st.to.x, y: gy, life: 3, max: 3, seed: st.to.x, size: 2 });
+          dust(st.to.x, gy, 24, 3); ring(st.to.x, gy - 10); shake = Math.max(shake, 22); sfx.huge();
+          impactFrame = Math.max(impactFrame, 0.07); impactAt = { x: st.to.x, y: gy - 20, ang: 0, all: false, focus: true };
+          uiDamage(f, v, UI.dmg.bounce);
+          f.x = st.to.x + 110; f.y = gy; f.face = -1; a.pose = pose({ lean: 0.02, bob: -5, legA: [0.35, 0.25], legB: [-0.3, 0.25], armA: [0.25, -0.1] });
+        }
+        const q = (k - down) / (1 - down);
+        v.x = st.to.x; v.y = gy - Math.sin(q * Math.PI) * 90; v.action.pose = uiFlyPose(Math.PI * 0.5 + q * 3);
+      }
+      a.cam = { x: st.to.x, y: gy - 130, z: 1.15, speed: 5 };
+    }
+    a.vEnd = { x: v.x, y: v.y };
     return;
   }
 
   // 9) blasted off the stage... they come flying back in, swinging - he WEAVES under it and hits them on the way past
-  const A0 = { x: P3.x, y: gy - 50 }, A1 = { x: cx + 160, y: gy - 330 }, W0 = { x: cx + 40, y: gy - 50 };
+  const A0 = { x: (a.vEnd ? a.vEnd.x : cx - 100), y: gy - 50 }, A1 = { x: cx + 160, y: gy - 330 };
   if (T < B.comeback) {
     if (once('away')) {
-      f.x = A0.x - 60; f.y = gy; f.face = 1; a.pose = LANCE_MOVES.jab4.strike;
+      const dA = Math.sign(A1.x - A0.x) || 1;
+      f.x = A0.x - dA * 60; f.y = gy; f.face = dA; a.pose = LANCE_MOVES.jab4.strike;
       uiDamage(f, v, UI.dmg.bounce); uiHitFx(v, A0.x, A0.y - 55, true, UI.glow);
     }
     const p = uiTween(T, B.away, B.comeback, A0.x, A0.y, A1.x, A1.y);
@@ -11507,6 +11500,40 @@ function stepUiTransform(f, a, dt) {
   v.action = null;
   knock(v, { ...UI.final }, -1, powerOf(f), v.x, v.y - 55);   // (a strong hit - not ultimate-finisher knockback)
   f.action = { type: 'land', t: 0, dur: 0.2 };
+}
+// THE CHAIN (the middle of the Ultra Instinct cutscene): kicked across the stage, teleport-CAUGHT, combo'd, kicked up,
+// spiked into the floor, bounced, combo'd... a different place and a different hit every time. Positions are relative to
+// the scene's middle (cx, gy = the floor). The flurries stretch to fill the time so it always ends on the beat.
+const UI_CHAIN = [
+  { type: 'combo', dur: 1.2 },
+  { type: 'kick', dur: 0.45, to: [250, -240], pose: 'highKick', arc: 60, catch: true },
+  { type: 'combo', dur: 1.2 },
+  { type: 'slam', dur: 0.8, to: [120, 0] },
+  { type: 'combo', dur: 1.0, low: true },
+  { type: 'kick', dur: 0.45, to: [-300, -110], pose: 'kick2', arc: 40, catch: true },
+  { type: 'kick', dur: 0.4, to: [-260, -420], pose: 'uair', arc: 0, catch: true },
+  { type: 'combo', dur: 1.1 },
+  { type: 'slam', dur: 0.8, to: [-150, 0] },
+  { type: 'kick', dur: 0.5, to: [190, -60], pose: 'dashAttack', arc: 30, catch: true },
+  { type: 'combo', dur: 1.2 },
+  { type: 'kick', dur: 0.45, to: [160, -380], pose: 'upRanged', arc: 0, catch: true },
+  { type: 'slam', dur: 0.8, to: [40, 0] },
+  { type: 'combo', dur: 1.3, low: true },
+];
+function uiBuildChain(cx, gy, t0, t1) {
+  const fixed = UI_CHAIN.reduce((s, st) => s + (st.type === 'combo' ? 0 : st.dur), 0);
+  const comboBase = UI_CHAIN.reduce((s, st) => s + (st.type === 'combo' ? st.dur : 0), 0);
+  const stretch = Math.max(0.5, (t1 - t0 - fixed) / comboBase);
+  let t = t0, pos = { x: cx - 80, y: gy - 40 };
+  return UI_CHAIN.map(st => {
+    const dur = st.type === 'combo' ? st.dur * stretch : st.dur;
+    const step = { ...st, t0: t, t1: t + dur, from: { ...pos } };
+    if (st.to) step.to = { x: cx + st.to[0], y: gy + st.to[1] };
+    if (st.type === 'combo') step.from = { x: pos.x, y: Math.min(pos.y, gy - (st.low ? 45 : 40)) };
+    if (step.to) pos = { x: step.to.x, y: st.type === 'slam' ? gy - 45 : step.to.y };
+    t += dur;
+    return step;
+  });
 }
 // the cutscene's beam (drawn in the world, over the fighters) and the ki ball charging in his hand
 function drawUiKame(f) {
