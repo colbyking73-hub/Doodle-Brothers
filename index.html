@@ -7915,7 +7915,7 @@ const CHARACTERS = {
       auraShield: true,       // blocking = his aura flares up around him (no bubble)
       trackDash: true,        // physical attacks start with a tiny dash toward a nearby opponent
       transformAura: '#ffd23f',  // Super Saiyan: golden aura
-      ssjHair: '#ffe066',        // ...and spiky golden hair standing straight up
+      ssjHair: '#ffe066',        // ...and layered golden Super Saiyan hair (Ultra Instinct: his bowl cut, white)
       kiMark: true,              // passive: ki hits MARK them -> his next Z vanish teleports behind them
       // GOKU-STYLE GI: orange top and pants, blue undershirt, blue sash belt, blue boots (no tail any more)
       gi: { main: '#f2761e', dark: '#c4560f', blue: '#1f45b0' },
@@ -15308,37 +15308,64 @@ function drawFigure(fig, opts = {}) {
     ctx.fillStyle = Math.sin(time * 9) > -0.3 ? '#ff6a1a' : '#ffb02e';
     ctx.fillRect(head.x + f * 19 - 1.5, head.y + 5.5, 3, 3);
   }
-  if (look.ssjHair && (fig.transformed || fig.lanceForm)) {
-    // SUPER SAIYAN: golden spikes shooting straight up, swept slightly back, with a fringe spike on the forehead
-    const hairCol = sketch ? PAPER : opts.tint || (fig.ui ? UI.hair : look.ssjHair);   // (Ultra Instinct: white)
-    const sway = Math.sin(time * 18) * 1.5;                    // hair crackles with power
-    const spikes = [ // [base angle (0 = up, + = toward his face), length, width]
-      [-1.35, 20, 0.45], [-0.95, 27, 0.4], [-0.5, 34, 0.38], [-0.05, 38, 0.36], [0.4, 31, 0.36], [0.85, 22, 0.4], [1.25, 14, 0.42]];
-    ctx.fillStyle = hairCol;
-    ctx.beginPath(); ctx.arc(head.x, head.y - 1, 14, Math.PI, 0); ctx.fill();       // base of the hair
-    for (const [ang, len, w] of spikes) {
-      const a0 = ang * f - Math.PI / 2 - f * 0.12;             // swept a touch back
-      const bx = head.x + Math.cos(a0) * 10, by = head.y - 1 + Math.sin(a0) * 10;
-      const tx = head.x + Math.cos(a0) * (10 + len) + sway * f, ty = head.y - 1 + Math.sin(a0) * (10 + len);
-      ctx.beginPath();
-      ctx.moveTo(head.x + Math.cos(a0 - w) * 12, head.y - 1 + Math.sin(a0 - w) * 12);
-      ctx.lineTo(tx, ty);
-      ctx.lineTo(head.x + Math.cos(a0 + w) * 12, head.y - 1 + Math.sin(a0 + w) * 12);
-      ctx.closePath(); ctx.fill();
-      if (sketch && !opts.tint) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }
+  if (look.ssjHair && !fig.ui && (fig.transformed || fig.lanceForm)) {   // (Ultra Instinct = his NORMAL bowl cut, just white - below)
+    // SUPER SAIYAN HAIR (Goku style), drawn in LAYERS: tall darker spikes at the back sweeping up and back, a gold middle
+    // layer fanning over the crown, and bright forelocks falling over his forehead - every spike curved, ink-outlined and
+    // lit with a streak. It's ALIVE: each spike sways on its own, the whole mane pulses with his energy and it blows back
+    // when he moves. Super Saiyan 2 = longer, sharper spikes and the single iconic bang.
+    const form = fig.lanceForm || 1;
+    const gold = sketch ? PAPER : opts.tint || look.ssjHair;
+    const deep = sketch || opts.tint ? gold : '#d9a21c', lite = sketch || opts.tint ? gold : '#fff3a6';
+    const outline = sketch || !opts.tint;
+    const hairInk = sketch ? ink : '#7a4f08';                        // dark amber line art
+    const L = form === 2 ? 1.16 : 1, Wd = form === 2 ? 0.82 : 1;
+    const X = dx => head.x + f * dx, Y = dy => head.y + dy;
+    const wind = clamp((fig.vx || 0) * f / 900, -1, 1) * 0.28 + clamp((fig.vy || 0) / 1400, -1, 1) * 0.12;   // blown back by his movement
+    // [base x, base y (head-local, +x = toward his face), angle (0 = up, + = toward his face), length, half-width, curl]
+    const BACK = [[-10, -2, -2.15, 15, 4.5, 0.12], [-7, -6, -1.75, 23, 5, -0.14], [-5, -9, -1.25, 30, 5.5, -0.12],
+                  [-2, -11, -0.75, 36, 6, -0.1], [1, -12, -0.28, 40, 6, -0.07], [5, -11, 0.18, 33, 5.5, 0.02]];
+    const MID = [[-9, -4, -1.55, 18, 5, -0.12], [-5, -9, -0.98, 25, 5, -0.1], [-1, -11, -0.48, 29, 5, -0.04],
+                 [4, -11, 0.22, 24, 5, 0.1], [9, -8, 0.8, 17, 4.5, 0.2]];
+    const FRONT = form === 2 ? [[6, -11, 2.75, 19, 3, 0.22]]
+                             : [[11, -7, 2.25, 11, 3, 0.12], [8, -10, 2.55, 15, 3.5, 0.16], [4, -11, 2.85, 12, 3, 0.2]];
+    const spike = ([bx, by, ang, len, w, curl], i, grow = 1) => {
+      const front = ang > 1.5;                                          // forelocks hang, they don't blow as much
+      const a = ang + Math.sin(time * 11 + i * 1.9) * (front ? 0.05 : 0.08) - (front ? wind * 0.3 : wind);
+      const ln = len * L * grow * (front ? 1 : 1 + 0.05 * Math.sin(time * 9 + i * 2.3)), ww = w * Wd * grow;
+      const dx = Math.sin(a), dy = -Math.cos(a), nx = Math.cos(a), ny = Math.sin(a);
+      const cx = bx + dx * ln * 0.55 + nx * curl * ln, cy = by + dy * ln * 0.55 + ny * curl * ln;
+      const tx = bx + dx * ln + nx * curl * ln * 1.3, ty = by + dy * ln + ny * curl * ln * 1.3;
+      ctx.beginPath(); ctx.moveTo(X(bx - nx * ww), Y(by - ny * ww));
+      ctx.quadraticCurveTo(X(cx - nx * ww * 0.55), Y(cy - ny * ww * 0.55), X(tx), Y(ty));
+      ctx.quadraticCurveTo(X(cx + nx * ww * 0.55), Y(cy + ny * ww * 0.55), X(bx + nx * ww), Y(by + ny * ww));
+      ctx.closePath();
+      return { bx, by, cx, cy, tx, ty };
+    };
+    const layer = (list, col, streak, i0) => {
+      const out = [];
+      list.forEach((sp, i) => { out.push(spike(sp, i0 + i)); ctx.fillStyle = col; ctx.fill();
+        if (outline) { ctx.strokeStyle = hairInk; ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.stroke(); } });
+      if (streak && !sketch && !opts.tint) {                           // a light streak up each spike
+        ctx.strokeStyle = streak; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+        for (const r of out) { ctx.beginPath(); ctx.moveTo(X(lerp(r.bx, r.cx, 0.4)), Y(lerp(r.by, r.cy, 0.4))); ctx.quadraticCurveTo(X(r.cx), Y(r.cy), X(lerp(r.cx, r.tx, 0.55)), Y(lerp(r.cy, r.ty, 0.55))); ctx.stroke(); }
+      }
+    };
+    layer(BACK, deep, gold, 0);                                         // 1) the tall back spikes, a shade darker
+    ctx.fillStyle = gold;                                               // the scalp under it all
+    ctx.beginPath(); ctx.arc(head.x, head.y - 1, 13, Math.PI * 1.02, Math.PI * 1.98); ctx.fill();
+    if (outline) { ctx.strokeStyle = hairInk; ctx.lineWidth = 1.4; ctx.stroke(); }
+    layer(MID, gold, lite, 10);                                         // 2) the middle layer, fanning over the crown
+    if (!sketch && !opts.tint) {                                        // shadow where the forelocks meet the brow
+      ctx.fillStyle = 'rgba(150,90,10,0.35)';
+      ctx.beginPath(); ctx.ellipse(X(6), Y(-9), 7, 3, 0, 0, Math.PI * 2); ctx.fill();
     }
-    // single bang hanging over the forehead (Gohan style)
-    ctx.beginPath();
-    ctx.moveTo(head.x + f * 4, head.y - 12); ctx.lineTo(head.x + f * 13, head.y + 5); ctx.lineTo(head.x + f * 9, head.y - 10);
-    ctx.closePath(); ctx.fill();
-    if (!sketch && !opts.tint) {                                // bright highlight on the spikes
-      ctx.fillStyle = '#fff6c2'; ctx.fillRect(head.x - 4, head.y - 14, 8, 3);
-    }
+    layer(FRONT, lite, null, 20);                                       // 3) bright forelocks over his forehead
   } else if (look.bowl) {
     // Blonde BOWL CUT - drawn as HAIR, not a helmet: a soft, slightly shaggy mop with a choppy fringe of separate
     // locks across the forehead, longer locks hanging down over the ear at the back, strand lines, a shine and a
     // little tuft sticking up on the crown. (f = which way he faces: the fringe is at the front.)
-    const hc = sketch ? PAPER : opts.tint || look.bowl, sw = Math.sin(time * 4) * 0.6;
+    const bowlC = fig.ui && look.ssjHair ? UI.hair : look.bowl;       // Lance in Ultra Instinct: same cut, silver-white
+    const hc = sketch ? PAPER : opts.tint || bowlC, sw = Math.sin(time * 4) * 0.6;
     const X = dx => head.x + f * dx, Y = dy => head.y + dy;
     ctx.fillStyle = hc;
     ctx.beginPath();
@@ -15352,7 +15379,7 @@ function drawFigure(fig, opts = {}) {
     ctx.closePath(); ctx.fill();
     if (sketch && !opts.tint) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.stroke(); }
     else if (!opts.tint) {
-      ctx.strokeStyle = shade(look.bowl, 0.72); ctx.lineWidth = 1.2; ctx.lineCap = 'round';   // strands, sweeping down from the crown
+      ctx.strokeStyle = shade(bowlC, 0.72); ctx.lineWidth = 1.2; ctx.lineCap = 'round';   // strands, sweeping down from the crown
       for (const [sx, ex, ey] of [[-6, -10, 3], [-1, -4, 2], [4, 3, 2], [8, 9, 1]]) {
         ctx.beginPath(); ctx.moveTo(X(sx * 0.6), Y(-16)); ctx.quadraticCurveTo(X(sx), Y(-8), X(ex), Y(ey)); ctx.stroke();
       }
