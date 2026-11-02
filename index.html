@@ -5848,8 +5848,8 @@ const LEGION_SEQ = [
 const LEGION_KITS = {
   COLBY:     [['neutralRanged', 'far', 'slash'], ['jab3', 'mid', 'kick'], ['scythe3', 'up', 'slash'], ['downGround', 'flat', 'kick'], ['upRanged', 'up', 'slash'],
               ['bair', 'far', 'kick'], ['scythe2', 'arc', 'slash'], ['upGround', 'up', 'kick'], ['downRanged', 'mid', 'slash'], ['fairR', 'far', 'slash'], ['uair', 'up', 'kick']],
-  COLTEN:    [['neutralRanged', 'far', 'slash'], ['sideGround', 'mid', 'slash'], ['jab3', 'mid', 'kick'], ['scythe3', 'up', 'slash'], ['downGround', 'flat', 'kick'],
-              ['upGround', 'up', 'slash'], ['scythe2', 'arc', 'slash'], ['dashAttack', 'far', 'slash'], ['downRanged', 'mid', 'slash'], ['jab', 'slide', 'slash']],
+  COLTEN:    [['neutralRanged', 'far', 'slash'], ['sideGround', 'mid', 'slash'], ['jab3', 'flat', 'slash'], ['upGround', 'up', 'slash'], ['downGround', 'slide', 'slash'],
+              ['dashAttack', 'far', 'slash'], ['downRanged', 'mid', 'slam'], ['jab2', 'up', 'slash'], ['sideRanged', 'slide', 'slash'], ['fair', 'flat', 'slash']],
   SEVON:     [['jab', 'mid', 'fire'], ['sideGround', 'far', 'fire'], ['upGround', 'up', 'fire'], ['downGround', 'flat', 'fire'], ['dashAttack', 'far', 'fire'],
               ['jab3', 'mid', 'fire'], ['unknowingFire', 'slide', 'fire'], ['jab2', 'up', 'fire'], ['nair', 'mid', 'fire'], ['blazingUniverse', 'flat', 'fire']],
   AIDEN:     [['@suplex', 'suplex', 'grab'], ['neutralRanged', 'far', 'slam'], ['jab3', 'mid', 'slam'], ['@powerbomb', 'bomb', 'grab'], ['sideGround', 'far', 'kick'],
@@ -7175,7 +7175,28 @@ function buildEcho(src) {
   }
   return out;
 }
-const COLTEN_MOVES = buildEcho(COLBY_MOVES);
+// COLTEN THE KNIGHT: his own kit again - big, slow, GIANT greatsword slashes (the old Ganondorf-style set), made even
+// slower and heavier: every swing takes longer to come out and to recover from, and hits a lot harder. A third hit on
+// his J string: GIANT'S CRASH, the sword raised overhead and brought straight down.
+const COLTEN_KNIGHT = { startup: 1.2, endlag: 1.15, dmg: 1.15, base: 1.06, reach: 1.08 };
+COLTEN_GANON.jab2.combo = 'jab3';
+COLTEN_GANON.jab3 = { name: "Giant's Crash", startup: 0.2, active: 0.1, endlag: 0.42, sweep: true, lunge: 180, lungeFriction: 0.5,
+  hitboxes: [...bladeHits(40, -150, 110, -170, 3, { dmg: 10, base: 470, growth: 6.5, angle: 50 }, { from: 0, to: 0.04 }),
+             ...bladeHits(50, -60, 165, -20, 5, { dmg: 13, base: 520, growth: 7.2, angle: 55 }, { from: 0.03, to: 0.1 })],
+  wind: pose({ lean: -0.35, bob: -4, legA: [0.7, 0.5], legB: [-0.7, 0.2], armA: [3.0, -0.3], armB: [2.7, -0.4], sw: 3.3 }),   // raised all the way overhead
+  strike: pose({ lean: 0.55, bob: -16, legA: [1.15, 0.8], legB: [-1.0, 0.1], armA: [1.1, 0], armB: [0.9, -0.3], sw: 1.05 }),   // brought straight down in front
+  fire(f) { sfx.slash(1.3); dust(f.x + f.face * 130, f.y, 14, 2); cracks.push({ x: f.x + f.face * 130, y: f.y, life: 2, max: 2, seed: f.x, size: 1 }); shake = Math.max(shake, 10); } };
+function buildKnight(src) {
+  const K = COLTEN_KNIGHT, out = {};
+  for (const [k, m] of Object.entries(src)) {
+    if (!m || typeof m !== 'object') { out[k] = m; continue; }
+    const e = { ...m, startup: m.startup * K.startup, endlag: m.endlag * K.endlag };
+    if (m.hitboxes) e.hitboxes = m.hitboxes.map(h => ({ ...h, x: h.x * K.reach, r: (h.r || 26) * 1.05, dmg: Math.round(h.dmg * K.dmg * 10) / 10, base: h.base * K.base }));
+    out[k] = e;
+  }
+  return out;
+}
+const COLTEN_MOVES = buildKnight(COLTEN_GANON);
 // COLBY'S SCYTHE, toned down (he was the strongest character): every scythe move is a bit slower to start and to
 // recover, and so is the scythe throw (which also flies a little slower). Colby only - Colten keeps his own speeds.
 const COLBY_NERF = { scythe: 1.17, recover: 1.14, throwStart: 1.3, throwRecover: 1.2, throwSpeed: 0.88 };
@@ -7957,15 +7978,13 @@ const CHARACTERS = {
   STICKMAN: { moves: STICKMAN_MOVES, stats: {}, look: {} },
   COLTEN: {
     moves: COLTEN_MOVES,
-    // Slow and heavy-handed: sturdier than Lance and Colby, not as sturdy as Aiden
-    stats: { runSpeed: 630, airSpeed: 510, jumpVel: 1170, doubleJumpVel: 1050, weight: 1.1 },
+    // THE KNIGHT: slow on his feet, in plate armor - heavy, hard to launch, and every swing hits like a truck
+    stats: { runSpeed: 560, airSpeed: 470, jumpVel: 1140, doubleJumpVel: 1020, weight: 1.16 },
     look: {
-      body: '#3fae49',          // green
-      foreSpikes: '#6b4423',    // brown hair, spiked up only at the forehead
-      glasses: true,            // rectangle reading glasses
+      body: '#9aa4ae',          // steel plate (his green is on the tabard and the plume)
+      knight: { steel: '#b9c1ca', dark: '#6c7580', tabard: '#2f9a3a', trim: '#e8c64a', plume: '#3fae49' },   // KNIGHT ARMOR - see drawKnightArmor
       greatsword: true,         // the huge sword (drawn in his front hand, angle from the pose's "sw")
       weapon: 'sword',          // his own weapon (Colby's is the scythe) - see WEAPONS
-      timeStop: true,           // (echo of Colby: bare-handed down K = Time Stop, TIME meter)
       auraArmor: true,          // transformed: glowing aura armor (ultra armor + less knockback)
       transformAura: '#7dffb0',
       // PROUD stance: chest out, standing tall, the greatsword held up in front of him, blade pointing to the
@@ -8144,7 +8163,6 @@ CHARACTERS.COLBY.transformStats = { power: 1.1, speed: 1.3 };   // the lightning
 CHARACTERS.COLBY.look.transformAura = '#7fd8ff';
 CHARACTERS.COLBY.look.godSpeed = true;
 CHARACTERS.COLBY.bareMoves = COLBY_PUNCHES;  // used while his scythe is thrown
-CHARACTERS.COLTEN.bareMoves = COLBY_PUNCHES; // Colten (Colby's echo): the same bare-handed string while his sword is thrown
 // AIDEN'S TAUNTS - three little skits (see HEEL_TAUNT / heelTauntStep / drawHeelTauntProps):
 //   UP   : RUM BARREL - hops up onto a barrel of rum, lights a cigar... puffs - and the smoke pours straight out of his
 //          ribcage (he's a SKELETON). Realises, hops down, flicks the cigar at the barrel: KA-BOOM.
@@ -15688,7 +15706,8 @@ function drawFigure(fig, opts = {}) {
     }
   }
   if (look.flameHair) drawFlameHair(head, f, opts, main, fig);   // SEVON: swept-back ginger hair, orange tips
-  if (look.ranger) drawRangerSuit(hip, shoulder, head, pz, f, opts);   // SEVON's alt: the BLUE RANGER - helmet, chest diamonds, belt, boots
+  if (look.ranger) drawRangerSuit(hip, shoulder, head, pz, f, opts);
+  if (look.knight) drawKnightArmor(hip, shoulder, head, pz, f, opts, look.knight);   // COLTEN: plate armor, tabard and great helm   // SEVON's alt: the BLUE RANGER - helmet, chest diamonds, belt, boots
   // COLTEN: rectangle reading glasses
   if (look.glasses && !opts.tint) {
     ctx.strokeStyle = sketch ? main : '#141414'; ctx.lineWidth = 1.8;
@@ -15725,7 +15744,8 @@ function drawFigure(fig, opts = {}) {
   else limb(shoulder, pz.armA, 16, 15, f);
   if (look.greatsword && !grip && !fig.noScythe) (look.katana ? drawKatana : drawGreatsword)(shoulder, pz, f, opts);   // the greatsword (Sevon: katana), in his front hand
   if (look.auraArmor && fig.transformed && !opts.tint && !sketch) drawAuraArmor(hip, shoulder, head, f);
-  if (look.ranger && !opts.tint) drawRangerGloves(shoulder, pz, f, look);   // (white gloves, over his hands on the hilt)
+  if (look.ranger && !opts.tint) drawRangerGloves(shoulder, pz, f, look);
+  if (look.knight && !opts.tint) { const h = swordHold(shoulder, pz, f).hand; ctx.fillStyle = sketch ? main : look.knight.dark; ctx.beginPath(); ctx.arc(h.x, h.y, 5, 0, Math.PI * 2); ctx.fill(); }   // (his gauntlet)   // (white gloves, over his hands on the hilt)
   ctx.restore();
 }
 // BLUE RANGER (Sevon's alt skin): the blue suit with the white diamond band across the chest, a silver belt with the
@@ -15760,6 +15780,54 @@ function drawRangerSuit(hip, shoulder, head, pz, f, opts) {
   // ...and the silver mouth plate
   ctx.fillStyle = '#c8ccd4'; ctx.beginPath(); ctx.moveTo(X(5), Y(4)); ctx.lineTo(X(12.5), Y(3)); ctx.lineTo(X(11), Y(9)); ctx.lineTo(X(6), Y(9.5)); ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#ffffff'; ctx.fillRect(X(f > 0 ? -2 : -1) - 0.5, Y(-13), 3, 7);   // white stripe down the crown
+  ctx.lineCap = 'round';
+}
+// COLTEN'S KNIGHT ARMOR: a steel breastplate under a green tabard with a gold hem, a round pauldron on the shoulder, and a
+// GREAT HELM over his whole head - flat-topped steel with a black eye slit, breathing holes and a green plume streaming
+// back off the crown.
+function drawKnightArmor(hip, shoulder, head, pz, f, opts, K) {
+  if (opts.tint) return;
+  const steel = sketch ? '#ffffff' : K.steel, dark = sketch ? '#1b1b1b' : K.dark;
+  const ux = (shoulder.x - hip.x) / TORSO, uy = (shoulder.y - hip.y) / TORSO, nx = -uy, ny = ux;
+  // breastplate
+  ctx.strokeStyle = steel; ctx.lineCap = 'round'; ctx.lineWidth = 13;
+  ctx.beginPath(); ctx.moveTo(hip.x + ux * 7, hip.y + uy * 7); ctx.lineTo(shoulder.x - ux * 2, shoulder.y - uy * 2); ctx.stroke();
+  // the tabard: a green panel down the front, past the hips, with a gold hem
+  ctx.fillStyle = sketch ? '#ffffff' : K.tabard;
+  const t0 = { x: shoulder.x - ux * 3 + f * 2, y: shoulder.y - uy * 3 }, t1 = { x: hip.x - ux * 12 + f * 2, y: hip.y - uy * 12 };
+  ctx.beginPath(); ctx.moveTo(t0.x - nx * 4.5, t0.y - ny * 4.5); ctx.lineTo(t0.x + nx * 4.5, t0.y + ny * 4.5);
+  ctx.lineTo(t1.x + nx * 6, t1.y + ny * 6); ctx.lineTo(t1.x - nx * 6, t1.y - ny * 6); ctx.closePath(); ctx.fill();
+  if (!sketch) {
+    ctx.strokeStyle = K.trim; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(t1.x - nx * 6, t1.y - ny * 6); ctx.lineTo(t1.x + nx * 6, t1.y + ny * 6); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.2;                        // a shine down the steel
+    ctx.beginPath(); ctx.moveTo(hip.x + ux * 9 - nx * 4, hip.y + uy * 9 - ny * 4); ctx.lineTo(shoulder.x - ux * 4 - nx * 4, shoulder.y - uy * 4 - ny * 4); ctx.stroke();
+  }
+  // a steel belt over the tabard
+  ctx.strokeStyle = dark; ctx.lineWidth = 3;
+  const bx = hip.x + ux * 4, by = hip.y + uy * 4;
+  ctx.beginPath(); ctx.moveTo(bx - nx * 7, by - ny * 7); ctx.lineTo(bx + nx * 7, by + ny * 7); ctx.stroke();
+  // pauldron
+  ctx.fillStyle = steel; ctx.beginPath(); ctx.arc(shoulder.x + f * 1, shoulder.y + 2, 8.5, Math.PI, 0); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = dark; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(shoulder.x + f * 1, shoulder.y + 2, 6, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
+  // the plume, streaming back off the crown (behind the helm)
+  const X = dx => head.x + f * dx, Y = dy => head.y + dy, sway = Math.sin(time * 5 + head.x * 0.02) * 2;
+  if (!sketch) {
+    ctx.fillStyle = K.plume;
+    ctx.beginPath(); ctx.moveTo(X(2), Y(-14));
+    ctx.quadraticCurveTo(X(-8), Y(-26), X(-22 + sway), Y(-12));
+    ctx.quadraticCurveTo(X(-12), Y(-16), X(-4), Y(-11)); ctx.closePath(); ctx.fill();
+  }
+  // the GREAT HELM: a flat-topped steel bucket over the whole head
+  ctx.fillStyle = steel;
+  ctx.beginPath(); ctx.moveTo(X(-12), Y(9)); ctx.lineTo(X(-12), Y(-9)); ctx.quadraticCurveTo(X(-11), Y(-14), X(-4), Y(-14.5));
+  ctx.lineTo(X(8), Y(-14.5)); ctx.quadraticCurveTo(X(13), Y(-13), X(13), Y(-7)); ctx.lineTo(X(13.5), Y(9)); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = dark;
+  ctx.fillRect(Math.min(X(2), X(13.5)), Y(-4), 11.5, 2.8);                                        // the eye slit
+  ctx.fillRect(Math.min(X(6.5), X(8)), Y(-1), 1.5, 8);                                             // the nose bar
+  for (const [dx, dy] of [[10, 3], [10, 6], [12, 4.5]]) { ctx.beginPath(); ctx.arc(X(dx), Y(dy), 0.9, 0, Math.PI * 2); ctx.fill(); }   // breathing holes
+  ctx.fillRect(Math.min(X(-12), X(13.5)), Y(-10), 25.5, 1.6);                                    // the riveted brow band
+  if (!sketch) { ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(Math.min(X(-8), X(-5)), Y(-12), 3, 18); }   // shine
   ctx.lineCap = 'round';
 }
 function drawRangerGloves(shoulder, pz, f, look) {
@@ -18533,19 +18601,31 @@ const MOVESETS = {
       'MORE DODGES: 7 Z vanishes in the air and 6 ground dodges (everyone else: 5 / 4) - because summoning spends them.',
       'GLASS JAW: he takes the most knockback in the game - but his own hits do 15% more damage to make up for it. Keep your distance and let the clones work.',
       'D-E-M-O-N METER: fills as he lands hits - full = Hellwave on down K.' ] } ] },
-  COLTEN: { blurb: 'Colby\'s rival: the same kit as Colby, but every weapon move is done with a HUGE greatsword - more reach, more damage, slower.', sections: [
-    { title: 'SAME INPUTS AS COLBY', notes: [
-      'Colten has Colby\'s whole moveset (look at COLBY for every input) - kicks on J, weapon moves on K, side K throws the weapon, and the bare-handed set while it is thrown.',
-      'Every weapon move uses the GREATSWORD: about 15% more reach and 25% more damage, but about 15% slower.',
-      'His kicks hit 10% harder and are a touch slower - he is the heavier rival.' ] },
-    COLBY_SECTIONS.ground, COLBY_SECTIONS.k, COLBY_SECTIONS.bare,
+  COLTEN: { blurb: 'The knight: full plate armor and a HUGE greatsword. The slowest swings in the game - and the hardest hitting. Charge them.', sections: [
+    { title: 'GROUND J', rows: [
+      ['J J J', "Warlord Slash > Rising Backhand > Giant's Crash", 'A wide slash, a heavy rising backhand, then the sword brought straight down from overhead.'],
+      ['SIDE J', 'Dread Cleaver', 'The sword raised behind his head and brought down in a giant diagonal arc. Hold to charge.'],
+      ['UP J', 'Heaven Cleaver', 'A huge arc from in front, up over his head and down behind. Hold to charge.'],
+      ['DOWN J', 'Ground Reaper', 'Sweeps the blade along the floor in front, then behind. Hold to charge.'],
+      ['RUN + J', 'Charging Thrust', 'Runs the sword straight through them.'] ] },
+    { title: 'AIR J', rows: [
+      ['AIR J', 'Whirlwind Blade', 'The sword spun all the way round him.'],
+      ['AIR FWD J', 'Executioner', 'A huge overhead chop - the end of it spikes.'],
+      ['AIR BACK J', 'Backhand Cleave', 'A flat cut behind him.'],
+      ['AIR UP J', 'Sky Splitter', 'An arc over his head.'],
+      ['AIR DOWN J', 'Impaler', 'The sword driven straight down beneath him - spikes.'] ] },
+    { title: 'K', rows: [
+      ['K', 'Warlock Blade', 'A long wind-up, then a giant thrust wreathed in dark energy. Hold to charge - one of the strongest hits in the game.'],
+      ['SIDE K', 'Gerudo Dash', 'Charges across the ground with the blade out, cutting through whoever is there.'],
+      ['UP K', 'Dark Ascension', 'His recovery: rockets up with the sword raised, cutting on the way.'],
+      ['DOWN K', "Warlord's Quake", 'Plunges the greatsword into the ground: the floor erupts on both sides of him. Hold to charge.'] ] },
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
-      ['I (FULL METER)', 'WARLORD', 'A suit of glowing AURA ARMOR: small hits don\'t flinch him, and he takes less knockback.'],
+      ['I (FULL METER)', 'WARLORD', 'A suit of glowing AURA ARMOR over his plate: small hits don\'t flinch him, and he takes less knockback.'],
       ['I (TRANSFORMED)', "Warlord's Judgment", 'Three giant greatsword swings - every one a CRITICAL hit.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
-      'RIVAL WEAPONS: if Colby throws his scythe while Colten is empty-handed, Colten can press K to CATCH it - he hits even harder with it, but swings slower.',
-      'TIME STOP: like Colby, bare-handed down K with a full time meter freezes them in time.' ] } ] },
+      'Slow: about 20% slower to swing and 15% slower to recover than his old set, and slower on his feet.',
+      'Heavy: every swing hits about 15% harder, and in his plate he is one of the hardest fighters to launch.' ] } ] },
   SEVON: { blurb: 'The Flame Hashira: a fast samurai with flaming sword forms, ODM gear to grapple onto you, and Total Concentration breathing.', sections: [
     { title: 'GROUND J', rows: [
       ['J J J', 'Flame Cut > Rising Flame > Flame Crash', 'A three-hit flaming sword string.'],
