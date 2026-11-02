@@ -417,10 +417,39 @@ const PLATFORMS = [
 // STAGES (picked in GAME OPTIONS). Same size main stage; they differ in platforms and look.
 //   RUINS    = the original: rocky mesa in a ruined wasteland, three floating platforms
 //   HELLFIRE = completely FLAT (no platforms), a burning slab of obsidian floating over a sea of lava in hell
+//   THE PIT  = a deep DUNGEON pit: solid stone walls on both sides (no ledges, nobody falls off). Launch someone into a
+//              wall and they WALL BOUNCE off it for big damage - the only way out is UP: knock them out the top.
 const STAGE_LIST = [
   { name: 'RUINS', platforms: PLATFORMS.map(p => ({ ...p })) },
   { name: 'HELLFIRE', platforms: [], hell: true },
+  { name: 'THE PIT', pit: true, platforms: [{ x: 50, y: 330, w: 170 }, { x: 1060, y: 330, w: 170 }, { x: 530, y: 175, w: 220 }] },
 ];
+// THE PIT: walls just inside the stage's edges; the KO line is only at the top (lower than usual - it's the only way out)
+const PIT = { pad: 16, bounceMin: 480, keep: 0.62, dmgBase: 4, dmgPer: 1 / 130, dmgMax: 15, top: -560 };
+function pitWalls(f, dt) {
+  f.wallCD = Math.max(0, (f.wallCD || 0) - dt);
+  const L = STAGE.x + PIT.pad, R = STAGE.x + STAGE.w - PIT.pad;
+  const side = f.x < L ? -1 : f.x > R ? 1 : 0;
+  if (!side) return;
+  f.x = side < 0 ? L : R;
+  if (f.vx * side <= 0) return;                               // already moving away from it
+  const a = f.action, sp = Math.abs(f.vx);
+  if (!f.minion && a && a.type === 'hitstun' && sp > PIT.bounceMin && f.wallCD <= 0) {
+    // WALL BOUNCE: slammed into the stone, bounced back off it - hurts more the harder they hit it
+    const d = Math.min(PIT.dmgMax, PIT.dmgBase + sp * PIT.dmgPer);
+    f.damage += d; f.hitFlash = 0.12; if (!f.transformed) f.ult = Math.min(ULT_MAX, (f.ult || 0) + d);
+    f.vx = -f.vx * PIT.keep; f.vy = Math.min(f.vy, 0) - 140;
+    a.dur = Math.max(a.dur, a.t + 0.35); f.wallCD = 0.25;
+    shake = Math.max(shake, 8 + Math.min(14, sp / 150)); hitstop = Math.max(hitstop, 0.07);
+    burst(f.x + side * 12, f.y - 50, ['#8a8478', '#b4b4bb', '#5a5248'], 16, side < 0 ? 0 : Math.PI, 0.9, 420);
+    if (gore) burst(f.x + side * 8, f.y - 55, BLOOD, 8, side < 0 ? 0 : Math.PI, 0.7, 300, { stain: true });
+    pitCracks.push({ x: side < 0 ? STAGE.x : STAGE.x + STAGE.w, y: f.y - 50, side, life: 4, seed: f.y });
+    if (pitCracks.length > 12) pitCracks.shift();
+    painTexts.push({ x: f.x - side * 30, y: f.y - 130, t: 0.7, max: 0.7, text: 'WALL BOUNCE!', big: sp > 1100 });
+    sfx.slam(); if (sp > 1000) sfx.huge();
+  } else f.vx = 0;
+}
+const pitCracks = [];
 let stageDef = STAGE_LIST[0];
 function applyStage(i) {
   stageDef = STAGE_LIST[i] || STAGE_LIST[0];
@@ -11188,7 +11217,15 @@ function stepSsj2Cut(f, a, dt) {
     shake = Math.max(shake, 22); camPunch = 1; sfx.huge(); sfx.clash(true);
     burst(f.x, f.y - 55, ['#ffe066', '#ffffff', '#bfeaff'], 70, 0, Math.PI, 1000, { grav: 0 }); ring(f.x, f.y - 55); ring(f.x, f.y - 90);
   }
-  if (a.songT >= SSJ2_CUT.len) f.action = { type: 'land', t: 0, dur: 0.1 };
+  if (a.songT >= SSJ2_CUT.len) {
+    // ...and straight into IT'S MY TURN on whoever's nearest (like Ultra Instinct's awakening: the transform comes with a beating)
+    const v = nearestFoe(f);
+    if (v && v.respawnTimer <= 0 && !v.dead && !isIntangible(v) && !(v.halo > 0)) {
+      f.face = Math.sign(v.x - f.x) || f.face; f.ultPower = 1;
+      ultBanner = { t: 1.1, name: CHARACTERS.LANCE.altUlt.name, color: '#ffe066', who: f };
+      startUltSequence(f, v, CHARACTERS.LANCE.altUlt);
+    } else f.action = { type: 'land', t: 0, dur: 0.1 };
+  }
 }
 // (drawing - full screen, over everything)
 function drawSsj2Cut(f) {
@@ -13265,8 +13302,9 @@ function updateFighter(f, inp, dt) {
     if (Math.abs(f.vx) > 300 && Math.random() < dt * 10) dust(f.x - f.face * 10, f.y, 1, 0.4);
   }
 
+  if (stageDef.pit) pitWalls(f, dt);                    // THE PIT: the walls (and wall bounces)
   // Blast zones
-  if (f.x < BLAST.left || f.x > BLAST.right || f.y > BLAST.bottom || f.y < BLAST.top) {
+  if (f.x < BLAST.left || f.x > BLAST.right || f.y > BLAST.bottom || f.y < (stageDef.pit ? PIT.top : BLAST.top)) {
     if (f.minion) { killMinion(f, true); return; }      // a clone knocked off the stage just vanishes (no stock)
     f.kos++;
     f.cshot = 0; stopShotCharge(f);                     // (a stored Hellfire Shot is lost on a KO)
@@ -13308,6 +13346,7 @@ function canGrabLedge(f, inp) {
   return false;
 }
 function tryLedgeGrab(f, inp) {
+  if (stageDef.pit) return;                                       // (THE PIT: no ledges - just walls)
   if (f.ground || f.vy < -300 && !(f.action && f.action.key === 'upRanged')) return;
   if (!canGrabLedge(f, inp)) return;
   for (const side of [-1, 1]) {                                   // -1 = the left corner, +1 = the right corner
@@ -14146,7 +14185,16 @@ function cycleCharacter(f) {
 }
 
 // ---------------- Main update ----------------
+// GRAB DAMAGE (balance, Nov 2026): every bit of damage taken while GRABBED or being THROWN - pummels, every throw, command
+// grabs - is scaled down. Captain Heel's a bit more, but his throws still hit the hardest in the game.
+const GRAB_DMG = { all: 0.75, AIDEN: 0.95 };
 function update(dt) {
+  const held = [];
+  for (const v of fighters) { const a = v.action; if (a && (a.type === 'thrown' || a.type === 'grabbed') && a.holder) held.push([v, v.damage, a.holder]); }
+  updateSim(dt);
+  for (const [v, d0, h] of held) if (v.damage > d0) v.damage = d0 + (v.damage - d0) * GRAB_DMG.all * (GRAB_DMG[h.char] || 1);
+}
+function updateSim(dt) {
   time += dt;
 
   // Effects (one pass: move them, and pack the live ones down to the front - no per-particle splicing)
@@ -14519,6 +14567,7 @@ function drawPaper() {
 }
 
 function drawStageSketch() {
+  if (stageDef.pit) { drawPitStage(true); return; }
   const s = STAGE;
   const outline = () => {
     ctx.beginPath();
@@ -14559,6 +14608,7 @@ function drawStageSketch() {
 }
 
 function drawBackground() {
+  if (stageDef.pit) return drawPitBackground();
   if (stageDef.hell) return drawHellBackground();
   // Stormy charcoal-brown sky
   const g = ctx.createLinearGradient(0, 0, 0, 470);
@@ -14623,6 +14673,84 @@ const hellCracks = Array.from({ length: 9 }, (_, i) => {           // jagged lav
   while (y < 130) { pts.push([x, y]); x += (rnd() - 0.5) * 34; y += 12 + rnd() * 18; }
   return pts;
 });
+// THE PIT - a dungeon: a back wall of dark stone blocks, torches flickering in iron brackets, chains hanging from the
+// dark above, and a faint shaft of daylight from the opening far overhead
+function drawPitBackground() {
+  ctx.fillStyle = '#16120f'; ctx.fillRect(-2000, -2000, W + 4000, H + 4000);
+  const g = ctx.createLinearGradient(0, -700, 0, 520);                    // daylight from way up top, fading into the dark
+  g.addColorStop(0, 'rgba(200,190,160,0.22)'); g.addColorStop(0.45, 'rgba(90,80,64,0.08)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(STAGE.x, -900, STAGE.w, 1420);
+  // the back wall: rows of stone blocks
+  for (let row = 0; row < 26; row++) {
+    const y = 500 - (row + 1) * 46, off = row % 2 ? 0 : 55;
+    for (let x = STAGE.x - 110 + off; x < STAGE.x + STAGE.w + 110; x += 110) {
+      const n = hash(row * 31 + Math.floor(x / 110) * 7);
+      ctx.fillStyle = n < 0.33 ? '#2a241f' : n < 0.66 ? '#241f1b' : '#2f2823';
+      ctx.fillRect(snap(x + 3), snap(y + 3), 104, 40);
+      if (n > 0.8) { ctx.fillStyle = 'rgba(70,90,50,0.35)'; ctx.fillRect(snap(x + 10), snap(y + 30), 40, 10); }   // moss
+    }
+  }
+  // torches: iron bracket, flickering flame, a pool of warm light on the stone
+  for (const tx of [STAGE.x + 230, STAGE.x + STAGE.w / 2, STAGE.x + STAGE.w - 230]) {
+    const ty = 270, fl = 0.8 + 0.2 * Math.sin(time * 13 + tx) + 0.1 * Math.sin(time * 31 + tx * 2);
+    const rg = ctx.createRadialGradient(tx, ty, 4, tx, ty, 190 * fl);
+    rg.addColorStop(0, 'rgba(255,170,70,0.32)'); rg.addColorStop(1, 'rgba(255,120,40,0)');
+    ctx.fillStyle = rg; ctx.fillRect(tx - 200, ty - 200, 400, 400);
+    ctx.fillStyle = '#1a1714'; ctx.fillRect(snap(tx - 4), snap(ty + 4), 8, 22); ctx.fillRect(snap(tx - 9), snap(ty + 2), 18, 5);
+    ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.moveTo(tx - 7, ty + 3); ctx.quadraticCurveTo(tx - 2, ty - 18 * fl, tx, ty - 26 * fl); ctx.quadraticCurveTo(tx + 3, ty - 14 * fl, tx + 7, ty + 3); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffe066'; ctx.beginPath(); ctx.ellipse(tx, ty - 4, 3, 7 * fl, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  // chains hanging down out of the dark
+  ctx.strokeStyle = '#3c3833'; ctx.lineWidth = 3;
+  for (const cx of [STAGE.x + 380, STAGE.x + 800, STAGE.x + 980]) {
+    const sw = Math.sin(time * 0.8 + cx) * 6;
+    for (let k = 0; k < 18; k++) { const y = -500 + k * 22; ctx.beginPath(); ctx.ellipse(cx + sw * (k / 18), y, k % 2 ? 3 : 5, 9, 0, 0, Math.PI * 2); ctx.stroke(); }
+  }
+}
+// the floor, and the two great walls of the pit (drawn in front of the back wall, behind the fighters)
+function drawPitStage(sk = false) {
+  const s = STAGE, top = -1400, bot = s.y + s.h + 600;
+  const wall = (x0, w, side) => {
+    ctx.fillStyle = sk ? PAPER : '#3a332c'; ctx.fillRect(x0, top, w, bot - top);
+    if (!sk) for (let row = 0; row * 40 < bot - top; row++) {                       // big blocks
+      const y = top + row * 40, off = row % 2 ? 0 : 40;
+      for (let x = x0 - 80 + off; x < x0 + w; x += 80) {
+        const n = hash(row * 13 + Math.floor((x + 3000) / 80) * 17 + side * 5);
+        ctx.fillStyle = n < 0.4 ? '#4a4239' : n < 0.75 ? '#433b33' : '#514840';
+        ctx.fillRect(snap(Math.max(x0, x + 2)), snap(y + 2), Math.min(76, x0 + w - Math.max(x0, x + 2)), 36);
+      }
+    }
+    ctx.fillStyle = sk ? '#222' : '#1d1915';                                          // the inner face, in shadow
+    ctx.fillRect(side < 0 ? x0 + w - 6 : x0, top, 6, bot - top);
+  };
+  wall(s.x - 420, 420, -1); wall(s.x + s.w, 420, 1);
+  // cracks where people have been slammed into the walls
+  ctx.strokeStyle = sk ? '#222' : '#15120f'; ctx.lineWidth = 2;
+  for (const c of pitCracks) {
+    for (let k = 0; k < 5; k++) {
+      const a = (hash(c.seed + k) - 0.5) * 2.4, L = 14 + hash(c.seed * 3 + k) * 26;
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x - c.side * Math.cos(a) * L, c.y + Math.sin(a) * L); ctx.stroke();
+    }
+  }
+  // the floor: worn flagstones
+  ctx.fillStyle = sk ? PAPER : '#2c2620'; ctx.fillRect(s.x, s.y, s.w, bot - s.y);
+  if (!sk) {
+    ctx.fillStyle = '#5a5046'; ctx.fillRect(s.x, s.y, s.w, 6);
+    for (let x = s.x; x < s.x + s.w; x += 90) { ctx.fillStyle = '#211c17'; ctx.fillRect(snap(x), s.y + 6, 3, 40); }
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(s.x, s.y + 46, s.w, bot - s.y);
+  } else { ctx.strokeStyle = '#222'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + s.w, s.y); ctx.stroke();
+           ctx.beginPath(); ctx.moveTo(s.x, top); ctx.lineTo(s.x, s.y); ctx.moveTo(s.x + s.w, top); ctx.lineTo(s.x + s.w, s.y); ctx.stroke(); }
+  // stone ledges sticking out of the walls / a slab hanging on chains (the platforms)
+  for (const pl of PLATFORMS) {
+    ctx.fillStyle = sk ? PAPER : '#4f463d'; ctx.fillRect(pl.x, pl.y, pl.w, 14);
+    if (!sk) { ctx.fillStyle = '#6a5f53'; ctx.fillRect(pl.x, pl.y, pl.w, 3); ctx.fillStyle = '#2a241f'; ctx.fillRect(pl.x, pl.y + 11, pl.w, 3); }
+    else { ctx.strokeStyle = '#222'; ctx.lineWidth = 2; ctx.strokeRect(pl.x, pl.y, pl.w, 14); }
+    if (pl.x > s.x + 100 && pl.x + pl.w < s.x + s.w - 100) {                       // the hanging one: chains up into the dark
+      ctx.strokeStyle = sk ? '#222' : '#3c3833'; ctx.lineWidth = 2;
+      for (const cx of [pl.x + 14, pl.x + pl.w - 14]) { ctx.beginPath(); ctx.moveTo(cx, pl.y); ctx.lineTo(cx, -700); ctx.stroke(); }
+    }
+  }
+}
 function drawHellBackground() {
   const pulse = 0.5 + 0.5 * Math.sin(time * 2.2);
   // Sky: black at the top, burning blood-red down to an orange glow at the horizon
@@ -14751,6 +14879,7 @@ function drawHellStage() {
 }
 
 function drawStage() {
+  if (stageDef.pit) return drawPitStage();
   if (stageDef.hell) return drawHellStage();
   const s = STAGE;
   // Rocky mesa: dusty top, dark cracked rock underneath
@@ -17791,7 +17920,7 @@ function startMatch() {
   if (sandbox && netActive()) sandbox = false;
   SHOW_FIGHT_TEXT = sandbox;
   if (sandbox) { showControls = true; for (const f of fighters) f.stocks = Infinity; }
-  projectiles.length = 0; particles.length = 0; ghosts.length = 0; stains.length = 0; cracks.length = 0; painTexts.length = 0; scythes.length = 0; auraWaves.length = 0; ropeFx.length = 0;
+  projectiles.length = 0; particles.length = 0; ghosts.length = 0; stains.length = 0; cracks.length = 0; pitCracks.length = 0; painTexts.length = 0; scythes.length = 0; auraWaves.length = 0; ropeFx.length = 0;
   ult = null; demo = null; timeScale = 1; hitstop = 0; impactFrame = 0; critText = null; clashText = null; xray = null; slowmo = 0;
   paused = false; scene = 'fight';
   for (const p of padPrev) if (p) p.prev = {};
