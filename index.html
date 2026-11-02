@@ -8463,7 +8463,8 @@ const NINTH_POSE = {
   follow: pose({ lean: 0.6, bob: -20, legA: [1.2, 1.1], legB: [-1.0, 0.3], armA: [0.9, 0.05], armB: [0.8, 0.1], sw: 0.7 }),       // landed, blade swept through
 };
 const FLAME_DRAGON = {
-  summon: 2.25, endlag: 0.55,              // the coil + breath (REAL seconds - the rush leaves on the shout) / his follow-through
+  summon: 13.5, endlag: 0.55,              // the coil + breath (REAL seconds): the whole voice line plays and the rush leaves ON "...RENGOKU!" at the end / his follow-through
+  fill: 7.5,                               // how long his body takes to fill with flame (then he's fully ablaze, breathing fire, till the shout)
   speed: 1300, turn: 3.4, steer: 7.5, life: 1.6, r: 60,   // the rush: speed, homing turn rate, PLAYER steering turn rate (rad/s), how long it lasts, bite size
   carry: 0.5, carrySpeed: 700, tickEvery: 0.1,
   tick: { dmg: 2.2, base: 0, growth: 0, angle: 90, noStop: true },             // burning while it carries them
@@ -8483,7 +8484,7 @@ function startFlameDragon(f) {
 // he stays ablaze (and through the rush), streaming fire upward
 function drawNinthBlaze(p, a) {
   const T = a.phase === 'summon' ? (a.songT || 0) : 99;
-  const k = clamp(T / 1.6, 0, 1), fig = figureOf(p), now = performance.now() / 1000;
+  const k = clamp(T / FLAME_DRAGON.fill, 0, 1), fig = figureOf(p), now = performance.now() / 1000;
   const top = p.y - (p.h + 26) * easeInOut(k);                      // the fill line, climbing
   ctx.save();
   ctx.beginPath(); ctx.rect(p.x - 160, top, 320, p.y - top + 40); ctx.clip();
@@ -8528,6 +8529,10 @@ function stepFlameDragon(f, a, dt) {
     const k = a.songT / FLAME_DRAGON.summon;
     shake = Math.max(shake, 2 + 5 * k);
     if (Math.random() < dt * 40) burst(f.x + (Math.random() - 0.5) * 50, f.y - 6, SEVON_FIRE, 2, -Math.PI / 2, 0.5, 260, { grav: -300 });   // fire rising off the floor
+    // the BREATH: every ~1.2s a pulse of flame rolls out off him - harder and faster as the shout gets closer
+    const every = a.songT > FLAME_DRAGON.summon - 2.5 ? 0.45 : 1.2;
+    a.breathT = (a.breathT || 0) - dt / uiRealRate();
+    if (a.breathT <= 0) { a.breathT = every; auraWaves.push({ x: f.x, y: f.y - 55, t: 0, dur: 0.6, max: 120 + 140 * k, color: '#ff7a1a' }); if (k > 0.5) ring(f.x, f.y - 55); }
     if (a.songT >= FLAME_DRAGON.summon) {
       a.phase = 'release'; a.t = 0;
       flameSlash(f, 60, -70, 30); ring(f.x + f.face * 60, f.y - 70);
