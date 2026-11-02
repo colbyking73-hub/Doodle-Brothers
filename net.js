@@ -14,6 +14,12 @@
 //  else's presses for that step have time to arrive. If they haven't arrived, the game waits.
 //  CPUs need no inputs: their AI runs inside the shared fight, identically on every computer.
 //  A checksum of the fight is compared every second to catch the games drifting apart (DESYNC).
+//
+//  ROLLBACK (the default - the host can switch the room to DELAY): your own presses happen almost straight away
+//  (RB.delay steps), and the game never stops to wait for a friend's presses - it GUESSES them (whatever they were
+//  holding last). Every step is saved (rbSave in index.html). When their real presses arrive and the guess was wrong,
+//  the game loads the save from that step and quietly REPLAYS up to now with the right presses (rbLoad / rbReplay).
+//  It only waits if someone's presses fall more than RB.maxBack steps behind.
 // =====================================================================
 (() => {
   const PREFIX = 'stickman-brawl-v1-';            // PeerJS ids: PREFIX + 5-letter room code
@@ -21,6 +27,7 @@
   const HASH_EVERY = 120;                          // compare fight checksums every 120 steps (1 second)
   const STALL_DROP = 10;                           // seconds of waiting for a player before giving up
   const SLOTS = 4;
+  const RB = { delay: 2, maxBack: 18 };          // ROLLBACK: our own input delay (steps), how far back it can rewind (steps)
 
   // Which version of the game this is: everyone must run the same one (any change to the game
   // changes the fight, so mismatched versions would drift apart)
@@ -44,6 +51,7 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
     r.state = () => a;
+    r.set = v => { a = v; };                       // (rollback: put the random numbers back exactly as they were at an earlier step)
     return r;
   }
 
@@ -115,6 +123,7 @@
 
   // Local test mode (?nettest in the address): tabs / frames on this computer talk through BroadcastChannels
   const LOCAL_TEST = /[?&]nettest/.test(location.search);
+  const LOCAL_LAG = +((location.search.match(/[?&]lag=(\d+)/) || [])[1] || 0);   // (local test: fake a laggy connection - ms each way, plus jitter)
   function localPeer(id) {
     // a tiny fake of the bits of PeerJS we use
     const handlers = {};
@@ -127,7 +136,13 @@
   function localConn(me, them, initiator) {
     const h = {};
     const ch = new BroadcastChannel('sb-conn-' + [me, them].sort().join('-'));
-    const c = { open: false, on: (ev, fn) => { h[ev] = fn; }, send: d => ch.postMessage({ from: me, d }), close() { ch.postMessage({ from: me, bye: 1 }); ch.close(); h.close && h.close(); } };
+    let lastAt = 0;
+    const send = d => {                               // (with ?lag=: arrives late and jittery - but in order, like a real connection)
+      if (!LOCAL_LAG) return ch.postMessage({ from: me, d });
+      const at = Math.max(performance.now() + LOCAL_LAG + realRandom() * LOCAL_LAG * 0.6, lastAt); lastAt = at;
+      setTimeout(() => { try { ch.postMessage({ from: me, d }); } catch (e) {} }, at - performance.now());
+    };
+    const c = { open: false, on: (ev, fn) => { h[ev] = fn; }, send, close() { ch.postMessage({ from: me, bye: 1 }); ch.close(); h.close && h.close(); } };
     ch.onmessage = e => {
       if (e.data.from === me) return;
       if (e.data.bye) { h.close && h.close(); return; }
@@ -382,7 +397,7 @@
       if (!d.dev) players[i].off = true;                    // (nothing left to play it with)
     }
     N.me = mySlots(N)[0] !== undefined ? mySlots(N)[0] : N.me;
-    if (N.role === 'guest') { gameOptions.stage = N.opts.stage; gameOptions.stocks = N.opts.stocks; gameOptions.teams = !!N.opts.teams; netTurbo = !!N.opts.turbo; }
+    if (N.role === 'guest') { gameOptions.stage = N.opts.stage; gameOptions.stocks = N.opts.stocks; gameOptions.teams = !!N.opts.teams; netTurbo = !!N.opts.turbo; gameOptions.netcode = N.opts.rollback === false ? 'DELAY' : 'ROLLBACK'; }
   }
   // the select screen -> the room (run every frame on the select screen while in a room)
   function syncFromPlayers() {
@@ -400,7 +415,7 @@
         p.name = name;
         N.slots[i] = { ...emptySlot(i), kind: 'human', owner: 0, name, char: p.char, alt: p.alt || 0, team: p.team || 0, build: BUILD };
       });
-      N.opts = { stage: gameOptions.stage || 0, stocks: gameOptions.stocks, teams: !!gameOptions.teams, turbo: !!netTurbo };   // (TURBO: the host's choice, for everyone)
+      N.opts = { stage: gameOptions.stage || 0, stocks: gameOptions.stocks, teams: !!gameOptions.teams, turbo: !!netTurbo, rollback: gameOptions.netcode !== 'DELAY' };   // (TURBO: the host's choice, for everyone)
       if (JSON.stringify([N.slots, N.opts]) !== N.lastRoster) broadcastRoster();
     } else {
       for (const i of mySlots(N)) {
@@ -491,11 +506,13 @@
     cam.x = W / 2; cam.y = 390; cam.z = 1;
     startMatch();
     for (const i of N.humans) fighterPool[i].controller = 'net';
-    const inputs = {}, carry = {};
-    for (const i of N.humans) { inputs[i] = new Map(); carry[i] = null; for (let t = 0; t < m.delay; t++) inputs[i].set(t, emptyInput()); }
+    const rollback = m.opts.rollback !== false, delay = rollback ? RB.delay : m.delay;
+    const inputs = {}, carry = {}, recvTop = {};
+    for (const i of N.humans) { inputs[i] = new Map(); carry[i] = null; recvTop[i] = delay - 1; for (let t = 0; t < delay; t++) inputs[i].set(t, emptyInput()); }
     Object.assign(N, {
-      active: true, tick: 0, delay: m.delay, rng: makeRng(m.seed),
-      inputs, carry, sentUpTo: m.delay - 1, outbox: {}, outStart: null, recvTop: {},
+      active: true, tick: 0, delay, rng: makeRng(m.seed),
+      rb: rollback ? { snaps: new Map(), guess: {}, redoFrom: null, prov: new Map(), rollbacks: 0, deepest: 0 } : null,
+      inputs, carry, sentUpTo: delay - 1, outbox: {}, outStart: null, recvTop,
       cur: null, hashes: new Map(), theirHashes: new Map(), desynced: false,
       stalledSince: 0, escAt: 0, waitingOn: null,
     });
@@ -507,6 +524,17 @@
     for (const k in ps) {
       const map = N.inputs[k];
       if (!map) continue;
+      if (N.rb) {                                       // ROLLBACK: keep them even for steps already played - a wrong guess = rewind
+        ps[k].forEach((e, i) => {
+          const t = t0 + i;
+          if (t < N.tick - RB.maxBack - 4 || map.has(t)) return;
+          const inp = dec(e); map.set(t, inp);
+          const g = N.rb.guess[k] && N.rb.guess[k].get(t);
+          if (g) { N.rb.guess[k].delete(t); if (JSON.stringify(enc(g)) !== JSON.stringify(e)) N.rb.redoFrom = N.rb.redoFrom === null ? t : Math.min(N.rb.redoFrom, t); }
+        });
+        N.recvTop[k] = Math.max(N.recvTop[k] ?? -1, t0 + ps[k].length - 1);
+        continue;
+      }
       ps[k].forEach((e, i) => { const t = t0 + i; if (t >= N.tick) map.set(t, dec(e)); });
       N.recvTop[k] = Math.max(N.recvTop[k] ?? -1, t0 + ps[k].length - 1);   // (how far ahead their inputs have reached)
     }
@@ -518,6 +546,12 @@
   function netPace() {
     const N = netplay;
     if (!N || !N.active || !N.recvTop) return 1;
+    if (N.rb) {                                        // ROLLBACK: don't run too far ahead of the others' real presses
+      let ahead = -Infinity;
+      for (const i of N.humans) if (!N.mine.includes(i)) ahead = Math.max(ahead, N.tick - (N.recvTop[i] ?? -1));
+      if (ahead === -Infinity) return 1;
+      return ahead > RB.maxBack * 0.7 ? 0.9 : ahead > RB.maxBack * 0.45 ? 0.96 : 1;
+    }
     let slack = Infinity;
     for (const i of N.humans) if (!N.mine.includes(i)) slack = Math.min(slack, (N.recvTop[i] ?? -1) - N.tick);
     if (slack === Infinity) return 1;
@@ -525,8 +559,89 @@
     if (slack > N.delay * 0.9) return 1.06;
     return 1;
   }
+  // ---------- ROLLBACK ----------
+  const noTaps = inp => { const g = { ...inp }; for (const k of BITS) if (k.endsWith('Tap')) g[k] = false; g.flyTap = 0; g.cFlick = null; g.taunt = 0; return g; };
+  function rbGuess(i, t) {                           // their presses for a step we haven't heard about yet: same as last time (no new taps)
+    const N = netplay, map = N.inputs[i];
+    for (let k = t - 1; k >= t - RB.maxBack - 4; k--) { const v = map.get(k); if (v) return noTaps(v); }
+    return emptyInput();
+  }
+  function rbStep() {                                 // play ONE step (saving it first), with real presses where we have them
+    const N = netplay, R = N.rb, t = N.tick;
+    R.snaps.set(t, { S: rbSave(), rng: N.rng.state(), carry: { ...N.carry } });
+    const ins = {};
+    for (const i of N.humans) {
+      const real = N.inputs[i].get(t);
+      if (real) ins[i] = real;
+      else { ins[i] = rbGuess(i, t); (R.guess[i] || (R.guess[i] = new Map())).set(t, ins[i]); }
+    }
+    if (hitstop > 0) {
+      hitstop -= STEP;
+      for (const i of N.humans) N.carry[i] = mergeIn(N.carry[i], ins[i]);
+    } else {
+      N.cur = {};
+      for (const i of N.humans) { N.cur[i] = mergeIn(N.carry[i], ins[i]); N.carry[i] = null; }
+      simRng = N.rng;
+      try { update(STEP); } finally { simRng = null; }
+      N.cur = null;
+    }
+    rbStepClocks();
+    N.tick++;
+    if (N.tick % HASH_EVERY === 0) R.prov.set(N.tick, simHash());   // (only sent once every press up to here is real)
+    const old = t - RB.maxBack - 4;
+    R.snaps.delete(old);
+    for (const i of N.humans) { N.inputs[i].delete(old - 1); if (R.guess[i]) R.guess[i].delete(old); }
+  }
+  function netTickRB() {
+    const N = netplay, R = N.rb;
+    while (N.sentUpTo < N.tick + N.delay) {           // our own presses: recorded + sent a couple of steps ahead
+      const ti = ++N.sentUpTo;
+      if (N.outStart === null) N.outStart = ti;
+      for (const i of N.mine) {
+        const e = enc(sampleLocal(players[i]));
+        N.inputs[i].set(ti, dec(e));
+        (N.outbox[i] || (N.outbox[i] = [])).push(e);
+      }
+      for (const k in pressed) delete pressed[k];
+    }
+    // a guess was WRONG: back to that step, and replay everything since with the real presses
+    if (R.redoFrom !== null) {
+      const from = R.redoFrom; R.redoFrom = null;
+      const snap = R.snaps.get(from);
+      if (snap && from < N.tick) {
+        const target = N.tick;
+        rbLoad(snap.S); N.rng.set(snap.rng); N.carry = { ...snap.carry }; N.tick = from;
+        for (const i of N.humans) if (R.guess[i]) for (const k of [...R.guess[i].keys()]) if (k >= from) R.guess[i].delete(k);
+        rbReplay(() => { while (N.tick < target) rbStep(); });
+        R.rollbacks++; R.deepest = Math.max(R.deepest, target - from);
+      }
+    }
+    // too far ahead of someone's real presses: wait for them (like the old netcode, but only after RB.maxBack steps)
+    const missing = N.humans.find(i => !N.mine.includes(i) && N.tick - (N.recvTop[i] ?? -1) > RB.maxBack);
+    if (missing !== undefined) {
+      if (!N.stalledSince) N.stalledSince = performance.now();
+      N.waitingOn = missing;
+      return false;
+    }
+    N.stalledSince = 0; N.waitingOn = null;
+    rbStep();
+    // checksums: only for steps where EVERYONE's real presses are in (so nothing can roll back past them any more)
+    let conf = Infinity;
+    for (const i of N.humans) conf = Math.min(conf, N.mine.includes(i) ? N.sentUpTo : (N.recvTop[i] ?? -1));
+    for (const [tk, h] of R.prov) {
+      if (tk - 1 > conf || tk > N.tick) continue;
+      R.prov.delete(tk);
+      N.hashes.set(tk, h);
+      if (N.role === 'host') broadcast({ k: 'hash', t: tk, h }); else toHost({ k: 'hash', t: tk, h });
+      const theirsH = N.theirHashes.get(tk);
+      if (theirsH !== undefined && theirsH !== h) desync(tk);
+    }
+    for (const k of N.hashes.keys()) if (k < N.tick - HASH_EVERY * 10) { N.hashes.delete(k); N.theirHashes.delete(k); }
+    return true;
+  }
   // One game step online. Returns false (and the game waits) if someone's inputs aren't here yet.
   function netTick() {
+    if (netplay.rb) return netTickRB();
     const N = netplay, t = N.tick;
     while (N.sentUpTo < t + N.delay) {                 // record + send our players' inputs for a step a little in the future
       const ti = ++N.sentUpTo;
@@ -667,7 +782,7 @@
     sctx.save();
     sctx.font = '10px "Press Start 2P", monospace';
     sctx.textAlign = 'right'; sctx.fillStyle = 'rgba(255,255,255,0.55)';
-    sctx.fillText('ONLINE  ' + (N.role === 'guest' && N.ping ? N.ping + 'ms  ' : '') + 'DELAY ' + Math.round(N.delay * STEP * 1000) + 'ms', W - 12, H - 10);
+    sctx.fillText('ONLINE  ' + (N.role === 'guest' && N.ping ? N.ping + 'ms  ' : '') + (N.rb ? 'ROLLBACK' : 'DELAY ' + Math.round(N.delay * STEP * 1000) + 'ms'), W - 12, H - 10);
     if (N.escAt && performance.now() - N.escAt < 1500) {
       sctx.textAlign = 'center'; sctx.fillStyle = '#ffd23f'; sctx.font = '14px "Press Start 2P", monospace';
       sctx.fillText('PRESS ESC AGAIN TO LEAVE THE MATCH', W / 2, 60);
@@ -961,6 +1076,7 @@
   })();
 
   // hooks the game calls
+  window.__netTest = { storeInputs, enc, dec, makeRng, RB };   // (for testing rollback without a real connection)
   Object.assign(window, { netTick, netAfterFrame, netInputFor, netPace, netEscape, netBackToLobby, netDrawOverlay,
                           sbNet: { host, join, leave, leaveRoom, invite, addLocal, hostStart, BUILD, ui, enc, dec, simHash } });
 })();

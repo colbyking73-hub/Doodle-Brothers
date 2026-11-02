@@ -14299,10 +14299,7 @@ function update(dt) {
     if (v.minion && !v.dead && !(v.owner && v.owner.transformed) && !(v.action && (v.action.type === 'thrown' || v.action.type === 'grabbed'))) killMinion(v);
   }
 }
-function updateSim(dt) {
-  time += dt;
-
-  // Effects (one pass: move them, and pack the live ones down to the front - no per-particle splicing)
+function updateEffects(dt) {
   let alive = 0;
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
@@ -14352,6 +14349,12 @@ function updateSim(dt) {
   for (let i = cracks.length - 1; i >= 0; i--) { cracks[i].life -= dt; if (cracks[i].life <= 0) cracks.splice(i, 1); }
   for (let i = painTexts.length - 1; i >= 0; i--) { painTexts[i].t -= dt; if (painTexts[i].t <= 0) painTexts.splice(i, 1); }
   if (ultBanner) { ultBanner.t -= dt; if (ultBanner.t <= 0) ultBanner = null; }
+}
+function updateSim(dt) {
+  time += dt;
+
+  if (!RB.resim) updateEffects(dt);                         // (sparks, stains, after-images, texts: not while ROLLBACK replays steps)
+
 
   // While an ultimate is playing, it runs the show: everything else is paused
   if (ult) {
@@ -14574,7 +14577,7 @@ function updateSim(dt) {
   else if (cutNow === 'flameDragon') updateProjectiles(dt, 'dragon');   // (Sevon's cutscene: only his dragon moves)
   updateScythes(dt);
   weaponWatchdog(dt);
-  updateAuraWaves(dt);
+  if (!RB.resim) updateAuraWaves(dt);
   updateRopes(dt);
   updateCamera(dt);
 }
@@ -17716,6 +17719,7 @@ const GO_CLEAN = { x: GO_PANEL.x + 12, y: GO_PANEL.y + 88, w: 244, h: 30 };
 const GO_TURBO = { x: GO_PANEL.x + 12, y: GO_PANEL.y + 123, w: 244, h: 30 };
 const GO_WATCH = { x: GO_PANEL.x + 12, y: GO_PANEL.y + 158, w: 244, h: 30 };
 const GO_STAGE = { x: GO_PANEL.x + 12, y: GO_PANEL.y + 193, w: 244, h: 30 };   // click = next stage
+const GO_NET = { x: GO_PANEL.x + 12, y: GO_PANEL.y + 224, w: 244, h: 14 };      // ONLINE ROOM: click = ROLLBACK / DELAY netcode (host)
 function changeStocks(d) {               // 0 = FREE PLAY, then 1..99 (wraps around)
   gameOptions.stocks = (gameOptions.stocks + d + 100) % 100;
   saveOptions(); menuSfx('move');
@@ -17782,6 +17786,8 @@ function selectClick(p) {
   if (netRoom()) {                                  // ONLINE ROOM: invite / leave, and only the host changes the match options
     if (inRect(pt, TURBO_BTN) || inRect(pt, GO_TURBO)) return sbNet.invite();
     if (inRect(pt, GO_WATCH)) return sbNet.leaveRoom();
+    if (!netGuest() && inRect(pt, GO_NET)) { gameOptions.netcode = gameOptions.netcode === 'DELAY' ? 'ROLLBACK' : 'DELAY'; saveOptions(); menuSfx('pick');
+      selMsg = { text: gameOptions.netcode === 'DELAY' ? 'NETCODE: DELAY - waits for everyone (steadier on a bad connection)' : 'NETCODE: ROLLBACK - no input lag', t: 2.2 }; return; }
     if (netGuest() && (inRect(pt, TEAMS_BTN) || (inRect(pt, GO_PANEL) && !inRect(pt, GO_CLEAN)))) {
       selMsg = { text: 'THE HOST PICKS THE STAGE, STOCKS AND TEAMS', t: 1.8 }; menuSfx('back'); return;
     }
@@ -17945,7 +17951,7 @@ function selectUpdate(dt) {
 //   stocks: lives per player, 1-99 (0 = FREE PLAY: unlimited, like before)
 //   cleanHud: hide all the demo/debug text (controls list, demo labels) for real matches
 const gameOptions = (() => {
-  const d = { stocks: 3, cleanHud: false, stage: 0, teams: false };   // stage = index into STAGE_LIST; teams = 2v2 etc.
+  const d = { stocks: 3, cleanHud: false, stage: 0, teams: false, netcode: 'ROLLBACK' };   // stage = index into STAGE_LIST; teams = 2v2 etc.
   try { const s = JSON.parse(localStorage.getItem('stickman-brawl-options') || 'null'); if (s) return { ...d, ...s }; } catch (e) {}
   return d;
 })();
@@ -18028,6 +18034,7 @@ function startMatch() {
   if (sandbox) { showControls = true; for (const f of fighters) f.stocks = Infinity; }
   projectiles.length = 0; particles.length = 0; ghosts.length = 0; stains.length = 0; cracks.length = 0; pitCracks.length = 0; painTexts.length = 0; scythes.length = 0; auraWaves.length = 0; ropeFx.length = 0;
   ult = null; demo = null; timeScale = 1; hitstop = 0; impactFrame = 0; critText = null; clashText = null; xray = null; slowmo = 0;
+  lastXray = -1e9; camPunch = 0; ultBanner = null; for (const k of Object.keys(weaponLost)) delete weaponLost[k];   // (nothing left over from the last match - online, every computer must start the fight identically)
   paused = false; scene = 'fight';
   for (const p of padPrev) if (p) p.prev = {};
   menuSfx('go');
@@ -18210,7 +18217,12 @@ function drawSelect() {
         text('STAGE', r.x + 10, r.y + 20, 9, hov(r) ? '#0e0c0c' : '#ffffff', 'left', false);
         text(st.name + ' >', r.x + r.w - 10, r.y + 20, 10, st.hell ? '#ffb02e' : '#ffd23f', 'right', false);
       }
-      text('FREE = UNLIMITED LIVES  -  HOLD < > = FAST', P.x + 16, P.y + 234, 6, '#806b5a', 'left', false);
+      if (netRoom()) {                                         // ONLINE ROOM: the NETCODE switch (the host's choice)
+        const r = GO_NET, on = gameOptions.netcode !== 'DELAY', h2 = !netGuest() && hov(r);
+        if (h2) { sctx.fillStyle = '#ffffff'; sctx.fillRect(r.x, r.y - 2, r.w, r.h + 2); }
+        text('NETCODE', r.x + 4, r.y + 10, 7, h2 ? '#0e0c0c' : '#b4b4bb', 'left', false);
+        text((on ? 'ROLLBACK' : 'DELAY') + (netGuest() ? '' : ' >'), r.x + r.w - 4, r.y + 10, 7, h2 ? '#0e0c0c' : on ? '#7be08a' : '#ffd23f', 'right', false);
+      } else text('FREE = UNLIMITED LIVES  -  HOLD < > = FAST', P.x + 16, P.y + 234, 6, '#806b5a', 'left', false);
     }
     // Controls button
     const hoverC = players.some(p => localHuman(p) && inRect(p.cur, CONTROLS_BTN));
@@ -19950,8 +19962,10 @@ function frame(now) {
         for (const k in pressed) delete pressed[k];
       }
     }
-    slowmo = Math.max(0, slowmo - realStep);
-    if (xray) { xray.t -= realStep; if (xray.t <= 0) xray = null; }
+    if (!(netActive() && netplay.rb)) {             // (ROLLBACK runs these clocks inside its own steps - see rbStepClocks)
+      slowmo = Math.max(0, slowmo - realStep);
+      if (xray) { xray.t -= realStep; if (xray.t <= 0) xray = null; }
+    }
     acc -= STEP;
   }
   if (netActive()) netAfterFrame();
@@ -19961,6 +19975,87 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// =====================================================================
+//  ROLLBACK (online): save the WHOLE fight at any step, and put it back exactly. net.js keeps a snapshot for every
+//  recent step; when a friend's real button presses turn out different from what we guessed, it loads the snapshot
+//  from that step and quietly REPLAYS the steps since (no sounds, no extra sparks) with the right presses.
+//  What gets saved: every fighter (and clone), projectiles, thrown weapons, ropes, the running ultimate, the cage,
+//  the clocks (time / hit-freeze / slow-mo / x-ray), the camera and the weapon watchdog. Anything that never changes
+//  during a fight (moves, looks, poses, stage...) is SHARED between snapshots, not copied.
+// =====================================================================
+const RB = { resim: false, statics: new WeakSet(), ready: false };
+function rbMarkStatic(v, seen = new Set()) {               // everything reachable from the game's fixed tables: never copied
+  if (v === null || typeof v !== 'object' || seen.has(v)) return;
+  seen.add(v); RB.statics.add(v);
+  if (v instanceof Map) { for (const [k, x] of v) { rbMarkStatic(k, seen); rbMarkStatic(x, seen); } return; }
+  if (v instanceof Set) { for (const x of v) rbMarkStatic(x, seen); return; }
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) return;
+  for (const k in v) rbMarkStatic(v[k], seen);
+}
+function rbInit() {
+  if (RB.ready) return; RB.ready = true;
+  const seen = new Set();
+  for (const root of [CHARACTERS, CLONE_STRING, COLTEN_GANON, COLTEN_KATANA_KIT, WEAPONS, LANCE_FORMS, THROWS, THROW_ANIM, STAGE_LIST,
+                      CHAR_ALTS, altLooks, profiles, STAGE, PLATFORMS]) rbMarkStatic(root, seen);
+}
+function rbClone(v, memo) {
+  if (v === null || typeof v !== 'object') return v;       // numbers, strings, functions...
+  const m = memo.get(v); if (m !== undefined) return m;
+  if (RB.statics.has(v)) return v;
+  if (Array.isArray(v)) { const out = new Array(v.length); memo.set(v, out); for (let i = 0; i < v.length; i++) out[i] = rbClone(v[i], memo); return out; }
+  if (v instanceof Set) { const out = new Set(); memo.set(v, out); for (const x of v) out.add(rbClone(x, memo)); return out; }
+  if (v instanceof Map) { const out = new Map(); memo.set(v, out); for (const [k, x] of v) out.set(rbClone(k, memo), rbClone(x, memo)); return out; }
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) return v;   // audio nodes etc.: shared
+  const out = {}; memo.set(v, out);
+  for (const k in v) out[k] = rbClone(v[k], memo);
+  return out;
+}
+function rbSave() {
+  rbInit();
+  const memo = new Map();
+  return {
+    pool: fighterPool.map(f => rbClone(f, memo)),
+    fighters: rbClone(fighters, memo), projectiles: rbClone(projectiles, memo), scythes: rbClone(scythes, memo), ropeFx: rbClone(ropeFx, memo),
+    cam: rbClone(cam, memo), weaponLost: rbClone(weaponLost, memo),
+    g: rbClone({ time, hitstop, slowmo, xray, lastXray, ult, cage, matchOver, camPunch, ultBanner }, memo),
+  };
+}
+function rbLoad(S) {
+  const memo = new Map();
+  S.pool.forEach((c, i) => memo.set(c, fighterPool[i]));    // the 4 player fighters stay the SAME objects (the rest of the game holds onto them)
+  memo.set(S.fighters, fighters); memo.set(S.projectiles, projectiles); memo.set(S.scythes, scythes); memo.set(S.ropeFx, ropeFx);
+  memo.set(S.cam, cam); memo.set(S.weaponLost, weaponLost);
+  const fill = (live, snap) => { const vals = {}; for (const k in snap) vals[k] = rbClone(snap[k], memo); for (const k of Object.keys(live)) delete live[k]; Object.assign(live, vals); };
+  const fillArr = (live, snap) => { const vals = snap.map(x => rbClone(x, memo)); live.length = 0; for (const x of vals) live.push(x); };
+  S.pool.forEach((c, i) => fill(fighterPool[i], c));
+  fill(cam, S.cam); fill(weaponLost, S.weaponLost);
+  fillArr(fighters, S.fighters); fillArr(projectiles, S.projectiles); fillArr(scythes, S.scythes); fillArr(ropeFx, S.ropeFx);
+  const g = rbClone(S.g, memo);
+  time = g.time; hitstop = g.hitstop; slowmo = g.slowmo; xray = g.xray; lastXray = g.lastXray; ult = g.ult; cage = g.cage;
+  matchOver = g.matchOver; camPunch = g.camPunch; ultBanner = g.ultBanner;
+}
+// replaying steps: silent, and the sparks / after-images / texts they make are thrown away (they were already shown)
+function rbReplay(fn) {
+  const keep = [particles.length, ghosts.length, painTexts.length, auraWaves.length, stains.length, cracks.length, pitCracks.length, koFlashes.length];
+  const snd = soundOn, sh = shake, imp = impactFrame;
+  RB.resim = true; soundOn = false;
+  try { fn(); }
+  finally {
+    RB.resim = false; soundOn = snd; shake = sh; impactFrame = imp;
+    [particles, ghosts, painTexts, auraWaves, stains, cracks, pitCracks, koFlashes].forEach((arr, i) => { if (arr.length > keep[i]) arr.length = keep[i]; });
+  }
+}
+// the clocks the frame loop runs down after each step (slow-mo, x-ray) - rollback runs them inside its own steps
+function rbStepClocks() {
+  const sp = GAME_SPEED * timeScale * (netTurbo ? TURBO_SPEED : 1) * (slowmo > 0 ? SLOWMO_HIT_SCALE : 1);
+  const realStep = STEP / Math.max(0.01, sp);
+  slowmo = Math.max(0, slowmo - realStep);
+  if (xray) { xray.t -= realStep; if (xray.t <= 0) xray = null; }
+}
+Object.assign(window, { rbSave, rbLoad, rbReplay, rbStepClocks });
 </script>
 <!-- Online play (host / join with a code, lockstep netcode) -->
 <script src="net.js"></script>
