@@ -8434,7 +8434,7 @@ const NINTH_POSE = {
 };
 const FLAME_DRAGON = {
   summon: 2.25, endlag: 0.55,              // the coil + breath (REAL seconds - the rush leaves on the shout) / his follow-through
-  speed: 1300, turn: 3.4, life: 1.4, r: 60, // the rush: speed, how hard it steers after them (rad/s), how long it lasts, bite size
+  speed: 1300, turn: 3.4, steer: 7.5, life: 1.6, r: 60,   // the rush: speed, homing turn rate, PLAYER steering turn rate (rad/s), how long it lasts, bite size
   carry: 0.5, carrySpeed: 700, tickEvery: 0.1,
   tick: { dmg: 2.2, base: 0, growth: 0, angle: 90, noStop: true },             // burning while it carries them
   final: { dmg: 14, base: 560, growth: 7, angle: 42, ultFinal: true },          // the explosion
@@ -8448,6 +8448,28 @@ function startFlameDragon(f) {
   f.ninthSnd = playBuffer(ninthFormBuf, 1.0);               // "NINTH FORM... RENGOKU!"
   sfx.beam(0.5);
 }
+// THE OPENING (drawing): like Rengoku letting it go - his whole body FILLS WITH FLAME, rising from his feet to the top of his
+// head over the first ~1.6s of the breath, burning brighter as it climbs, flames licking up off the fill line; once he's full
+// he stays ablaze (and through the rush), streaming fire upward
+function drawNinthBlaze(p, a) {
+  const T = a.phase === 'summon' ? (a.songT || 0) : 99;
+  const k = clamp(T / 1.6, 0, 1), fig = figureOf(p), now = performance.now() / 1000;
+  const top = p.y - (p.h + 26) * easeInOut(k);                      // the fill line, climbing
+  ctx.save();
+  ctx.beginPath(); ctx.rect(p.x - 160, top, 320, p.y - top + 40); ctx.clip();
+  const flick = 0.5 + 0.5 * Math.sin(now * 28);
+  drawFigure(fig, { alpha: 0.9, tint: flick > 0.5 ? '#ff7a1a' : '#ff5a1a' });               // flame through his whole body...
+  drawFigure(fig, { alpha: 0.55 + 0.3 * k, tint: '#ffe066' });                              // ...white-hot at the core
+  ctx.restore();
+  if (k < 1) {                                                      // flames licking up off the rising fill line
+    for (let i = 0; i < 3; i++) if (realRandom() < 0.8) particles.push({ x: p.x + (realRandom() - 0.5) * 40, y: top + 4, vx: (realRandom() - 0.5) * 40, vy: -160 - realRandom() * 160,
+      life: 0.3, max: 0.3, size: 2, color: SEVON_FIRE[(realRandom() * 4) | 0], type: 'bit', grav: -200 });
+  } else {                                                          // FULLY ablaze: fire streaming up off him
+    for (let i = 0; i < 4; i++) if (realRandom() < 0.9) particles.push({ x: p.x + (realRandom() - 0.5) * 46, y: p.y - realRandom() * p.h, vx: (realRandom() - 0.5) * 60, vy: -260 - realRandom() * 220,
+      life: 0.35, max: 0.35, size: realRandom() < 0.4 ? 3 : 2, color: SEVON_FIRE[(realRandom() * 4) | 0], type: 'bit', grav: -260 });
+    if (realRandom() < 0.25) auraWaves.push({ x: p.x, y: p.y - 50, t: 0, dur: 0.35, max: 90, color: '#ff7a1a' });
+  }
+}
 // (the voice line fades once it's all over)
 function endNinthSound(f, fade = 1.6) { if (f && f.ninthSnd) { stopBuffer(f.ninthSnd, fade); f.ninthSnd = null; } }
 function stepFlameDragon(f, a, dt) {
@@ -8458,6 +8480,9 @@ function stepFlameDragon(f, a, dt) {
     if (dg) a.cam = { x: dg.x, y: dg.y - 30, z: dg.state === 'carry' ? 1.25 : 1.05, speed: 7 };   // (the cutscene camera rides with him)
     if (!projectiles.some(q => q.kind === 'dragon' && q.rider === f)) {   // it's done: he lands in his follow-through
       a.phase = 'follow'; a.t = 0; a.pose = NINTH_POSE.follow;
+      // ...back ON the stage (the explosion / a steered rush can leave him out past the edge - a cutscene never strands him)
+      f.x = clamp(f.x, STAGE.x + 40, STAGE.x + STAGE.w - 40); f.y = STAGE.y; f.ground = true; f.onPlatform = null; f.vx = f.vy = 0;
+      ghosts.push({ fig: figureOf(f), life: 0.25, max: 0.25, color: '#ff7a1a' }); dust(f.x, f.y, 16, 2.2);
       f.upSpecialUsed = false; f.airJumps = AIR_JUMPS;      // (free to get home if it ended off the stage)
     }
     return;
@@ -8503,12 +8528,25 @@ function updateDragon(s, dt) {
     }
   } else if (s.state === 'fly') {
     const v = s.target;
-    if (v && v.respawnTimer <= 0 && !v.dead) {                // steers after them (it can be outrun / dodged)
+    // HE STEERS IT: the player points the stick / keys (8 ways) and the dragon turns that way, hard - full control of
+    // where it goes. Let go of the stick (or a CPU) and it homes in on them by itself.
+    const inp = s.rider && s.rider.controller !== 'dummy' ? s.rider.lastInp : null;
+    const ix = inp ? (inp.dir || 0) : 0, iy = inp ? ((inp.down ? 1 : 0) - (inp.up ? 1 : 0)) : 0;
+    if (ix || iy) {
+      const want = Math.atan2(iy, ix);
+      let d = want - s.dir; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+      if (Math.abs(d) > 2.3) {                                  // a U-turn: always loop UP through the air (never down into the floor)
+        const alt = d - Math.sign(d) * Math.PI * 2;
+        if (Math.sin(s.dir + alt / 2) < Math.sin(s.dir + d / 2)) d = alt;
+      }
+      s.dir += clamp(d, -D.steer * dt, D.steer * dt);
+    } else if (v && v.respawnTimer <= 0 && !v.dead) {          // steers after them by itself
       const want = Math.atan2(v.y - 50 - s.y, v.x - s.x);
       let d = want - s.dir; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
       s.dir += clamp(d, -D.turn * dt, D.turn * dt);
     }
     s.x += Math.cos(s.dir) * D.speed * dt; s.y += Math.sin(s.dir) * D.speed * dt;
+    if (s.rider) { s.x = clamp(s.x, STAGE.x - 200, STAGE.x + STAGE.w + 200); s.y = clamp(s.y, STAGE.y - 600, STAGE.y + 160); }   // (soft walls: he can't fly himself into a blast zone)
     if (s.rider && s.x > STAGE.x && s.x < STAGE.x + STAGE.w && s.y > STAGE.y - 40) { s.y = STAGE.y - 40; s.dir = Math.atan2(Math.min(0, Math.sin(s.dir)), Math.cos(s.dir)); }   // (skims the floor, never digs into it)
     if (Math.random() < dt * 30) ghosts.push({ fig: figureOf(o), life: 0.16, max: 0.16, color: '#ff7a1a' });
     for (const t of fighters) {
@@ -8549,7 +8587,7 @@ function updateDragon(s, dt) {
       ring(s.x, s.y); ring(s.x, s.y - 30); ring(s.x, s.y + 30);
       impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: s.x, y: s.y, ang: 0, all: true, focus: true, fire: true };
       shake = Math.max(shake, 30); camPunch = 1; sfx.huge();
-      if (s.rider) { s.rider.x = s.x + Math.cos(s.dir) * 70; s.rider.y = Math.min(s.y + 40, s.rider.y); }   // he's come out the far side
+      if (s.rider) { s.rider.x = s.x + Math.cos(s.dir) * 70; }   // he's come out the far side (then lands on the stage - see stepFlameDragon)
       return true;
     }
   }
@@ -15779,6 +15817,7 @@ function drawFighter(p) {
     if (!sketch && !pixelMode && !vanished) drawFigure(figureOf(p), { alpha: alpha * 0.95, tint: FIG_OUTLINE_COLOR, outline: FIG_OUTLINE });
     drawFigure(figureOf(p), { alpha, tint: vanished ? (sketch ? '#8c8c8c' : p.energy) : tint, bladeOf: p,
       eye: charging || (a && a.type === 'attack' && a.mult > 1.3) ? '#fff3a8' : null });
+    if (a && a.type === 'flameDragon' && a.phase !== 'follow' && !sketch) drawNinthBlaze(p, a);   // Sevon's NINTH FORM: his body fills with flame
   }
 
   // Frozen in time: a clock face around them with its hand ticking down how long is left
