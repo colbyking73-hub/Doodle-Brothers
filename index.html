@@ -6408,7 +6408,6 @@ function demonGaze(f) {
 // then they both streak across to each other's spot as red blurs, crossing paths (he arcs over, they pass under),
 // and land in each other's places. Neither can be hit while it happens.
 const SWAP = { tele: 0.12, travel: 0.2, arcHigh: 70, arcLow: 25 };
-const GAZE_DOOM = 0.35;                                          // swapped below the stage: dazed this long
 function gazeSwap(f, t) {
   f.gazeMark = null;
   const snap = g => ({ x: g.x, y: g.y, vx: g.vx, vy: g.vy, ground: g.ground, onPlatform: g.onPlatform });
@@ -6441,9 +6440,6 @@ function stepGazeSwap(f, a, dt) {
     Object.assign(f, { x: B.x, y: B.y, vx: B.vx, vy: B.vy, ground: B.ground, onPlatform: B.onPlatform });
     Object.assign(t, { x: A.x, y: A.y, vx: A.vx, vy: A.vy, ground: A.ground, onPlatform: A.onPlatform });
     f.action = null; t.action = null;
-    // THE SACRIFICE LANDS: swapped into a spot BELOW the stage, they're dazed for a moment - no jump, no recovery - and
-    // his fall carries them through the death line. (Swapped somewhere safe, they're free right away.)
-    if (!t.minion && A.y > STAGE.y + 60) { t.action = { type: 'hitstun', t: 0, dur: GAZE_DOOM }; t.vy = Math.max(t.vy, 700); painTexts.push({ x: t.x, y: t.y - 130, t: 0.6, max: 0.6, text: 'DOOMED', big: true }); }
     f.face = Math.sign(t.x - f.x) || f.face; t.face = -f.face;
     for (const g of [f, t]) { ring(g.x, g.y - 45); burst(g.x, g.y - 50, [GAZE.color, '#ffffff'], 14, 0, Math.PI, 380, { grav: 0 }); }
     shake = Math.max(shake, 8);
@@ -13811,7 +13807,8 @@ function aiDecide(f, o, ai, L) {
   // since the gaze would mark a clone instead. The rest of it runs every frame in aiSafety.)
   if (f.look && f.look.demonMeter && !f.minion && !ai.sac && L.sac && f.ground && !f.onPlatform &&
       (f.gazeCD || 0) <= 0 && !f.gazeMark && o && !o.minion && o.y <= STAGE.y + 5 && o.x > STAGE.x + 60 && o.x < STAGE.x + STAGE.w - 60 &&
-      (o.damage >= 25 || L.precog) && Math.random() < L.sac * L.think * 4) {   // (x4: the set-up is only there a fraction of the time)
+      (o.damage >= 25 || L.precog) && Math.random() < L.sac * L.think * 4 * (o.dodgeCount >= airDodgeMax(o) ? 5 : 0.12)) {   // (x4: the set-up is only there a fraction of the time)
+      // (and he picks his moment: far more likely once they've burned their Z vanishes - then they can't get back up)
     ai.sac = { phase: 'mark', t: 0, target: o }; f.gazeFoe = true;
     ai.up = true; ai.tapSpc = true; return;
   }
