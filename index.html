@@ -6257,7 +6257,8 @@ function drawLegionCrowd(U) {
 // wrist - and charges the most powerful Chidori he's ever made: lightning crackling and screaming off his hand,
 // tearing at the ground. Then he charges, hand carving a trench through the floor, and drives it through their HEART.
 // A giant lightning explosion.
-const GOD_CHIDORI = { zip: 0.34, zipDmg: 3, bind: 0.85, bindDmg: 2, charge: 1.7, dash: 0.3, impale: 0.55, impaleDmg: 6,
+const GOD_CHIDORI = { rushWind: 0.3, rushSpeed: 2500, rushTime: 0.26, rushR: 50,   // the opening Chidori RUSH (has to connect)
+                      zip: 0.34, zipDmg: 3, bind: 0.85, bindDmg: 2, charge: 1.7, dash: 0.3, impale: 0.55, impaleDmg: 6,
                       far: 560, stance: 290, blue: ['#7fd8ff', '#bfeaff', '#ffffff', '#3aa0ff'] };
 const GC_POSE = {
   dash: pose({ lean: 0.85, bob: -6, legA: [1.2, 0.3], legB: [-1.1, 0.4], armA: [1.6, 0], armB: [-1.4, -0.3] }),          // fist first, streaking
@@ -8690,7 +8691,8 @@ CHARACTERS.SEVON.altUlt = {
 // then, on the shout, he RUSHES THEM DOWN *as* the dragon: riding at its head, blade out in front, its burning body
 // streaming out behind him, weaving after them. When it catches them: the clash - an impact flash and a beat of stillness -
 // he drives on through them in its jaws... and it all EXPLODES in a sea of flame that launches them, while he lands
-// beyond in his follow-through. Shields don't stop it - only a Z vanish at the right moment slips it.
+// beyond in his follow-through. Everyone's frozen for the wind-up, but FREE on the shout: SHIELD it (it breaks on the shield,
+// which takes a beating), PERFECT-BLOCK it (repelled - he's left staggered) or Z vanish through it.
 // (The wind-up runs in REAL seconds so the rush always leaves on the shout in the clip.)
 CHARACTERS.SEVON.ult = { name: 'NINTH FORM: RENGOKU', dragon: true };
 let ninthFormBuf = null;
@@ -8705,6 +8707,8 @@ const FLAME_DRAGON = {
   speed: 1300, turn: 3.4, steer: 7.5, life: 1.6, r: 60,   // the rush: speed, homing turn rate, PLAYER steering turn rate (rad/s), how long it lasts, bite size
   carry: 0.5, carrySpeed: 700, tickEvery: 0.1,
   tick: { dmg: 2.2, base: 0, growth: 0, angle: 90, noStop: true },             // burning while it carries them
+  blockChip: 2.6,                          // a BLOCKED rush: shield damage = the explosion's damage x this (about half a full shield)
+  parriedLag: 1.1,                         // perfect-blocked: how long he's left staggered after he lands
   final: { dmg: 14, base: 560, growth: 7, angle: 42, ultFinal: true },          // the explosion
   len: 34,                                 // body length (trail points)
 };
@@ -8755,7 +8759,7 @@ function stepFlameDragon(f, a, dt) {
     }
     return;
   }
-  if (a.phase === 'follow') { a.pose = NINTH_POSE.follow; a.cam = null; if (a.t >= FLAME_DRAGON.endlag) { f.action = null; endNinthSound(f); } return; }
+  if (a.phase === 'follow') { a.pose = NINTH_POSE.follow; a.cam = null; if (a.t >= (a.parried ? FLAME_DRAGON.parriedLag : FLAME_DRAGON.endlag)) { f.action = null; endNinthSound(f); } return; }
   f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = 0;          // he holds his ground (hangs in the air)
   if (a.phase === 'summon') {
     a.songT = (a.songT || 0) + dt / uiRealRate();
@@ -8779,6 +8783,25 @@ function stepFlameDragon(f, a, dt) {
     return;
   }
   if (a.t >= FLAME_DRAGON.endlag) f.action = null;
+}
+// THE RUSH HITS A SHIELD. A block stops it dead - but the shield takes a beating (a weak one can break). A PERFECT
+// block (shield up just as it arrives) repels it outright: full shield, and Sevon lands staggered - an opening.
+function dragonBlocked(s, t) {
+  const D = FLAME_DRAGON, o = s.owner, dirSign = Math.cos(s.dir) >= 0 ? 1 : -1, hx = t.x - dirSign * 14, hy = t.y - 55;
+  if (t.shieldAge <= PARRY_WINDOW && parryRoll(t)) {
+    perfectBlock(t, {}, hx, hy);
+    if (o && o.action && o.action.type === 'flameDragon') o.action.parried = true;
+    painTexts.push({ x: t.x, y: t.y - 150, t: 0.8, max: 0.8, text: 'REPELLED!', big: true });
+  } else {
+    t.shieldHP -= D.final.dmg * s.mult * SHIELD_DMG_MULT * D.blockChip;
+    t.vx += dirSign * 650; t.blockedFlash = 0.35;
+    sfx.block(); sfx.clash(true);
+    hitstop = Math.max(hitstop, 0.14); shake = Math.max(shake, 14);
+    painTexts.push({ x: t.x, y: t.y - 150, t: 0.7, max: 0.7, text: 'BLOCKED!', big: true });
+    if (t.shieldHP <= 0) breakShield(t);
+  }
+  for (let k = 0; k < 6; k++) burst(hx, hy, SEVON_FIRE, 16, Math.random() * Math.PI * 2, 0.7, 700, { grav: -200 });
+  ring(hx, hy);
 }
 // returns true when it's gone
 function updateDragon(s, dt) {
@@ -8825,6 +8848,7 @@ function updateDragon(s, dt) {
       if (t === o || allies(o, t) || s.hit.has(t) || t.respawnTimer > 0 || t.halo > 0 || t.dead || t.poofT > 0 || projPhase(t)) continue;
       if (!circleHitsFighter(s.x, s.y, D.r, t)) continue;
       if (isIntangible(t) && !t.uiFrozen) { t.dodgedFlash = 0.35; s.hit.add(t); continue; }   // slipped it with a Z vanish (not while frozen in the cutscene)
+      if (t.shielding && !t.uiFrozen && !t.minion) { dragonBlocked(s, t); return true; }       // BLOCKED: it breaks on their shield (perfect block: repelled)
       s.hit.add(t);
       if (t.minion) { knock(t, D.final, Math.sign(Math.cos(s.dir)) || 1, s.mult, s.x, s.y); continue; }   // clones just get torched on the way through
       // THE CLASH: a flash and a beat of stillness... then he drives on through them in its jaws
@@ -9718,6 +9742,9 @@ function circleHitsFighter(x, y, r, f) {
 }
 
 // ---------------- Hits ----------------
+// (The AI only lands some of its perfect blocks, depending on difficulty - otherwise it would counter everything.)
+const parryRoll = t => t.controller !== 'dummy' ||
+  Math.random() < ((t.look && t.look.demonMeter && !t.minion) ? 0.97 : ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7, IMPOSSIBLE: 0.97 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3));   // (Colbalias: his parry reflex already decided - see COLB_PARRY)
 // Returns true if the hit "connected" (hit or got blocked), false if it whiffed on a dodge.
 // src = { fighter } for melee hits, { shot } for projectiles (used for perfect-block counters/reflects).
 function applyHit(t, h, dirSign, mult, hx, hy, src = {}) {
@@ -9728,9 +9755,7 @@ function applyHit(t, h, dirSign, mult, hx, hy, src = {}) {
 
   // PERFECT BLOCK: shield went up just as the hit arrived
   // (The AI only lands some of its perfect blocks, depending on difficulty - otherwise it would counter everything.)
-  const aiParryOk = t.controller !== 'dummy' ||
-    Math.random() < ((t.look && t.look.demonMeter && !t.minion) ? 0.97 : ({ EASY: 0.1, NORMAL: 0.3, HARD: 0.55, MASTER: 0.7, IMPOSSIBLE: 0.97 }[(t.cpuLevel || DUMMY_MODES[dummyMode]).slice(3)] ?? 0.3));   // (Colbalias: his parry reflex already decided - see COLB_PARRY)
-  if (t.shielding && t.shieldAge <= PARRY_WINDOW && aiParryOk) {
+  if (t.shielding && t.shieldAge <= PARRY_WINDOW && parryRoll(t)) {
     perfectBlock(t, src, hx, hy);
     return true;
   }
@@ -10750,7 +10775,7 @@ function startUltimate(f, alt = false) {          // alt = DOWN was held: the ch
                                                             //  PIRATE SHIP SLAM: it stays, so everyone caged is a guaranteed hit)
   heelSay(f, 'roar');
   f.action = def.beamUlt ? { type: 'ultBeam', t: 0, phase: 'charge' }      // Lance: charge + full-screen Kamehameha
-                         : { type: 'ultStart', t: 0, dur: def.rush ? 0.6 : 0.8, def };
+                         : { type: 'ultStart', t: 0, dur: def.rush ? 0.6 : def.godChidori ? 0.95 : 0.8, def };
   if (def.dragon) startFlameDragon(f);             // Sevon: the Flame Dragon
   if (def.ship) startShipUlt(f);                   // Aiden: the pirate ship
   ultBanner = { t: 1.1, name: def.name || 'ULTIMATE', color: f.color, who: f };
@@ -10778,9 +10803,31 @@ function stepUltStart(f, a, dt) {
     }
     return;
   }
+  // COLBY - GOD SPEED: LIGHTNING BLADE: a beat to light the Chidori, then a lightning-fast RUSH straight ahead. It has
+  // to connect (a whiff wastes the meter); a Z vanish / roll slips it. If it lands, the whole sequence plays.
+  if (def.godChidori) {
+    const G = GOD_CHIDORI, fist = { x: f.x + f.face * 26, y: f.y - 48 };
+    if (a.t >= G.rushWind && !a.lunged) { a.lunged = true; f.vx = f.face * G.rushSpeed; f.vy = 0; sfx.whoosh(true); sfx.vanish(0.9); burst(f.x, f.y - 50, G.blue, 16, f.face > 0 ? Math.PI : 0, 0.5, 600, { grav: 0 }); }
+    if (!a.lunged) {
+      f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = 0;
+      if (Math.random() < dt * 50) bolt(fist.x, fist.y, Math.random() * Math.PI * 2, 30 + Math.random() * 40, 0.08, G.blue[(Math.random() * 4) | 0]);
+      a.chirp = (a.chirp || 0) - dt; if (a.chirp <= 0) { a.chirp = 0.08; sfx.clash(false); }
+      return;
+    }
+    if (!f.ground) f.vy = 0;
+    if (a.t > G.rushWind + G.rushTime) { f.vx = approach(f.vx, 0, FRICTION * 3 * dt); return; }   // missed
+    ghosts.push({ fig: figureOf(f), life: 0.16, max: 0.16, color: '#7fd8ff' });
+    if (Math.random() < 0.6) bolt(fist.x, fist.y, (f.face > 0 ? Math.PI : 0) + (Math.random() - 0.5), 40 + Math.random() * 40, 0.1, G.blue[(Math.random() * 4) | 0]);
+    const hx = f.x + f.face * 40, hy = f.y - 55;
+    for (const t of fighters) {
+      if (t === f || allies(f, t) || t.respawnTimer > 0 || t.halo > 0 || isIntangible(t) || t.dead || t.poofT > 0) continue;
+      if (circleHitsFighter(hx, hy, G.rushR, t)) { f.vx = 0; startUltSequence(f, t, def); return; }
+    }
+    return;
+  }
   // COLBALIAS: no lunge - he clasps his hands and the statue rises; it locks onto the nearest enemy on screen
   // (Z-vanishing at exactly the right moment dodges it). The Hundred Clone Rush locks on the same way.
-  if (def.statue || def.legion || def.godChidori) {   // (Colby's GOD SPEED: LIGHTNING BLADE locks on too - he zips in from off screen)
+  if (def.statue || def.legion) {
     f.vx = approach(f.vx, 0, FRICTION * dt); if (!f.ground) f.vy = Math.min(f.vy, 0);
     if (a.t >= 0.25 && !a.summoned) {
       a.summoned = true;
@@ -13917,7 +13964,9 @@ function aiDecide(f, o, ai, L) {
   const shotThreat = projectiles.some(s => (s.owner !== f || (s.kind === 'disc' && s.phase === 'back' && !s.passed)) &&   // (incl. his own disc coming back)
     Math.hypot(s.x - f.x, s.y - (f.y - 40)) < 230 &&
     ((f.x - s.x) * s.vx + (f.y - 40 - s.y) * s.vy) > 0);
-  if ((meleeThreat || shotThreat) && Math.random() < L.defend) {
+  const dragonThreat = projectiles.some(s => s.kind === 'dragon' && s.state === 'fly' && s.owner !== f && !allies(s.owner, f) &&
+    Math.hypot(s.x - f.x, s.y - (f.y - 50)) < 360);
+  if ((meleeThreat || shotThreat || dragonThreat) && Math.random() < L.defend) {
     // A HIGH attack (every hitbox up at head height)? Sometimes just duck under it
     const highOnly = meleeThreat && oa.move.hitboxes.every(h => o.y + h.y + h.r < f.y - f.h * CROUCH_HEIGHT - 2);
     if (f.ground && highOnly && r < 0.5) { ai.down = true; return; }
@@ -13994,9 +14043,10 @@ function aiDecide(f, o, ai, L) {
   }
   // TRANSFORM as soon as the meter is full
   else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { ai.tapUlt = true; return; }
-  // COLBY: his second ultimate (God Speed: Lightning Blade) locks on by itself - so from any range, now and then
+  // COLBY: his second ultimate (God Speed: Lightning Blade) is a fast rush - when they're lined up in front of him
   const alt = CHARACTERS[f.char].altUlt;
-  if (alt && alt.godChidori && f.transformed && f.ult > 0 && adx < 1000 && (f.ult < 20 || Math.random() < 0.04) && Math.random() < 0.5) {
+  if (alt && alt.godChidori && f.transformed && f.ult > 0 && adx < 520 && Math.abs(dy) < 50 && f.face === toward &&
+      !(oa && ['spot', 'roll', 'air'].includes(oa.type)) && (f.ult < 20 || Math.random() < 0.06) && Math.random() < 0.5) {
     ai.down = true; ai.tapUlt = true; return;
   }
   // ULTIMATE while transformed: beam ults fire from any range when lined up; others need them right in front
@@ -14467,7 +14517,7 @@ function updateSim(dt) {
 
   // LANCE'S ULTRA INSTINCT: the whole match stops to watch - everyone but him and the one he's beating on is frozen
   const uiCut = fighters.find(f => f.action && (f.action.type === 'uiTransform' || f.action.type === 'ssj2Cut' ||
-                                                 (f.action.type === 'flameDragon' && f.action.phase !== 'follow')));   // (+ Sevon's NINTH FORM: a cutscene too - nobody can interrupt it)
+                                                 (f.action.type === 'flameDragon' && (f.action.phase === 'summon' || f.action.phase === 'release'))));   // (+ Sevon's NINTH FORM wind-up: a cutscene too - but everyone's FREE again on the shout, to block / dodge the rush)
   for (const f of fighters) f.uiFrozen = !!uiCut && f !== uiCut && f !== uiCut.action.victim;
   for (const f of fighters.slice()) {
     if (f.uiFrozen) continue;
@@ -18889,7 +18939,7 @@ const MOVESETS = {
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER)', 'GOD SPEED', 'Electric aura, faster and stronger - and EVERY hit adds extra lightning damage. Bare-handed neutral K becomes a teleport.'],
       ['I (TRANSFORMED)', "Reaper's Requiem", 'A teleporting flurry of slashes and kicks. At 225% or more it cuts them in half: an automatic KO.'],
-      ['DOWN + I (TRANSFORMED)', 'God Speed: Lightning Blade', 'Zips through them from both ends of the screen and from above, binds them in lightning chains, charges his strongest Chidori and drives it through their heart. Locks on from anywhere.'] ] },
+      ['DOWN + I (TRANSFORMED)', 'God Speed: Lightning Blade', 'Zips through them from both ends of the screen and from above, binds them in lightning chains, charges his strongest Chidori and drives it through their heart. Opens with a lightning-fast Chidori RUSH that has to hit.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'BLEED: every scythe hit (and the thrown scythe) adds a stack of bleed - up to 10 stacks, each doing 0.5% every 2 seconds.',
       'TWO MOVESETS: with the scythe he has reach and bleed; without it he is a fast puncher with the Annihilator and Time Stop.',
@@ -19069,7 +19119,7 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
       ['I (FULL METER)', 'FLAME HASHIRA', 'A burning aura - faster and stronger.'],
-      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'He sinks into his stance and breathes in as a DRAGON OF FLAME coils round him - then on the shout he RUSHES THEM DOWN as the dragon, riding at its head with his blade out, chasing the nearest enemy. It catches them, drives on through them in its jaws and EXPLODES in a sea of flame. A cutscene: everyone freezes until it lands, so it cannot be interrupted or dodged.'],
+      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'He sinks into his stance and breathes in as a DRAGON OF FLAME coils round him - then on the shout he RUSHES THEM DOWN as the dragon, riding at its head with his blade out, chasing the nearest enemy. It catches them, drives on through them in its jaws and EXPLODES in a sea of flame. Everyone freezes for the wind-up, then it can be BLOCKED (heavy shield damage), PERFECT-BLOCKED (repelled, he staggers) or dodged.'],
       ['DOWN + I (TRANSFORMED)', 'Fifth Form: Flame Tiger', 'A lunge into a flurry of flaming slashes ending in a roaring fire tiger.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'TOTAL CONCENTRATION (down K): +12% damage, +18% speed, quicker attacks, and flames on every windup and hit - but it strains him: 1.5% damage every second.',
