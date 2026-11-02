@@ -11113,6 +11113,7 @@ let ssj2SongBuf = null;
 function startSsj2Cut(f) {
   f.ultBuf = 0; f.vx = f.vy = 0;
   f.action = { type: 'ssj2Cut', t: 0, songT: 0 };
+  f.ss2Seen = true;
   stopSsj2Song(f);
   if (soundOn && actx && ssj2SongBuf) {
     const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
@@ -11242,7 +11243,7 @@ function lanceTransform(f) {
   const next = Math.min(3, (f.lanceForm || 0) + 1);
   f.ultBuf = 0;
   if (next >= 3) { startUltraInstinct(f); return; }          // the third: ULTRA INSTINCT (the cutscene)
-  if (next === 2) { startSsj2Cut(f); return; }               // the second: SUPER SAIYAN 2 (its own cutscene)
+  if (next === 2 && !f.ss2Seen) { startSsj2Cut(f); return; }   // the second: SUPER SAIYAN 2 - its cutscene plays the FIRST time each match only (after that: an instant power-up, keeps the match moving)
   setLanceForm(f, next);
   f.transformed = true;                                      // (a full meter to spend on his ultimates)
   ultBanner = { t: 1.2, title: 'TRANSFORM', name: LANCE_FORMS[next].name, color: '#ffe066', who: f };
@@ -11390,11 +11391,19 @@ function stepUiTransform(f, a, dt) {
     const br = Math.abs(Math.sin(T * Math.PI / 1.1));        // one heave every 1.1s
     a.pose = pose({ lean: 0.55 + 0.1 * br, bob: -9 + 5 * br, legA: [0.3, 0.45], legB: [-0.18, 0.55],   // hunched over, knees buckling
                     armA: [0.12 + 0.06 * Math.sin(T * 2.2), 0.04] });   // (his arm just hangs)
-    if (Math.random() < rdt * 2.2) {
-      const hx = f.x + f.face * 4, hy = f.y - 112 + 14 * br;
-      particles.push({ x: hx + (Math.random() - 0.5) * 8, y: hy, vx: (Math.random() - 0.5) * 20, vy: 30, life: 1.2, max: 1.2, size: 2,
-                       color: gore ? BLOOD[(realRandom() * BLOOD.length) | 0] : '#b4b4bb', type: 'bit', grav: 900, stain: gore });
-    }
+    // BLOOD running down his FACE and dripping off his chin (worked out from where his head actually is in this pose)
+    { const pz = a.pose, hipY = -(LEG_UP + LEG_LOW - 1) - pz.bob * LEG_SCALE;
+      const shx = Math.sin(pz.lean) * TORSO, shy = hipY - Math.cos(pz.lean) * TORSO;
+      const hx = f.x + (shx + Math.sin(pz.lean) * NECK) * f.face, hy = f.y + shy - NECK;   // the middle of his head
+      if (realRandom() < rdt * 9) {                         // trickles down from his brow...
+        const off = 3 + realRandom() * 7;
+        particles.push({ x: hx + f.face * off, y: hy - 6 + realRandom() * 4, vx: f.face * 6, vy: 35, life: 0.55, max: 0.55, size: 2,
+                         color: realRandom() < 0.5 ? '#b3121b' : '#8a0b12', type: 'bit', grav: 60 });
+      }
+      if (realRandom() < rdt * 3) {                         // ...and drips off his chin to the floor
+        particles.push({ x: hx + f.face * (7 + realRandom() * 3), y: hy + 11, vx: 0, vy: 20, life: 1.0, max: 1.0, size: realRandom() < 0.4 ? 3 : 2,
+                         color: '#a3101a', type: 'bit', grav: 900, stain: gore });
+      } }
     if (v) { v.x = cx - 80; v.y = gy; v.face = 1; v.ground = true; v.action.pose = (v.look && v.look.idle) || null; }
     a.bubble = T >= B.bell ? "REF, I DIDN'T HEAR NO BELL." : null;
     a.cam = { x: cx + 5, y: gy - 95, z: T >= B.bell ? 1.85 : 1.5, speed: 2 };
@@ -11596,11 +11605,21 @@ function stepUiTransform(f, a, dt) {
   }
   if (T < B.kameCharge) {
     if (once('stance')) { ghosts.push({ fig: figureOf(f), life: 0.2, max: 0.2, color: UI.color }); f.x = cx - 120; f.y = gy; f.face = 1; }
-    // they rocket back down at him, swinging...
-    const p = uiTween(T, B.comeback, B.weave + 0.15, A1.x, A1.y, cx - 60, gy - 60, k => k * k);
-    if (T < B.weave + 0.15) { v.x = p.x; v.y = p.y; v.face = -1; const mv = v.moveset || {}; const m = mv.fair || mv.sideGround || mv.jab; v.action.pose = m && m.strike ? m.strike : uiHurtPose(0.3); }
-    else {                                                   // ...past him and tumbling out the other side
-      const q = uiTween(T, B.weave + 0.15, B.kameCharge, cx - 60, gy - 60, cx - 330, gy - 120);
+    // they gather themselves up there for a beat... then ROCKET back down at him, all-out, swinging (no holding back)
+    const go = B.weave - 0.28, hitAt = B.weave + 0.08;
+    const mv = v.moveset || {}, m = mv.fair || mv.sideGround || mv.jab;
+    if (T < go) {                                            // winding up, shaking with it
+      v.x = A1.x + Math.sin(T * 60) * 2; v.y = A1.y; v.face = -1;
+      v.action.pose = m && m.wind ? m.wind : uiHurtPose(0.3);
+      if (once('rage')) { ring(A1.x, A1.y - 55); shake = Math.max(shake, 6); }
+    } else if (T < hitAt) {                                  // FULL SPEED at him
+      const p = uiTween(T, go, hitAt, A1.x, A1.y, cx - 60, gy - 60, k => k * k);
+      v.x = p.x; v.y = p.y; v.face = -1; v.action.pose = m && m.strike ? m.strike : uiHurtPose(0.3);
+      ghosts.push({ fig: figureOf(v), life: 0.16, max: 0.16, color: '#ffffff' });
+      if (once('rocket')) { sfx.whoosh(true); shake = Math.max(shake, 8); }
+    }
+    if (T >= hitAt) {                                        // ...past him and tumbling out the other side
+      const q = uiTween(T, hitAt, B.kameCharge, cx - 60, gy - 60, cx - 330, gy - 120);
       v.x = q.x; v.y = q.y; v.action.pose = uiFlyPose(-q.k * 6);
     }
     if (T < B.weave) a.pose = pose({ lean: 0.02, bob: -5, legA: [0.35, 0.25], legB: [-0.3, 0.25], armA: [0.25, -0.1] });
@@ -17546,7 +17565,7 @@ function startMatch() {
     f.color = matchTeams ? TEAM_COLORS[pl.team].main : FIGHTER_INIT[i].color;   // TEAMS: the team's colour
     f.binds = profileOf(pl.profile);                                              // this player's CONTROLS PRESET
     if (!pl.cpu) rememberDevPreset(pl.dev, pl.profile || 'DEFAULT');               // (so the MOVESETS page shows this device's buttons later)
-    f.kos = 0; f.ult = 0; f.disp = null;
+    f.kos = 0; f.ult = 0; f.disp = null; f.ss2Seen = false;   // (Lance: the Super Saiyan 2 cutscene plays again in a new match)
     f.stocks = gameOptions.stocks > 0 ? gameOptions.stocks : Infinity;   // lives
     f.cpuLevel = pl.cpu ? pl.level : null;                                // each CPU plays at its own level
     f.timeMeter = 0; f.tsCD = 0;
