@@ -29,6 +29,11 @@ foreach ($rel in (git ls-files | Where-Object { $_ -match $game } | Sort-Object)
   $b = NormBytes $rel
   $files[$rel] = [ordered]@{ hash = (Hex $b); size = $b.Length }
 }
-$manifest = [ordered]@{ version = $Version; shell = $shell; files = $files }
+# the ANDROID app id: every file of the Android app (android/, tracked by git). When it changes, phones need a new APK
+# (android/web/android.js compares it); otherwise they just take the quick update.
+$androidText = ''
+foreach ($rel in (git ls-files android | Sort-Object)) { $androidText += $rel + "`n" + (NormText $rel) + "`n--`n" }
+$android = (Hex $utf8.GetBytes($androidText)).Substring(0, 16)
+$manifest = [ordered]@{ version = $Version; shell = $shell; android = $android; files = $files }
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot $Out), ($manifest | ConvertTo-Json -Depth 5), $utf8)
 "patch.json: v$Version, shell $shell, $($files.Count) files"

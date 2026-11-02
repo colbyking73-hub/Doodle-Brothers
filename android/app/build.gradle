@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+}
+
+// version comes from the release (GitHub Actions passes -PversionName=0.7.18): versionCode = 0.7.18 -> 7018
+def vName = (project.findProperty('versionName') ?: '0.0.1').toString()
+def vParts = vName.tokenize('.').collect { it as int }
+def vCode = vParts[0] * 1000000 + vParts[1] * 1000 + vParts[2]
+
+android {
+    namespace 'com.colbyking.doodlebrothers'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.colbyking.doodlebrothers'
+        minSdk 24
+        targetSdk 34
+        versionCode vCode
+        versionName vName
+    }
+
+    // the release signing key (a GitHub secret) - every update MUST be signed with the same one, or phones refuse it
+    signingConfigs {
+        release {
+            def ks = System.getenv('KS_PATH')
+            if (ks) {
+                storeFile file(ks)
+                storeType 'pkcs12'
+                storePassword System.getenv('KS_PASS')
+                keyAlias 'doodle'
+                keyPassword System.getenv('KS_PASS')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv('KS_PATH')) signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    aaptOptions {
+        noCompress 'mp3', 'js', 'html', 'json'
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}

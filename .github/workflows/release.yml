@@ -23,3 +23,57 @@ jobs:
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ANDROID: the same game files in a small Android app (android/), signed with the release key (a repo secret) and
+  # attached to the same Release as DoodleBrothers.apk. Phones get QUICK updates from patch.json (android/web/android.js);
+  # a new APK is only needed when the Android app itself changes. (No key yet = a test build only, kept as an artifact.)
+  build-android:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Put the game files in the app
+        run: |
+          W=android/app/src/main/assets/www
+          mkdir -p $W/sounds/battle android/app/src/main/res/mipmap
+          cp index.html net.js patch.json android/web/android.js $W/
+          cp -r lib $W/
+          cp sounds/*.js $W/sounds/
+          cp sounds/menu-mix-*.mp3 $W/sounds/ 2>/dev/null || true
+          cp sounds/battle/*.mp3 $W/sounds/battle/ 2>/dev/null || true
+          cp build/icon.png android/app/src/main/res/mipmap/ic_launcher.png
+      - name: Build
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            export KS_PATH="$RUNNER_TEMP/release.p12"
+            gradle -p android assembleRelease -PversionName="$V" --no-daemon
+            cp android/app/build/outputs/apk/release/app-release.apk DoodleBrothers.apk
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret yet - building a TEST (debug) APK only"
+            gradle -p android assembleDebug -PversionName="$V" --no-daemon
+            cp android/app/build/outputs/apk/debug/app-debug.apk DoodleBrothers-test.apk
+          fi
+      - name: Attach to the release
+        if: ${{ hashFiles('DoodleBrothers.apk') != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" DoodleBrothers.apk --clobber
+      - name: Keep the test build
+        if: ${{ hashFiles('DoodleBrothers-test.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoodleBrothers-test-apk
+          path: DoodleBrothers-test.apk

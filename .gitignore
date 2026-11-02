@@ -8,3 +8,11 @@ sounds/*.wav
 # ...except the menu music, which the game loads directly
 !sounds/menu-music.mp3
 !sounds/menu-mix-*.mp3
+# Android build output (the workflow copies the game files in at build time) + the signing key (NEVER commit it)
+android/app/src/main/assets/
+android/app/src/main/res/mipmap/
+android/.gradle/
+android/build/
+android/app/build/
+*.p12
+*.jks

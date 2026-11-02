@@ -164,6 +164,8 @@ const DEFAULT_BINDINGS = {
   gcPad: { left: [], right: [], up: [], down: [], jump: [2, 3], attack: [0], special: [1], shield: [6, 7],
            grab: [5], ult: [12], tauntUp: [14], tauntSide: [15], tauntDown: [13] },
   tapJump: true,            // flicking the stick up also jumps (Smash's default)
+  moveStick: 'left',        // which stick MOVES you ('left' | 'right') - the other one is the C-stick
+  v: 2,
   cStick: 'attack',         // RIGHT STICK ("C-stick"): a flick does that direction's move. 'attack' | 'special' | 'off'
 };
 // C-STICK (right stick) feel: flick = past `flick`, back to center = under `reset`. C-stick moves start up
@@ -178,8 +180,10 @@ const fillBindings = s => {
   const d = JSON.parse(JSON.stringify(DEFAULT_BINDINGS));
   if (!s || !s.keys || !s.pad) return d;
   const out = { keys: { ...d.keys, ...s.keys }, pad: { ...d.pad, ...s.pad }, gcPad: { ...d.gcPad, ...(s.gcPad || {}) }, tapJump: s.tapJump ?? d.tapJump, cStick: s.cStick ?? d.cStick };
-  // (older saved controls had the D-pad on the movement rows: it belongs to the taunts now)
-  for (const a of ['left', 'right', 'up', 'down']) { out.pad[a] = (out.pad[a] || []).filter(n => !DPAD.includes(n)); out.gcPad[a] = (out.gcPad[a] || []).filter(n => !DPAD.includes(n)); }
+  // (very old saved controls had the D-pad on the movement rows by default: cleaned off once. Now YOU can put it there.)
+  if (!s.v) for (const a of ['left', 'right', 'up', 'down']) { out.pad[a] = (out.pad[a] || []).filter(n => !DPAD.includes(n)); out.gcPad[a] = (out.gcPad[a] || []).filter(n => !DPAD.includes(n)); }
+  out.v = 2;
+  out.moveStick = s.moveStick === 'right' ? 'right' : 'left';
   delete out.keys.taunt;
   return out;
 };
@@ -232,7 +236,46 @@ const GC_LAYOUTS = {
 };
 let gcMaps = (() => { try { return JSON.parse(localStorage.getItem('stickman-brawl-gcmaps') || '{}') || {}; } catch (e) { return {}; } })();   // GAMECUBE SETUP results, per adapter
 function saveGcMaps() { try { localStorage.setItem('stickman-brawl-gcmaps', JSON.stringify(gcMaps)); } catch (e) {} }
-const rawPads = () => { try { return navigator.getGamepads ? [...navigator.getGamepads()] : []; } catch (e) { return []; } };
+// ANDROID APP: the app reads controllers straight from Android (window.AndroidBridge.pads(), JSON) - so any Bluetooth
+// controller works whatever the phone's WebView supports. Already in the standard layout (A=0 B=1 X=2 Y=3 L=4 R=5
+// ZL=6 ZR=7 -=8 +=9 sticks 10/11 D-pad 12-15 home 16; axes = left stick x/y, right stick x/y).
+const IS_ANDROID = !!(window.AndroidBridge && window.AndroidBridge.pads);
+let nativePadCache = { at: -1, list: [] };
+function nativePads() {
+  const now = performance.now();
+  if (now - nativePadCache.at < 4) return nativePadCache.list;
+  let raw = [];
+  try { raw = JSON.parse(window.AndroidBridge.pads() || '[]'); } catch (e) {}
+  const list = [];
+  for (const d of raw) list[d.index] = { connected: true, id: d.id || 'Controller', index: d.index, mapping: 'standard',
+    buttons: (d.buttons || []).map(v => ({ pressed: v > 0.5, value: v })), axes: d.axes || [0, 0, 0, 0] };
+  nativePadCache = { at: now, list };
+  return list;
+}
+// JOY-CONS: a pair of Joy-Cons shows up as TWO controllers - "Joy-Con (L)" and "Joy-Con (R)". They're put back together
+// as ONE controller: the left one's stick (movement) + D-pad + L / ZL / minus, the right one's stick (as the right stick /
+// C-stick) + A B X Y + R / ZR / plus. (A single Joy-Con on its own stays a controller of its own.)
+const JOYCON_L = /joy-?con[^a-z]*\(?l\)?(?![a-z])|joy-?con.*left/i, JOYCON_R = /joy-?con[^a-z]*\(?r\)?(?![a-z])|joy-?con.*right/i;
+const mag2 = (g, a, b) => Math.hypot(g.axes[a] || 0, g.axes[b] || 0);
+function mergeJoyCons(list) {
+  const li = list.findIndex(g => g && g.connected && JOYCON_L.test(g.id) && !JOYCON_R.test(g.id));
+  const ri = list.findIndex(g => g && g.connected && JOYCON_R.test(g.id) && !JOYCON_L.test(g.id));
+  if (li < 0 || ri < 0) return list;
+  const L = list[li], R = list[ri], n = Math.max(L.buttons.length, R.buttons.length, 17);
+  const buttons = Array.from({ length: n }, (_, k) => (btnDown(L.buttons[k]) || btnDown(R.buttons[k])) ? ON : OFF);
+  const ls = mag2(L, 2, 3) > mag2(L, 0, 1) + 0.05 ? [L.axes[2] || 0, L.axes[3] || 0] : [L.axes[0] || 0, L.axes[1] || 0];   // (whichever pair its stick reports on)
+  const rs = mag2(R, 2, 3) > mag2(R, 0, 1) + 0.05 ? [R.axes[2] || 0, R.axes[3] || 0] : [R.axes[0] || 0, R.axes[1] || 0];
+  const out = list.slice(), at = Math.min(li, ri);
+  out[at] = { connected: true, id: 'Joy-Con (L+R)', index: at, mapping: 'standard', joycon: true, buttons, axes: [ls[0], ls[1], rs[0], rs[1]] };
+  out[Math.max(li, ri)] = null;
+  return out;
+}
+const rawPads = () => {
+  let list = [];
+  if (IS_ANDROID) list = nativePads();
+  else { try { list = navigator.getGamepads ? [...navigator.getGamepads()] : []; } catch (e) { list = []; } }
+  return mergeJoyCons(list);
+};
 const btnDown = b => !!b && (b.pressed || b.value > 0.5);
 const isGamecube = gp => !!gp && (gcMaps[gp.id] !== undefined || settings.padType === 'GAMECUBE' || (settings.padType !== 'XBOX' && GC_ID.test(gp.id)));
 function gcLayout(gp) {
@@ -270,7 +313,8 @@ function padRaw(i, binds = bindings) {
   const gp = getPads()[i];
   if (!gp || !gp.connected) return null;
   const B = gp.buttons.map(btnDown);
-  const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
+  const RS = rightStick(i, gp), swap = binds.moveStick === 'right';   // MOVE STICK = right: the sticks swap jobs
+  const ax = swap ? RS.rx : (gp.axes[0] || 0), ay = swap ? RS.ry : (gp.axes[1] || 0);
   const P = gp.gc ? binds.gcPad : binds.pad, any = a => (P[a] || []).some(n => B[n]);   // (GameCube controllers have their own button set)
   const stickX = Math.abs(ax) >= PAD_STICK.walk ? Math.sign(ax) : 0;   // the left stick, left / right (a light tilt counts)
   return {
@@ -284,7 +328,7 @@ function padRaw(i, binds = bindings) {
     // IN A FIGHT the left stick moves and the D-PAD TAUNTS (menus still use both for moving the cursor)
     sl: ax < -0.5, sr: ax > 0.5, su: ay < -0.55, sd: ay > 0.55,
     du: !!B[12], dd: !!B[13], dl: !!B[14], dr: !!B[15],
-    buttons: B, ax, ay, ...rightStick(i, gp),
+    buttons: B, ax, ay, ...(swap ? { rx: gp.axes[0] || 0, ry: gp.axes[1] || 0 } : RS),
   };
 }
 // The RIGHT STICK (C-stick). Xbox-style ("standard") controllers put it on axes 2 / 3. Some other controllers put its
@@ -17607,7 +17651,7 @@ function menuDevices(dt = 0) {
   const kx = (held(...K.right, 'ArrowRight') ? 1 : 0) - (held(...K.left, 'ArrowLeft') ? 1 : 0);
   const ky = (held(...K.down, 'ArrowDown') ? 1 : 0) - (held(...K.up, 'ArrowUp') ? 1 : 0);
   if (Object.keys(pressed).length) kbUsed = true;
-  out.push({ dev: 'keyboard', nav: { x: kx, y: ky }, okHeld: held(...K.attack, 'Enter'), tap: {
+  if (!IS_ANDROID) out.push({ dev: 'keyboard', nav: { x: kx, y: ky }, okHeld: held(...K.attack, 'Enter'), tap: {
     up: tapped(...K.up, 'ArrowUp'), down: tapped(...K.down, 'ArrowDown'), left: tapped(...K.left, 'ArrowLeft'), right: tapped(...K.right, 'ArrowRight'),
     ok: tapped(...K.attack, 'Enter'), back: tapped(...K.special, 'Backspace'), start: tapped('Enter'), alt: tapped('Tab'),
     esc: tapped('Escape'), leave: tapped('Delete'), pause: tapped('Escape') } });
@@ -17640,8 +17684,9 @@ function menuDevices(dt = 0) {
 // ---- Mouse: moves the keyboard player's cursor; left click = pick, right click = back ----
 const mouse = { x: 0, y: 0, click: false, right: false, moved: false };
 function canvasPoint(e) { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; }
-canvas.addEventListener('mousemove', e => { const p = canvasPoint(e); mouse.x = p.x; mouse.y = p.y; mouse.moved = true; });
-canvas.addEventListener('mousedown', e => { const p = canvasPoint(e); mouse.x = p.x; mouse.y = p.y; if (e.button === 2) mouse.right = true; else { mouse.click = true; mouse.down = true; } });
+canvas.addEventListener('mousemove', e => { if (IS_ANDROID) return; const p = canvasPoint(e); mouse.x = p.x; mouse.y = p.y; mouse.moved = true; });
+canvas.addEventListener('mousedown', e => { if (IS_ANDROID) return; const p = canvasPoint(e);   // (ANDROID: controllers only - taps do nothing)
+ mouse.x = p.x; mouse.y = p.y; if (e.button === 2) mouse.right = true; else { mouse.click = true; mouse.down = true; } });
 addEventListener('mouseup', () => { mouse.down = false; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => { mouse.wheel = (mouse.wheel || 0) + e.deltaY; }, { passive: true });   // (scrolls the MOVESETS page)
@@ -18390,7 +18435,7 @@ function drawSelect() {
 // The top row picks WHICH PRESET you're editing: switch (left/right or the arrows), NEW, RENAME, DELETE.
 const ctl = { row: 0, col: 0, listen: null, profile: 'DEFAULT', padSet: 'pad', gcCal: null };
 try { const s = localStorage.getItem('stickman-brawl-ctlprofile'); if (s && profiles[s]) ctl.profile = s; } catch (e) {}
-const CTL_ROWS = ['preset', ...ACTIONS, 'tapJump', 'cStick', 'gcSetup', 'reset', 'back'];
+const CTL_ROWS = ['preset', ...ACTIONS, 'tapJump', 'cStick', 'moveStick', 'gcSetup', 'reset', 'back'];
 const ctlRowY = r => 150 + r * 28;
 const ctlGC = () => ctl.padSet === 'gcPad';            // is the controller column showing the GAMECUBE buttons?
 const padHeaderRect = { x: 840, y: 86, w: 340, h: 26 };
@@ -18525,6 +18570,7 @@ function ctlActivate(add) {
     editPreset().cStick = C_STICK_MODES[(C_STICK_MODES.indexOf(editPreset().cStick) + 1) % C_STICK_MODES.length];
     saveBindings(); menuSfx('pick');
   }
+  else if (row === 'moveStick') { editPreset().moveStick = editPreset().moveStick === 'right' ? 'left' : 'right'; saveBindings(); menuSfx('pick'); }
   else if (row === 'gcSetup') startGcSetup();
   else if (row === 'reset') { profiles[ctl.profile] = JSON.parse(JSON.stringify(DEFAULT_BINDINGS)); saveBindings(); menuSfx('pick'); }
   else if (row === 'back') closeControls();
@@ -18643,7 +18689,8 @@ function drawControls() {
           const label = listening ? (ctl.listen.add ? (c === 0 ? 'PRESS A KEY TO ADD...' : 'PRESS A BUTTON TO ADD...') : (c === 0 ? 'PRESS A KEY...  (ESC CANCELS)' : 'PRESS A BUTTON...'))
             : c === 0 ? (editPreset().keys[row] || []).map(keyName).join(' / ')
             : (() => { const gc = ctlGC(), l = (editPreset()[ctl.padSet][row] || []).map(n => padBtnName(n, gc)).join(' / '), stick = ['left', 'right', 'up', 'down'].includes(row);
-                       return stick ? (l ? l + ' + ' + (gc ? 'STICK' : 'L-STICK') : (gc ? 'CONTROL STICK' : 'L-STICK')) : (l || '-'); })();
+                       const st = editPreset().moveStick === 'right' ? 'R-STICK' : (gc ? 'STICK' : 'L-STICK');
+                       return stick ? (l ? l + ' + ' + st : st) : (l || '-'); })();
           text(label, cr.x + cr.w / 2 - 14, cr.y + 17, label.length > 30 ? 7 : 8, on && !listening ? '#0e0c0c' : '#ffffff', 'center', false);
           if (!listening) {                                  // the + (add another button)
             const pr = ctlPlusRect(r, c), ph = inRect(mouse, pr);
@@ -18654,6 +18701,7 @@ function drawControls() {
       } else {
         const label = row === 'tapJump' ? 'TAP JUMP (STICK UP JUMPS):  ' + (editPreset().tapJump ? 'ON' : 'OFF')
                     : row === 'cStick' ? (ctlGC() ? 'C-STICK FLICK:  ' : 'RIGHT STICK (C-STICK) FLICK:  ') + C_STICK_LABEL[editPreset().cStick]
+                    : row === 'moveStick' ? 'MOVE WITH:  ' + (editPreset().moveStick === 'right' ? 'RIGHT STICK  (LEFT STICK = C-STICK)' : 'LEFT STICK  (RIGHT STICK = C-STICK)')
                     : row === 'gcSetup' ? 'GAMECUBE SETUP  (ADAPTER BUTTONS WRONG? PRESS EACH ONE WHEN ASKED)'
                     : row === 'reset' ? 'RESET THIS PRESET TO DEFAULTS' : 'BACK';
         sctx.fillStyle = sel ? '#ffd23f' : 'rgba(255,255,255,0.06)';
@@ -18709,7 +18757,18 @@ addEventListener('keydown', e => { if (e.key === 'F5') { e.preventDefault(); upd
 // A small note in the top-right corner (everywhere but the home screen, which has its own status line) when a new
 // version is downloading or ready. During a fight it only shows for a few seconds, so it never gets in the way.
 const updToast = { key: '', t: 0 };
+// ANDROID: no controller connected = nothing works - say so, big, over everything
+function drawAndroidPadPrompt() {
+  if (!IS_ANDROID || getPads().some(g => g && g.connected)) return;
+  withMenuDrawing(() => {
+  sctx.fillStyle = 'rgba(8,6,6,0.88)'; sctx.fillRect(0, 0, W, H);
+  text('CONNECT A BLUETOOTH CONTROLLER', W / 2, H / 2 - 30, 22, '#ffd23f', 'center');
+  text('Doodle Brothers on Android is played with a controller - pair one in your phone’s Bluetooth settings.', W / 2, H / 2 + 14, 9, '#ffffff', 'center', false);
+  text('Xbox / PlayStation / Switch Pro / a pair of JOY-CONS (they count as one) all work.  Then press A.', W / 2, H / 2 + 38, 9, '#b4b4bb', 'center', false);
+  });
+}
 function drawUpdateToast(dt) {
+  drawAndroidPadPrompt();
   const u = appUpdate();
   const key = u.state === 'ready' ? 'ready' + u.version : u.state === 'downloading' ? 'dl' + u.version : '';
   if (key !== updToast.key) { updToast.key = key; updToast.t = 0; }
