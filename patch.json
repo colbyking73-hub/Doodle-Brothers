@@ -1,5 +1,5 @@
 {
-    "version":  "0.7.14",
+    "version":  "0.7.15",
     "shell":  "2c7f2e991c796adb",
     "files":  {
                   "build/icon.png":  {
@@ -7,16 +7,16 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "ca3dcf86bd5a3f9d65a1d858eb1f0a342aa70ed152bbd8a008b99c0ba48abeee",
-                                     "size":  1324253
+                                     "hash":  "34de80362a6572a64eff22b8497619bdcc5420e889c076c694246af84fcb4d08",
+                                     "size":  1337738
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
                                             "size":  92865
                                         },
                   "net.js":  {
-                                 "hash":  "4975b516a242f61a98b61f86c9e70469a9faf2adf164fde36c79ec000215c194",
-                                 "size":  55096
+                                 "hash":  "7771ec0d2f0441c0b167a4b1c218b756fedb062cd703f6771c4cc9dc849efc6f",
+                                 "size":  55301
                              },
                   "sounds/battle/battle-without-honor-or-humanity.mp3":  {
                                                                              "hash":  "eda0873dca9a6311e4534976a0744dbef308d28731e1b775be9f4cc1145694fc",
