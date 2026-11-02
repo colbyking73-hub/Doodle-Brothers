@@ -15336,7 +15336,7 @@ function drawFigure(fig, opts = {}) {
     const deep = sketch || opts.tint ? gold : '#d9a21c', lite = sketch || opts.tint ? gold : '#fff3a6';
     const outline = sketch || !opts.tint;
     const hairInk = sketch ? ink : '#7a4f08';                        // dark amber line art
-    const L = form === 2 ? 1.16 : 1, Wd = form === 2 ? 0.82 : 1;
+    const L = form === 2 ? 0.92 : 0.8, Wd = form === 2 ? 0.82 : 1;
     const X = dx => head.x + f * dx, Y = dy => head.y + dy;
     const wind = clamp((fig.vx || 0) * f / 900, -1, 1) * 0.28 + clamp((fig.vy || 0) / 1400, -1, 1) * 0.12;   // blown back by his movement
     // Like Goku's: every spike grows OUT of the scalp, then bends toward ONE shared flow - up and back - so the tips all
