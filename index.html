@@ -6377,6 +6377,7 @@ function demonGaze(f) {
 // then they both streak across to each other's spot as red blurs, crossing paths (he arcs over, they pass under),
 // and land in each other's places. Neither can be hit while it happens.
 const SWAP = { tele: 0.12, travel: 0.2, arcHigh: 70, arcLow: 25 };
+const GAZE_DOOM = 0.35;                                          // swapped below the stage: dazed this long
 function gazeSwap(f, t) {
   f.gazeMark = null;
   const snap = g => ({ x: g.x, y: g.y, vx: g.vx, vy: g.vy, ground: g.ground, onPlatform: g.onPlatform });
@@ -6409,6 +6410,9 @@ function stepGazeSwap(f, a, dt) {
     Object.assign(f, { x: B.x, y: B.y, vx: B.vx, vy: B.vy, ground: B.ground, onPlatform: B.onPlatform });
     Object.assign(t, { x: A.x, y: A.y, vx: A.vx, vy: A.vy, ground: A.ground, onPlatform: A.onPlatform });
     f.action = null; t.action = null;
+    // THE SACRIFICE LANDS: swapped into a spot BELOW the stage, they're dazed for a moment - no jump, no recovery - and
+    // his fall carries them through the death line. (Swapped somewhere safe, they're free right away.)
+    if (!t.minion && A.y > STAGE.y + 60) { t.action = { type: 'hitstun', t: 0, dur: GAZE_DOOM }; t.vy = Math.max(t.vy, 700); painTexts.push({ x: t.x, y: t.y - 130, t: 0.6, max: 0.6, text: 'DOOMED', big: true }); }
     f.face = Math.sign(t.x - f.x) || f.face; t.face = -f.face;
     for (const g of [f, t]) { ring(g.x, g.y - 45); burst(g.x, g.y - 50, [GAZE.color, '#ffffff'], 14, 0, Math.PI, 380, { grav: 0 }); }
     shake = Math.max(shake, 8);
@@ -13792,7 +13796,7 @@ function aiDecide(f, o, ai, L) {
         !(f.opening > 0) && Math.random() < L.defend * 0.6) { f.face = toward; ai.dir = 0; return; }
     const n = cloneCount(f);
     const canSummon = (f.cloneCD || 0) <= 0 && n < cloneMax(f) && f.dodgeCount <= airDodgeMax(f) - 3 && (f.demon || 0) < 100 && f.ground;   // (always keeps 3 Z vanishes in reserve for getting home)
-    if (canSummon && adx < 800 && Math.abs(dy) < 220 && Math.random() < (adx < 180 ? 0.4 : 0.18)) {
+    if (canSummon && adx < 800 && Math.abs(dy) < 220 && Math.random() < (adx < 180 ? 0.2 : 0.07)) {   // (was 0.4 / 0.18: ~7 summons a minute)
       f.face = toward; ai.down = true; ai.tapSpc = true; return;
     }
     if (n > 0 && adx < 240 && Math.abs(dy) < 160 && !(oa && (oa.type === 'hitstun' || oa.type === 'dizzy')) && Math.random() < COLBALIAS_AI.backOff) {
@@ -13869,7 +13873,7 @@ function aiDecide(f, o, ai, L) {
       f.face = toward; ai.dir = toward; ai.tapAtk = true; ai.holdBtn = 'atk'; ai.hold = 0.08 + Math.random() * 0.22; return;
     }
     if (!f.ground) {
-      if (adx < 140 && dy > 70 && dy < 420 && rr < 0.6) { ai.down = true; ai.tapAtk = true; return; }   // Falcon Dive onto them
+      if (adx < 140 && dy > 70 && dy < 420 && rr < 0.2) { ai.down = true; ai.tapAtk = true; return; }   // Falcon Dive onto them (now and then - it was a quarter of everything he did)
       if (adx < 110 && Math.abs(dy) < 110) {
         if (dy < -40) ai.up = true;                                                 // Clone Swipe overhead
         else if (rr < 0.5) ai.dir = f.face === toward ? toward : -toward;           // knuckle / back kick
@@ -14001,7 +14005,7 @@ function aiDecide(f, o, ai, L) {
 // no jumps, no recovery... -> (4) just above the bottom death line: up K = SWAP. He ends up where they were (on the
 // stage), they end up down there with his falling speed. Returns true while it's in charge of the inputs.
 // It calls the whole thing off (and recovers normally) if he's hit, the mark is lost, or they've left the stage.
-const SAC = { swapAbove: 190, giveUp: 7 };                   // swapAbove: how far above the bottom death line he swaps
+const SAC = { swapAbove: 150, giveUp: 7 };                   // swapAbove: how far above the bottom death line he swaps
 function aiSacrifice(f, ai) {
   const S = ai.sac, a = f.action, t = S.target;
   S.t += STEP;
