@@ -12664,9 +12664,13 @@ function drawThrownSword(s) {
   ctx.rotate(stuck ? Math.PI / 2 + s.dir * 0.08 : s.ang);
   ctx.lineCap = 'round';
   const poly = pts => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); };
-  ctx.fillStyle = sketch ? PAPER : '#3d4047'; poly([[-40, 13], [86, 13], [108, -1], [98, -13], [-40, -13]]); ctx.fill();
+  ctx.fillStyle = sketch ? PAPER : '#3d4047'; poly([[-40, 13], [86, 13], [108, 0], [86, -13], [-40, -13]]); ctx.fill();
   ctx.strokeStyle = sketch ? '#222' : '#1b1c20'; ctx.lineWidth = 1.8; ctx.stroke();
-  if (!sketch) { ctx.fillStyle = '#8c939c'; poly([[-40, 13], [86, 13], [108, -1], [86, 10], [-40, 10]]); ctx.fill(); }
+  if (!sketch) {                                                                                   // double-edged: both sides sharpened
+    ctx.fillStyle = '#8c939c';
+    for (const k of [1, -1]) { poly([[-40, 13 * k], [86, 13 * k], [108, 0], [86, 10 * k], [-40, 10 * k]]); ctx.fill(); }
+    ctx.strokeStyle = '#2c2e34'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(-38, 0); ctx.lineTo(102, 0); ctx.stroke();
+  }
   ctx.strokeStyle = sketch ? '#222' : '#2b2d32'; ctx.lineWidth = 6;
   ctx.beginPath(); ctx.moveTo(-42, -17); ctx.lineTo(-42, 17); ctx.stroke();                 // crossbar
   ctx.strokeStyle = sketch ? '#222' : '#2a1c10'; ctx.lineWidth = 5.5;
@@ -16232,7 +16236,7 @@ function drawGreatsword(shoulder, pz, f, opts) {
   const nx = -uy, ny = ux;                                         // across it
   const P = (along, across) => ({ x: hand.x + ux * along + nx * across, y: hand.y + uy * along + ny * across });
   const o = opts.outline || 0;
-  const blade = (e = 0) => [P(8, 13 + e), P(134 + e, 13 + e), P(156 + e * 1.5, -1), P(146 + e, -13 - e), P(8, -13 - e)];
+  const blade = (e = 0) => [P(8, 13 + e), P(134 + e, 13 + e), P(156 + e * 1.5, 0), P(134 + e, -13 - e), P(8, -13 - e)];   // (double-edged: the point is centred)
   const poly = pts => { ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); };
   ctx.save(); ctx.lineCap = 'round';
   if (opts.tint) {                                                  // outline / silhouette pass: one solid shape
@@ -16255,8 +16259,12 @@ function drawGreatsword(shoulder, pz, f, opts) {
   ctx.fillStyle = sketch ? PAPER : '#3d4047'; poly(blade()); ctx.fill();
   ctx.strokeStyle = sketch ? '#222' : '#1b1c20'; ctx.lineWidth = 1.6; ctx.stroke();
   if (!sketch) {
-    ctx.fillStyle = '#6a7079'; poly([P(8, 13), P(134, 13), P(155, 0), P(140, 6), P(8, 7)]); ctx.fill();   // the bevel along the edge
-    ctx.fillStyle = '#8c939c'; poly([P(8, 13), P(134, 13), P(156, -1), P(134, 11), P(8, 11)]); ctx.fill();  // the sharpened edge, catching the light
+    for (const s of [1, -1]) {                                                                             // DOUBLE-EDGED: both sides sharpened
+      ctx.fillStyle = '#6a7079'; poly([P(8, 13 * s), P(134, 13 * s), P(156, 0), P(134, 6 * s), P(8, 7 * s)]); ctx.fill();   // the bevel along the edge
+      ctx.fillStyle = '#8c939c'; poly([P(8, 13 * s), P(134, 13 * s), P(156, 0), P(134, 11 * s), P(8, 11 * s)]); ctx.fill(); // the sharpened edge, catching the light
+    }
+    ctx.strokeStyle = '#2c2e34'; ctx.lineWidth = 1.4;                                                     // the ridge down the middle
+    ctx.beginPath(); ctx.moveTo(P(10, 0).x, P(10, 0).y); ctx.lineTo(P(150, 0).x, P(150, 0).y); ctx.stroke();
     ctx.strokeStyle = '#25272c'; ctx.lineWidth = 1.1;                                                     // battle scars
     for (const [a1, c1, a2, c2] of [[40, -6, 47, -1], [78, -9, 83, -3], [112, -4, 120, 2], [60, 2, 64, 6]]) { ctx.beginPath(); ctx.moveTo(P(a1, c1).x, P(a1, c1).y); ctx.lineTo(P(a2, c2).x, P(a2, c2).y); ctx.stroke(); }
   }
