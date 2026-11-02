@@ -7374,15 +7374,24 @@ const SEVON_MOVES = {
 
 // ---------------- BATARANG (Sevon, side K) ----------------
 // He whips a bat-shaped blade out of his haori: hold any of the 8 directions while he winds up and that's where it goes
-// (it starts the way he's facing). It flies out, slows, and BOOMERANGS back to his hand - cutting anyone on the way out
-// AND on the way back. One out at a time. Trails embers. See spawnBatarang / updateBatarang / drawBatarang.
-const BATARANG = { speed: 1150, out: 0.4, back: 1250, r: 22, catchR: 46, life: 2.4,
+// (it starts the way he's facing). It flies STRAIGHT that way at full speed for as long as it can - until it leaves the
+// arena. Press side K again while it's still out and it BOOMERANGS back to his hand (instantly, no throw animation),
+// cutting anyone on the way out AND on the way back. One out at a time. Trails embers. See spawnBatarang / updateBatarang.
+const BATARANG = { speed: 1150, back: 1350, r: 22, catchR: 46, backLife: 4,
   hit:     { dmg: 6, base: 330, growth: 3.4, angle: 40 },
   backHit: { dmg: 4, base: 260, growth: 2.4, angle: 50 } };
 SEVON_MOVES.sideRanged = { name: 'Batarang', startup: 0.12, active: 0.06, endlag: 0.2, landLag: 0.1,
   wind: pose({ lean: -0.25, bob: -8, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [-1.6, -0.6], armB: [0.6, -0.7], sw: 2.2 }),   // throwing arm cocked back
   strike: pose({ lean: 0.4, bob: -8, legA: [0.9, 0.6], legB: [-0.7, 0.2], armA: [1.7, 0.05], armB: [0.6, -0.7], sw: 2.2 }),   // whipped out
   step(f, a, dt, inp) {                                       // AIM: the last direction held before it flies (8 ways)
+    if (!a.recallChecked) {                                   // one already out? this press CALLS IT BACK instead
+      a.recallChecked = true;
+      const b = projectiles.find(q => q.kind === 'batarang' && q.owner === f);
+      if (b) {
+        if (b.phase === 'out') { b.phase = 'back'; b.backT = 0; b.hit = new Set(); burst(b.x, b.y, ['#ffffff', '#ff7a1a'], 6, 0, Math.PI * 2, 200, { grav: 0 }); }
+        f.action = null; return true;
+      }
+    }
     if (a.phase === 'startup' || a.phase === 'charge') {
       const ax = inp.dir || 0, ay = inp.up ? -1 : inp.down ? 1 : 0;
       if (ax || ay) { a.ax = ax; a.ay = ay; if (ax) f.face = ax; }
@@ -7390,7 +7399,7 @@ SEVON_MOVES.sideRanged = { name: 'Batarang', startup: 0.12, active: 0.06, endlag
     return false;
   },
   fire(f, mult, c, a) {
-    if (projectiles.some(q => q.kind === 'batarang' && q.owner === f)) { burst(f.x + f.face * 30, f.y - 62, ['#555555', '#ff7a1a'], 6, 0, Math.PI, 200, { grav: 0 }); return; }   // (one at a time)
+    if (projectiles.some(q => q.kind === 'batarang' && q.owner === f)) return;   // (one at a time)
     spawnBatarang(f, a.ax ?? f.face, a.ay ?? 0);
   } };
 function spawnBatarang(f, ax, ay) {
@@ -7402,12 +7411,13 @@ function spawnBatarang(f, ax, ay) {
 function updateBatarang(s, dt) {                              // returns true when it's gone
   const o = s.owner;
   s.t += dt; s.spin += dt * 30;
-  if (!o || o.respawnTimer > 0 || s.t > BATARANG.life) return true;
-  if (s.phase === 'out') {
-    const k = s.t / BATARANG.out;
-    s.x += s.vx * dt * (1 - 0.6 * k); s.y += s.vy * dt * (1 - 0.6 * k);   // (slows as it reaches the end of its throw)
-    if (s.t >= BATARANG.out) { s.phase = 'back'; s.hit = new Set(); }   // turns round - and can cut them again
+  if (!o || o.respawnTimer > 0) return true;
+  if (s.phase === 'out') {                                    // straight on, full speed, until it leaves the arena
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    if (s.x < BLAST.left || s.x > BLAST.right || s.y < BLAST.top || s.y > BLAST.bottom) return true;
   } else {
+    s.backT = (s.backT || 0) + dt;
+    if (s.backT > BATARANG.backLife) return true;
     const tx = o.x, ty = o.y - 62, dx = tx - s.x, dy = ty - s.y, d = Math.hypot(dx, dy) || 1;
     if (d < BATARANG.catchR) { burst(o.x + o.face * 10, o.y - 62, ['#ffb02e', '#ffffff'], 6, 0, Math.PI, 160, { grav: 0 }); return true; }   // caught
     s.vx = dx / d * BATARANG.back; s.vy = dy / d * BATARANG.back;
@@ -18382,7 +18392,7 @@ const MOVESETS = {
       ['K (TETHERED)', 'Reel In', 'Fires the gas and yanks himself straight to them.'],
       ['K (AGAIN)', 'Levi Spin', 'Whirls at them like a saw blade. While the cable holds it ALWAYS reaches them - only a last-second shield or Z vanish stops it.'],
       ['Z VANISH (TETHERED)', 'Cut the Line', 'At ANY point while the cable is connected: cut it and vanish - the hook is ready to fire again straight away.'],
-      ['SIDE K', 'Batarang', 'Throws a bat-shaped blade - hold any of the 8 directions as he winds up to aim it. It flies out and BOOMERANGS back to his hand, cutting on the way out and on the way back. One at a time.'],
+      ['SIDE K', 'Batarang', 'Throws a bat-shaped blade - hold any of the 8 directions as he winds up to aim it. It flies STRAIGHT on at full speed until it leaves the arena - press side K again while it is still out and it BOOMERANGS back to his hand, cutting on the way back too. One at a time.'],
       ['UP K', 'Second Form: Flame Wheel', 'His recovery, like Link\'s spin attack: he spins with the katana held out in a ring of fire, rising as he goes, hitting both sides over and over - the last swing launches them.'],
       ['DOWN K', 'Total Concentration', 'Switches his breathing form on / off (ground or air). See below.'] ] },
     MS_STD_THROWS,
