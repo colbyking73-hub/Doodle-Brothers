@@ -5552,7 +5552,10 @@ CLONE_STRING.falconDive = { name: 'Clone Falcon Dive', startup: 0.14, active: 0.
 COLBALIAS_MOVES.cloneDive = { name: 'Clone Falcon Dive', startup: 0.1, active: 0.12, endlag: 0.22, landLag: 0.14, hitboxes: [],
   wind: handSign,
   strike: pose({ lean: 0.1, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [0.6, -0.3], armB: [-0.3, -0.4] }),   // pointing it down at them
-  fire(f) { spawnStrikeClone(f, 'falconDive', f.x - f.face * 20, f.face, { y: f.y - 130, vx: 0, vy: 0 }); } };
+  fire(f) {                                                       // TWO clones: one dives forward, one dives back
+    spawnStrikeClone(f, 'falconDive', f.x - f.face * 20, f.face, { y: f.y - 130, vx: 0, vy: 0 });
+    spawnStrikeClone(f, 'falconDive', f.x + f.face * 20, -f.face, { y: f.y - 130, vx: 0, vy: 0 });
+  } };
 
 // ---- CLONE DETONATION (down J) ----
 const DETONATE = { r: 110, hit: { dmg: 11, base: 430, growth: 5.6, angle: 55 }, selfHit: { dmg: 5, base: 300, growth: 3, angle: 60 }, selfR: 72 };
@@ -5585,6 +5588,34 @@ COLBALIAS_MOVES.detonate = { name: 'Clone Detonation', startup: 0.12, active: 0.
     sfx.blast(); sfx.beam(0.4);
   } };
 
+// ---- TWIN AXE (down J): two clones pop in HIGH on either side of him, heels raised over their heads... and come
+// crashing straight down with AXE KICKS, one each side of him (facing outward). Each pops what it hits up off the floor.
+const TWIN_AXE = { off: 78, high: 150, vy: 1750 };
+CLONE_STRING.axeDrop = { name: 'Twin Axe', startup: 0.16, active: 0.45, endlag: 0.05, floatWhile: (f, a) => a.phase === 'startup',
+  hitboxes: [{ x: 20, y: -8, r: 40, dmg: 8, base: 430, growth: 5.2, angle: 74 }, { x: 10, y: -50, r: 30, dmg: 8, base: 430, growth: 5.2, angle: 74 }],
+  wind: pose({ lean: -0.25, legA: [3.0, 0.1], legB: [0.3, 0.9], armA: [-0.9, -0.4], armB: [0.9, -0.4] }),     // heel raised straight up over its head
+  strike: pose({ lean: 0.35, legA: [0.55, 0.05], legB: [-0.4, 0.6], armA: [-1.6, -0.2], armB: [-1.3, -0.2] }),  // ...and brought DOWN
+  step(f, a, dt) {
+    if (a.phase === 'startup') { f.vx = 0; f.vy = 0; return false; }
+    if (a.phase !== 'active') return false;
+    f.vx = 0; f.vy = TWIN_AXE.vy;
+    a.ghostT = (a.ghostT || 0) - dt;
+    if (a.ghostT <= 0) { a.ghostT = 0.03; ghosts.push({ fig: figureOf(f), life: 0.14, max: 0.14, color: '#ff2a2a' }); }
+    if (f.ground) {                                              // heel hits the floor: crack, then poof
+      if (!a.slam) { a.slam = true; dust(f.x + f.face * 20, f.y, 12, 2); ring(f.x + f.face * 20, f.y - 8); hellBurst(f.x + f.face * 20, f.y - 10, 12, 420); shake = Math.max(shake, 9); sfx.slam(); }
+      a.t = a.move.active;
+    }
+    return false;
+  } };
+COLBALIAS_MOVES.twinAxe = { name: 'Twin Axe', startup: 0.1, active: 0.06, endlag: 0.3, hitboxes: [],
+  wind: handSign,
+  strike: pose({ lean: -0.05, bob: -12, legA: [0.8, 0.6], legB: [-0.6, 0.2], armA: [1.6, -0.1], armB: [-1.6, -0.1] }),   // arms flung out to both sides
+  fire(f, mult = 1) {
+    if (f.minion) return COLBALIAS_MOVES.detonate.fire(f, mult);   // (a clone doing it: still blows itself up)
+    for (const side of [1, -1])
+      spawnStrikeClone(f, 'axeDrop', f.x + side * TWIN_AXE.off, side, { y: f.y - TWIN_AXE.high, vx: 0, vy: 0 });
+    sfx.whoosh(true);
+  } };
 // ---- the new layout ----
 COLBALIAS_MOVES.sideGround = COLBALIAS_MOVES.sideRanged;          // side J = RED CHIDORI
 COLBALIAS_MOVES.sideRanged = { ...COLBALIAS_MOVES.hellMissile,     // side K = HELL MISSILE again - slower (easier to dodge)
@@ -5598,7 +5629,7 @@ COLBALIAS_MOVES.hellMissile = COLBALIAS_MOVES.sideRanged;
 COLBALIAS_MOVES.nair = COLBALIAS_MOVES.cloneFlail;
 COLBALIAS_MOVES.uair = COLBALIAS_MOVES.cloneSwipe;
 COLBALIAS_MOVES.dair = COLBALIAS_MOVES.cloneDive;
-COLBALIAS_MOVES.downGround = COLBALIAS_MOVES.detonate;
+COLBALIAS_MOVES.downGround = COLBALIAS_MOVES.twinAxe;          // (Clone Detonation is now only what his CLONES do with down J)
 // (his clone-string hits were tuned for when he was only a boss - 50% harder now that he's a real fighter)
 for (const m of [CLONE_STRING.catapultKick, CLONE_STRING.vaultAxe, CLONE_STRING.upKick, CLONE_STRING.headCrushHit, COLBALIAS_MOVES.jab2])
   for (const h of m.hitboxes || []) h.dmg = Math.round(h.dmg * 1.5 * 10) / 10;
@@ -18789,14 +18820,14 @@ const MOVESETS = {
       ['J J J J', 'Clone Catapult > Slingshot Sweep > Clone Vault > Twin Crush', 'He and his clones throw each other around: a clone is hurled into a flying kick, a clone shoves him into a slide, a clone vaults over them into an axe kick - then TWO clones punch their head from both sides at once.'],
       ['SIDE J (HOLD)', 'Red Chidori', 'Charge red lightning, then a clone spins him and HURLS him. On the ground he skims the floor and stops at the edge; in the air it is a huge rising throw. A hit IMPALES them right where it catches them - then he swings them up on his arm and THROWS them.'],
       ['UP J', 'Clone Launch Headbutt', 'A clone crouches, he steps into its hands and it heaves him skyward into a giant headbutt.'],
-      ['DOWN J', 'Clone Detonation', 'KATSU! Every one of his clones on the stage EXPLODES. No clones out = a small burst round himself.'],
+      ['DOWN J', 'Twin Axe', 'Two clones pop in high on either side of him and come crashing down with AXE KICKS - one on each side.'],
       ['RUN + J', 'Demon Scissors', 'A flying flip that comes down on them legs-first, scissoring.'] ] },
     { title: 'AIR J', rows: [
       ['AIR J', 'Clone Flail', 'Summons a clone, grabs its ankle and swings it a full 360 round himself like a weapon.'],
       ['AIR FWD J', 'Jumping Knuckle', 'A big overhand punch hammered forward.'],
       ['AIR BACK J', 'Devil Back Kick', 'A straight mule kick behind him.'],
       ['AIR UP J', 'Clone Swipe', 'Swings a clone\'s body in one big arc over his head.'],
-      ['AIR DOWN J', 'Clone Falcon Dive', 'A clone appears above him and dives in a flaming kick - whoever it catches is CARRIED DOWN with it and spiked.'] ] },
+      ['AIR DOWN J', 'Clone Falcon Dive', 'TWO clones appear above him and dive in flaming kicks - one forward, one back. Whoever they catch is CARRIED DOWN and spiked.'] ] },
     { title: 'K (SPECIALS)', rows: [
       ['K (HOLD)', 'Hellfire Shot', 'A charge shot - hold to power it up.'],
       ['SIDE K', 'Hell Missile', 'A slow bolt of hellfire that crosses the whole stage - a hit STUNS them for a moment.'],
