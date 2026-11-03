@@ -360,8 +360,31 @@ const rawPads = () => {
       findSteamTwins(list, sp);
     }
   }
-  return mergeJoyCons(list);
+  const merged = mergeJoyCons(list);
+  padCursorCheck(merged);
+  return merged;
 };
+// THE MOUSE POINTER hides itself while a controller is being played with (a Steam Controller's stick / trackpad also
+// drags Windows' pointer about - the game ignores it, but you'd still SEE it wandering over the screen). It comes back
+// the moment the real mouse is moved.
+let cursorHidden = false, cursorAt = null;
+function setCursorHidden(h) {
+  if (h === cursorHidden || IS_ANDROID) return;
+  cursorHidden = h;
+  document.documentElement.style.cursor = h ? 'none' : '';
+  if (typeof canvas !== 'undefined') canvas.style.cursor = h ? 'none' : '';
+}
+function padCursorCheck(list) {
+  if (cursorHidden) return;
+  for (const g of list) if (g && g.connected && (g.touch || g.buttons.some(b => b && (b.pressed || b.value > 0.5)) ||
+                                                  g.axes.slice(0, 4).some(v => Math.abs(v) > 0.35))) { setCursorHidden(true); return; }
+}
+addEventListener('mousemove', e => {                         // (only REAL mouse moves get here - Steam's copy is dropped above)
+  const p = { x: e.clientX, y: e.clientY };
+  if (cursorHidden && cursorAt && Math.hypot(p.x - cursorAt.x, p.y - cursorAt.y) > 6) setCursorHidden(false);
+  cursorAt = p;
+});
+addEventListener('mousedown', () => setCursorHidden(false));
 // STEAM'S MOUSE + KEYBOARD COPY: with Steam running, a Steam Controller ALSO sends Steam's desktop controls as a fake
 // keyboard + mouse (A = Enter, trackpad = mouse, triggers = clicks...). Left alone, every press would happen twice and the
 // "keyboard" would join as a second player. So while a Steam Controller is connected, every key / mouse event is held
