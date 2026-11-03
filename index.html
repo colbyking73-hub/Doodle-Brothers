@@ -8753,7 +8753,7 @@ const NINTH_POSE = {
 const FLAME_DRAGON = {
   summon: 13.5, endlag: 0.55,              // the coil + breath (REAL seconds): the whole voice line plays and the rush leaves ON "...RENGOKU!" at the end / his follow-through
   fill: 7.5,                               // how long his body takes to fill with flame (then he's fully ablaze, breathing fire, till the shout)
-  speed: 1300, turn: 3.4, steer: 7.5, life: 1.6, r: 60,   // the rush: speed, homing turn rate, PLAYER steering turn rate (rad/s), how long it lasts, bite size
+  speed: 1300, turn: 4.2, steer: 18, life: 1.6, r: 60,   // the rush: speed, homing turn rate, PLAYER steering turn rate (rad/s), how long it lasts, bite size
   carry: 0.5, carrySpeed: 700, tickEvery: 0.1,
   tick: { dmg: 2.2, base: 0, growth: 0, angle: 90, noStop: true, ultHit: true },             // burning while it carries them
   blockChip: 2.6,                          // a BLOCKED rush: shield damage = the explosion's damage x this (about half a full shield)
@@ -8814,8 +8814,9 @@ function stepFlameDragon(f, a, dt) {
     a.songT = (a.songT || 0) + dt / uiRealRate();
     a.pose = NINTH_POSE.stance;
     a.cam = { x: f.x + f.face * 40, y: f.y - 95, z: 1.35 + 0.35 * clamp(a.songT / FLAME_DRAGON.summon, 0, 1), speed: 3 };   // (pushing in on him as he breathes)
-    const v = nearestFoe(f);
-    if (v && v.respawnTimer <= 0) f.face = Math.sign(v.x - f.x) || f.face;
+    const v = nearestFoe(f), sin = f.controller !== 'dummy' ? f.lastInp : null;
+    if (sin && sin.dir) f.face = sin.dir;                                        // (the player turns him round himself...)
+    else if (v && v.respawnTimer <= 0) f.face = Math.sign(v.x - f.x) || f.face;   // (...or he faces the nearest enemy)
     const k = a.songT / FLAME_DRAGON.summon;
     shake = Math.max(shake, 2 + 5 * k);
     if (Math.random() < dt * 40) burst(f.x + (Math.random() - 0.5) * 50, f.y - 6, SEVON_FIRE, 2, -Math.PI / 2, 0.5, 260, { grav: -300 });   // fire rising off the floor
@@ -8863,12 +8864,16 @@ function updateDragon(s, dt) {
     s.x = o.x + Math.cos(ang) * (55 + 25 * k); s.y = o.y - 25 - k * 120 + Math.sin(ang) * 22;
     if (o.action.phase === 'release') {                       // THE SHOUT: he rushes them down AS the dragon
       s.state = 'fly'; s.t = 0; o.action.phase = 'rush';
-      s.x = o.x + o.face * 70; s.y = o.y - 80;
       const v = nearestFoe(o);
       s.target = v && v.respawnTimer <= 0 ? v : null;
-      s.dir = s.target ? Math.atan2(s.target.y - 50 - s.y, s.target.x - s.x) : (o.face > 0 ? 0 : Math.PI);
-      // (never fire it backwards: at worst straight up/down in front of him)
-      if (Math.cos(s.dir) * o.face < 0) s.dir = o.face > 0 ? clamp(s.dir, -Math.PI / 2, Math.PI / 2) : (Math.sin(s.dir) < 0 ? -Math.PI / 2 : Math.PI / 2);
+      // WHERE IT GOES: wherever the player points (any of the 8 ways - behind him too), otherwise straight at the nearest
+      // enemy, wherever they are. No facing lock.
+      const inp = o.controller !== 'dummy' ? o.lastInp : null;
+      const ix = inp ? (inp.dir || 0) : 0, iy = inp ? ((inp.down ? 1 : 0) - (inp.up ? 1 : 0)) : 0;
+      const ox = o.x, oy = o.y - 80;
+      s.dir = (ix || iy) ? Math.atan2(iy, ix) : s.target ? Math.atan2(s.target.y - 50 - oy, s.target.x - ox) : (o.face > 0 ? 0 : Math.PI);
+      s.x = ox + Math.cos(s.dir) * 70; s.y = oy + Math.sin(s.dir) * 70;
+      o.face = Math.cos(s.dir) >= 0 ? 1 : -1;
     }
   } else if (s.state === 'fly') {
     const v = s.target;
@@ -8879,7 +8884,7 @@ function updateDragon(s, dt) {
     if (ix || iy) {
       const want = Math.atan2(iy, ix);
       let d = want - s.dir; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
-      if (Math.abs(d) > 2.3) {                                  // a U-turn: always loop UP through the air (never down into the floor)
+      if (Math.abs(d) > 2.3) {                                  // a U-turn: loop through the AIR side (the floor would stop it dead)
         const alt = d - Math.sign(d) * Math.PI * 2;
         if (Math.sin(s.dir + alt / 2) < Math.sin(s.dir + d / 2)) d = alt;
       }
@@ -19197,7 +19202,7 @@ const MOVESETS = {
     MS_STD_THROWS,
     { title: 'TRANSFORM + ULTIMATE (I)', rows: [
       ['I (FULL METER)', 'FLAME HASHIRA', 'A burning aura - faster and stronger.'],
-      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'He sinks into his stance and breathes in as a DRAGON OF FLAME coils round him - then on the shout he RUSHES THEM DOWN as the dragon, riding at its head with his blade out, chasing the nearest enemy. It catches them, drives on through them in its jaws and EXPLODES in a sea of flame. Everyone freezes for the wind-up, then it can be BLOCKED (heavy shield damage), PERFECT-BLOCKED (repelled, he staggers) or dodged.'],
+      ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'He sinks into his stance and breathes in as a DRAGON OF FLAME coils round him - then on the shout he RUSHES THEM DOWN as the dragon, riding at its head with his blade out - it flies wherever you point (any way, behind him too) and homes in on the nearest enemy if you let go. It catches them, drives on through them in its jaws and EXPLODES in a sea of flame. Everyone freezes for the wind-up, then it can be BLOCKED (heavy shield damage), PERFECT-BLOCKED (repelled, he staggers) or dodged.'],
       ['DOWN + I (TRANSFORMED)', 'Fifth Form: Flame Tiger', 'A lunge into a flurry of flaming slashes ending in a roaring fire tiger.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'TOTAL CONCENTRATION (down K): +12% damage, +18% speed, quicker attacks, and flames on every windup and hit - but it strains him: 1.5% damage every second.',
