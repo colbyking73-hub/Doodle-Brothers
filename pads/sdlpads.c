@@ -17,6 +17,7 @@
 
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -147,7 +148,7 @@ int main(int argc, char **argv) {
     Uint64 now = SDL_GetTicks();
     if (strcmp(cur, last) != 0 || now - lastBeat > 1000) {           // on every change (+ once a second, so the app knows it's alive)
       if (fputs(cur, stdout) < 0 || fputc('\n', stdout) == EOF || fflush(stdout) != 0) break;   // (the pipe closed: the game's gone)
-      strcpy(last, cur); lastBeat = now;
+      memcpy(last, cur, strlen(cur) + 1); lastBeat = now;
     }
     SDL_Delay(4);
   }
