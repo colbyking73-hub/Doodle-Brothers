@@ -6,6 +6,10 @@ let displayMode = arg('display-mode') || 'windowed';
 let update = { state: 'idle' };
 ipcRenderer.on('display-mode', (e, m) => { displayMode = m; });   // (F11 changes it from the app side)
 ipcRenderer.on('update', (e, u) => { update = u || update; });    // checking / downloading (percent) / ready / latest / error
+// STEAM CONTROLLERS, read by the SDL helper (see main.js): a JSON array, newest state
+let sdlPads = '[]';
+try { sdlPads = ipcRenderer.sendSync('sdl-pads-now') || '[]'; } catch (e) {}
+ipcRenderer.on('sdl-pads', (e, s) => { sdlPads = s; });
 contextBridge.exposeInMainWorld('appInfo', {
   version: (() => { try { return ipcRenderer.sendSync('app-version') || arg('app-version') || 'dev'; } catch (e) { return arg('app-version') || 'dev'; } })(),   // (includes quick updates)
   desktop: true,
@@ -14,4 +18,5 @@ contextBridge.exposeInMainWorld('appInfo', {
   getUpdate: () => ({ ...update }),
   installUpdate: () => ipcRenderer.send('update-install'),
   checkUpdate: () => ipcRenderer.send('update-check'),
+  sdlPads: () => sdlPads,
 });

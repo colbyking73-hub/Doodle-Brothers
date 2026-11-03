@@ -17,6 +17,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # STEAM CONTROLLER HELPER: a tiny SDL 3 program (pads/sdlpads.c) that reads Valve's controllers, which the game's
+      # browser engine can't see. Built here with MSVC against the official SDL 3 release; shipped next to the app.
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build the Steam Controller helper
+        shell: pwsh
+        run: |
+          $v = '3.4.18'
+          Invoke-WebRequest "https://github.com/libsdl-org/SDL/releases/download/release-$v/SDL3-devel-$v-VC.zip" -OutFile sdl.zip
+          Expand-Archive sdl.zip -DestinationPath sdl
+          $root = "sdl/SDL3-$v"
+          New-Item -ItemType Directory -Force pads/bin | Out-Null
+          cl /nologo /O2 /W3 /I "$root/include" pads/sdlpads.c /Fe:pads/bin/sdlpads.exe /link /LIBPATH:"$root/lib/x64" SDL3.lib
+          if ($LASTEXITCODE -ne 0) { throw 'helper build failed' }
+          Copy-Item "$root/lib/x64/SDL3.dll" pads/bin/
+          Get-ChildItem pads/bin
       - name: Install
         run: npm install
       - name: Build and publish

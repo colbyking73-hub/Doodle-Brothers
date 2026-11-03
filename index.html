@@ -289,12 +289,57 @@ function mergeJoyCons(list) {
   out[Math.max(li, ri)] = null;
   return out;
 }
+// STEAM CONTROLLERS (PC app): the browser can't see Valve's controllers, so the app reads them with SDL (pads/sdlpads.c)
+// and passes them on - already in the standard layout (+ the back buttons as 17-20, "..." as 21). They're added as
+// controllers 9+ (after the browser's own). While one is in use, Steam's mouse + keyboard copy of it is ignored (below).
+const SDL_PAD_BASE = 8;
+let sdlCache = { src: '[]', list: [] };
+function sdlPads() {
+  let src = '[]';
+  try { src = (window.appInfo && window.appInfo.sdlPads && window.appInfo.sdlPads()) || '[]'; } catch (e) {}
+  if (src === sdlCache.src) return sdlCache.list;
+  let raw = [];
+  try { raw = JSON.parse(src); } catch (e) {}
+  const list = (Array.isArray(raw) ? raw : []).map(d => ({ connected: true, id: d.id || 'Steam Controller', index: SDL_PAD_BASE + (d.i | 0),
+    mapping: 'standard', steam: true, touch: !!d.t, buttons: (d.b || []).map(v => ({ pressed: v > 0.5, value: v })), axes: d.a || [0, 0, 0, 0] }));
+  steamPadActivity(sdlCache.list, list);
+  sdlCache = { src, list };
+  return list;
+}
+// what to call controller k on screen: Steam Controllers are numbered on their own ("STEAM CONTROLLER 1")
+const isSteamPad = k => k >= SDL_PAD_BASE && !IS_ANDROID && sdlPads().some(g => g.index === k);
+const padLabel = (k, word = 'CONTROLLER') => isSteamPad(k) ? 'STEAM ' + word + ' ' + (k - SDL_PAD_BASE + 1) : word + ' ' + (k + 1);
 const rawPads = () => {
   let list = [];
   if (IS_ANDROID) list = nativePads();
-  else { try { list = navigator.getGamepads ? [...navigator.getGamepads()] : []; } catch (e) { list = []; } }
+  else {
+    try { list = navigator.getGamepads ? [...navigator.getGamepads()] : []; } catch (e) { list = []; }
+    const sp = sdlPads();
+    if (sp.length) { list = Array.from({ length: Math.max(list.length, SDL_PAD_BASE) }, (_, k) => list[k] || null); for (const g of sp) list[g.index] = g; }
+  }
   return mergeJoyCons(list);
 };
+// STEAM'S MOUSE + KEYBOARD COPY: with Steam running, a Steam Controller ALSO sends Steam's desktop controls (trackpad =
+// mouse, triggers = clicks, buttons = keys...). So whenever the controller is being used - a button / stick / trigger
+// moved in the last moment, or a finger on a trackpad - mouse and key presses are ignored. (A key held down from then
+// stays ignored till it's let go.) Someone on the real keyboard at the same time is only blocked for that instant.
+let steamMuteUntil = 0, steamTouch = false;
+const steamMutedKeys = new Set();
+function steamPadActivity(before, after) {
+  steamTouch = after.some(g => g.touch);
+  const sig = g => g.buttons.map(b => b.value > 0.3 ? 1 : 0).join('') + g.axes.map(v => Math.round(v * 4)).join(',');
+  const prev = new Map(before.map(g => [g.index, sig(g)]));
+  if (after.some(g => prev.get(g.index) !== sig(g)) || before.length !== after.length) steamMuteUntil = performance.now() + 250;
+}
+const steamMuting = () => { if (IS_ANDROID) return false; sdlPads(); return sdlCache.list.length > 0 && (steamTouch || performance.now() < steamMuteUntil); };
+for (const type of ['keydown', 'mousedown', 'mouseup', 'mousemove', 'wheel', 'contextmenu']) addEventListener(type, e => {
+  if (type === 'keydown' && steamMutedKeys.has(e.code)) { e.stopImmediatePropagation(); e.preventDefault(); return; }
+  if (!steamMuting()) return;
+  if (type === 'keydown') steamMutedKeys.add(e.code);
+  if (type === 'mouseup') return;                                  // (always let a button go - nothing stays stuck down)
+  e.stopImmediatePropagation(); if (type !== 'wheel') e.preventDefault();
+}, { capture: true, passive: false });
+addEventListener('keyup', e => { steamMutedKeys.delete(e.code); }, { capture: true });
 const btnDown = b => !!b && (b.pressed || b.value > 0.5);
 const isGamecube = gp => !!gp && (gcMaps[gp.id] !== undefined || settings.padType === 'GAMECUBE' || (settings.padType !== 'XBOX' && GC_ID.test(gp.id)));
 function gcLayout(gp) {
@@ -17261,7 +17306,7 @@ function drawHUD() {
     const tag = f.name + ' ' + charName(f.char);
     text(tag, x + 26, y + 24, tag.length > 16 ? 6 : tag.length > 12 ? 8 : 10, '#ffffff', 'left', false);
     text('KO ' + f.kos, x + 196, y + 24, 9, '#8f8f98', 'right', false);
-    const devTag = f.controller === 'keyboard' ? 'KEYBOARD' : f.controller && f.controller.startsWith('pad') ? (padIsGC(+f.controller.slice(3)) ? 'GC PAD ' : 'PAD ') + (+f.controller.slice(3) + 1) : 'CPU';
+    const devTag = f.controller === 'keyboard' ? 'KEYBOARD' : f.controller && f.controller.startsWith('pad') ? (padIsGC(+f.controller.slice(3)) ? 'GC PAD ' + (+f.controller.slice(3) + 1) : padLabel(+f.controller.slice(3), 'PAD')) : 'CPU';
     if (!gameOptions.cleanHud) text(devTag, x + 196, y + 40, 7, '#806b5a', 'right', false);       // which device controls this fighter
     if (f.look && f.look.timeStop) {                      // Colby's TIME meter (lengthens his Time Stop)
       const tm = clamp((f.timeMeter || 0) / 100, 0, 1);
@@ -17866,7 +17911,7 @@ const devLabel = p => {
     if (s && s.build && sbNet && s.build !== sbNet.BUILD) return 'ONLINE - OLD VERSION!';
     return 'ONLINE' + (s && s.ping ? '  ' + s.ping + 'MS' : '');
   }
-  return p.cpu ? 'COMPUTER' : p.dev === 'keyboard' ? 'KEYBOARD + MOUSE' : 'CONTROLLER ' + (+p.dev.slice(3) + 1);
+  return p.cpu ? 'COMPUTER' : p.dev === 'keyboard' ? 'KEYBOARD + MOUSE' : padLabel(+p.dev.slice(3));
 };
 // ONLINE ROOM: the select screen is the room's lobby (net.js keeps the two in step)
 const netRoom = () => !!(netplay && netplay.inRoom);
@@ -18495,7 +18540,7 @@ function drawSelect() {
     // A controller is plugged in but nobody is using it: say so loudly
     const idlePad = getPads().findIndex((g, k) => g && g.connected && !players.some(p => !p.cpu && p.dev === 'pad' + k));
     if (idlePad >= 0 && !watchMode && !selMsg && Math.floor(menuTime * 2) % 2 === 0)
-      text('CONTROLLER ' + (idlePad + 1) + ' CONNECTED - PRESS A TO JOIN', W / 2, 92, 10, '#a8ecff', 'center');
+      text(padLabel(idlePad) + ' CONNECTED - PRESS A TO JOIN', W / 2, 92, 10, '#a8ecff', 'center');
     if (selMsg) text(selMsg.text, W / 2, 92, 10, '#ffd23f', 'center');
     if (selMsg && selMsg.steam) {                           // (on a dark strip - it sits over the fighter portraits)
       sctx.fillStyle = 'rgba(8,6,6,0.88)'; sctx.fillRect(W / 2 - 470, 99, 940, 17);

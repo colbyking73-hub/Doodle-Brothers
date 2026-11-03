@@ -33,6 +33,7 @@
       "sounds/battle/*.mp3",
       "build/icon.png"
     ],
+    "extraResources": [{ "from": "pads/bin", "to": "pads", "filter": ["sdlpads.exe", "SDL3.dll"] }],
     "directories": { "output": "dist", "buildResources": "build" },
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],

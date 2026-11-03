@@ -149,10 +149,48 @@ function setupUpdates() {
   checkNow(false);
   setInterval(() => checkNow(false), CHECK_EVERY);
 }
+// STEAM CONTROLLERS: the game's browser engine can't see Valve's controllers (with Steam running they act as a mouse +
+// keyboard instead). A small SDL 3 helper - pads/sdlpads.exe (source: pads/sdlpads.c, SDL 3.4.18) - reads them and prints
+// their state as JSON lines; it's passed on to the game (preload.js: appInfo.sdlPads), which adds them to its controllers.
+const { spawn } = require('child_process');
+let padProc = null, padState = '[]', padRestarts = 0, quitting = false;
+function padHelper() {
+  const dir = app.isPackaged ? path.join(process.resourcesPath, 'pads') : path.join(__dirname, 'pads', 'bin');
+  const exe = path.join(dir, 'sdlpads.exe');
+  return fs.existsSync(exe) ? exe : null;
+}
+function sendPads() { if (win && !win.isDestroyed()) win.webContents.send('sdl-pads', padState); }
+function startPadHelper() {
+  const exe = process.platform === 'win32' && padHelper();
+  if (!exe || quitting) return;
+  let p;
+  try { p = spawn(exe, [String(process.pid)], { cwd: path.dirname(exe), windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }); }
+  catch (e) { console.error('[pads]', e && e.message); return; }
+  padProc = p;
+  let buf = '';
+  p.stdout.setEncoding('utf8');
+  p.stdout.on('data', d => {
+    buf += d;
+    let i, line = null;
+    while ((i = buf.indexOf('\n')) >= 0) { line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); }
+    if (line !== null && line !== padState && line.startsWith('[')) { padState = line; sendPads(); }   // (only the newest state matters)
+    if (buf.length > 1e6) buf = '';
+  });
+  p.on('error', e => console.error('[pads]', e && e.message));
+  p.on('exit', () => {
+    if (padProc === p) padProc = null;
+    if (padState !== '[]') { padState = '[]'; sendPads(); }
+    if (!quitting && padRestarts++ < 5) setTimeout(startPadHelper, 2000);   // (crashed? try again, a few times)
+  });
+}
+ipcMain.on('sdl-pads-now', e => { e.returnValue = padState; });
+app.on('will-quit', () => { quitting = true; if (padProc) padProc.kill(); });
+
 app.whenReady().then(() => {
   pickGame();
   createWindow(loadMode());
   setupUpdates();
+  startPadHelper();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

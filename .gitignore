@@ -16,3 +16,6 @@ android/build/
 android/app/build/
 *.p12
 *.jks
+
+# the Steam Controller helper, built by the release workflow
+pads/bin/
