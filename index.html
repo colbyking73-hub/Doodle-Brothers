@@ -12414,7 +12414,10 @@ function startAttack(f, inp, btn) {
   // Its thrown scythe is still HOVERING: side K (or K) calls it back to his hand
   if (f.noScythe && btn === 'spc' && warpToScythe(f)) { f.spcBuf = 0; return; }   // REAPER'S WARP: K again = teleport to it
   if (f.noScythe && btn === 'spc' && !inp.up && !inp.down && recallScythe(f)) { f.spcBuf = 0; return; }
-  if (f.noScythe && btn === 'spc' && !inp.dir && !inp.up && !inp.down) {   // neutral K right next to it = pick it up
+  // neutral K right next to it = pick it up. So does his bare-handed neutral J string: a kick/punch thrown while he's
+  // over it grabs it instead (so the string can't just run straight past it - picking it up costs the combo)
+  const bareJ = btn === 'atk' && f.ground && f.char === 'COLBY' && CHARACTERS[f.char].bareMoves;
+  if (f.noScythe && (btn === 'spc' || bareJ) && !inp.dir && !inp.up && !inp.down) {
     // his own (not flying), or ANY weapon lying on the floor - the rival's too
     const s = scythes.find(q => q.state !== 'fly' && q.state !== 'recall' && (q.owner === f || q.state === 'stuck' || q.state === 'fall') &&
                                (f.char === 'COLTEN' || q.weapon === nativeWeapon(f)));   // (COLTEN takes any weapon; everyone else only their own)
@@ -12950,8 +12953,15 @@ function stepAction(f, inp, dt) {
         f.face = face0;
       }
     }
+    // COLBY - TOSS INTO CHIDORI: the moment the scythe leaves his hand, side K cuts the throw's recovery short and goes
+    // straight into the (bare-handed) Chidori, while the scythe's still spinning through the air
+    if (m.throwScythe && a.key === 'sideRanged' && f.char === 'COLBY' && f.noScythe && a.phase !== 'startup' &&
+        f.spcBuf > 0 && inp.dir && !inp.up && !inp.down) {
+      f.action = null; startAttack(f, inp, 'spc');
+      return;
+    }
     // Combo chains: press the same button again during the move to flow into the next one
-    if (m.combo && (a.phase === 'end' || (a.phase === 'active' && a.t > m.active * 0.5))) {
+    if (m.combo &&(a.phase === 'end' || (a.phase === 'active' && a.t > m.active * 0.5))) {
       const buf = a.btn === 'atk' ? f.atkBuf : f.spcBuf;
       if (buf > 0) {
         f.atkBuf = f.spcBuf = 0;
