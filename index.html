@@ -9689,15 +9689,30 @@ function chidoriLive(f) {
   if (ult && ult.user === f && ult.def && ult.def.godChidori) return ult.phase === 'charge' || ult.phase === 'dash';
   return false;
 }
+// Every Chidori loop that's playing, with who it belongs to. It's a LOOP, so something must always stop it: the
+// fighter's own check (below) normally does, and sweepChidoriSounds - run every screen frame, whatever's happening -
+// catches the rest (the match ended / was quit, the game's paused, the fighter was reset, KO'd or left, an online
+// rollback rewound them...). Nothing can be left chirping forever.
+const chidoriSounds = new Map();                          // handle -> fighter
 function syncChidoriSound(f) {
+  if (f.chidoriSnd && !chidoriSounds.has(f.chidoriSnd)) f.chidoriSnd = null;   // (a stale one - e.g. restored by a rollback)
   if (chidoriLive(f)) {
-    if (!f.chidoriSnd && soundOn && actx && chidoriBuf) {
+    if (!f.chidoriSnd && soundOn && actx && chidoriBuf && !(typeof RB !== 'undefined' && RB.resim)) {
       const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
       src.buffer = chidoriBuf; src.loop = true; src.loopStart = 0.15; src.loopEnd = Math.min(chidoriBuf.duration, 1.6);
       g.gain.value = 0.85; src.connect(g).connect(audioOut()); src.start(t);
       f.chidoriSnd = { s: src, g };
+      chidoriSounds.set(f.chidoriSnd, f);
     }
-  } else if (f.chidoriSnd) { stopBuffer(f.chidoriSnd, 0.25); f.chidoriSnd = null; }
+  } else if (f.chidoriSnd) { stopBuffer(f.chidoriSnd, 0.25); chidoriSounds.delete(f.chidoriSnd); f.chidoriSnd = null; }
+}
+function sweepChidoriSounds() {
+  for (const [h, f] of chidoriSounds) {
+    const keep = scene === 'fight' && !paused && soundOn && f.chidoriSnd === h && fighters.includes(f) && f.respawnTimer <= 0 && chidoriLive(f);
+    if (keep) continue;
+    stopBuffer(h, 0.2); chidoriSounds.delete(h);
+    if (f.chidoriSnd === h) f.chidoriSnd = null;
+  }
 }
 // Called every frame: charge sound on while charging, off the moment it's fired or interrupted
 function syncKame(f) {
@@ -20222,6 +20237,7 @@ let last = performance.now(), acc = 0;
 function frame(now) {
   const elapsed = Math.min(0.1, (now - last) / 1000);
   last = now;
+  sweepChidoriSounds();                              // (no Chidori loop is ever left playing)
   if (scene === 'fight' && hitstop > 0) latchPadTaps();   // (taps during a hit-freeze aren't lost)
   updateMenuMusic(elapsed);                          // menu music: on in menus, fades out for fights
   updateBattleMusic(elapsed);                        // battle music: a random song every fight
