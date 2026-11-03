@@ -295,9 +295,11 @@ function mergeJoyCons(list) {
 const SDL_PAD_BASE = 8;
 let sdlCache = { src: '[]', list: [] };
 function sdlPads() {
-  let src = '[]';
-  try { src = (window.appInfo && window.appInfo.sdlPads && window.appInfo.sdlPads()) || '[]'; } catch (e) {}
+  let src = '[]', seq = null;
+  try { src = (window.appInfo && window.appInfo.sdlPads && window.appInfo.sdlPads()) || '[]'; seq = window.appInfo.sdlPadsSeq ? window.appInfo.sdlPadsSeq() : null; } catch (e) {}
+  if (seq !== null && seq !== steamSeq) { if (steamSeq !== -1 && src !== '[]') steamLastActive = performance.now(); steamSeq = seq; }   // (it changed - in use)
   if (src === sdlCache.src) return sdlCache.list;
+  if (seq === null && src !== '[]' && sdlCache.src !== '[]') steamLastActive = performance.now();
   let raw = [];
   try { raw = JSON.parse(src); } catch (e) {}
   const list = (Array.isArray(raw) ? raw : []).map(d => ({ connected: true, id: d.id || 'Steam Controller', index: SDL_PAD_BASE + (d.i | 0),
@@ -305,6 +307,38 @@ function sdlPads() {
   steamPadActivity(sdlCache.list, list);
   sdlCache = { src, list };
   return list;
+}
+const VALVE_PAD = /28de|valve|steam controller|steam deck|triton/i;
+// a browser controller that presses the SAME buttons at the SAME moments as a Steam Controller is the same controller seen
+// twice (e.g. through a generic driver): from its first identical press it's hidden, and if it had joined as a
+// player, that player is handed over to the Steam Controller (or dropped if the Steam Controller already has one)
+const steamTwins = new Set(), twinWatch = new Map();
+function findSteamTwins(list, sp) {
+  const now = performance.now();
+  const edges = g => { const p = twinWatch.get('prev:' + g.id + '#' + g.index) || []; const cur = g.buttons.slice(0, 16).map(b => !!b && (b.pressed || b.value > 0.5));
+    twinWatch.set('prev:' + g.id + '#' + g.index, cur); return cur.map((v, i) => v && !p[i] ? i : -1).filter(i => i >= 0); };
+  const steamEdges = []; for (const g of sp) for (const b of edges(g)) steamEdges.push({ b, t: now, pad: g });
+  const recent = (twinWatch.get('steam') || []).filter(e => now - e.t < 150).concat(steamEdges); twinWatch.set('steam', recent);
+  list.forEach((g, k) => {
+    if (!g || g.steam || !g.connected) return;
+    const key = g.id + '#' + k, W = twinWatch.get(key) || { hit: 0, miss: 0, pend: [] };
+    for (const b of edges(g)) W.pend.push({ b, t: now });
+    W.pend = W.pend.filter(e => {
+      const m = recent.find(r => r.b === e.b && Math.abs(r.t - e.t) < 120);
+      if (m) { W.hit++; W.pad = m.pad; return false; }
+      if (now - e.t > 150) { W.miss++; return false; }
+      return true;
+    });
+    twinWatch.set(key, W);
+    if (W.hit >= 1 && W.miss === 0 && !steamTwins.has(key)) {
+      steamTwins.add(key);
+      const twinDev = 'pad' + k, steamDev = 'pad' + W.pad.index;
+      for (const q of players) if (!q.cpu && q.dev === twinDev) {
+        if (players.some(o => o !== q && !o.cpu && o.dev === steamDev)) { q.dev = null; q.cpu = true; if (q !== players[0] && q !== players[1]) q.off = true; }
+        else q.dev = steamDev;
+      }
+    }
+  });
 }
 // what to call controller k on screen: Steam Controllers are numbered on their own ("STEAM CONTROLLER 1")
 const isSteamPad = k => k >= SDL_PAD_BASE && !IS_ANDROID && sdlPads().some(g => g.index === k);
@@ -315,31 +349,78 @@ const rawPads = () => {
   else {
     try { list = navigator.getGamepads ? [...navigator.getGamepads()] : []; } catch (e) { list = []; }
     const sp = sdlPads();
-    if (sp.length) { list = Array.from({ length: Math.max(list.length, SDL_PAD_BASE) }, (_, k) => list[k] || null); for (const g of sp) list[g.index] = g; }
+    if (sp.length) {
+      // ONE CONTROLLER = ONE PLAYER: Valve controllers come from the helper only - if the browser ALSO sees one (its own
+      // copy, by Valve's vendor id / name, or one that's been caught mirroring the Steam Controller press for press), it's hidden
+      list = Array.from({ length: Math.max(list.length, SDL_PAD_BASE) }, (_, k) => {
+        const g = list[k];
+        return g && g.connected && (VALVE_PAD.test(g.id) || steamTwins.has(g.id + '#' + k)) ? null : (g || null);
+      });
+      for (const g of sp) list[g.index] = g;
+      findSteamTwins(list, sp);
+    }
   }
   return mergeJoyCons(list);
 };
-// STEAM'S MOUSE + KEYBOARD COPY: with Steam running, a Steam Controller ALSO sends Steam's desktop controls (trackpad =
-// mouse, triggers = clicks, buttons = keys...). So whenever the controller is being used - a button / stick / trigger
-// moved in the last moment, or a finger on a trackpad - mouse and key presses are ignored. (A key held down from then
-// stays ignored till it's let go.) Someone on the real keyboard at the same time is only blocked for that instant.
-let steamMuteUntil = 0, steamTouch = false;
-const steamMutedKeys = new Set();
+// STEAM'S MOUSE + KEYBOARD COPY: with Steam running, a Steam Controller ALSO sends Steam's desktop controls as a fake
+// keyboard + mouse (A = Enter, trackpad = mouse, triggers = clicks...). Left alone, every press would happen twice and the
+// "keyboard" would join as a second player. So while a Steam Controller is connected, every key / mouse event is held
+// back for a moment (STEAM_GATE.hold) and DROPPED if the Steam Controller was in use around it (a button, stick or trigger
+// moved or held, or a finger on a trackpad). The real keyboard and mouse stay a separate player: anything typed while
+// the controller sits still goes through as normal. (Steam's fake keys can arrive a little BEFORE the controller's own
+// report does - hence the short hold rather than just checking at that instant.)
+const STEAM_GATE = { hold: 70, before: 160 };
+let steamSeq = -1, steamLastActive = -1e9;
 function steamPadActivity(before, after) {
-  steamTouch = after.some(g => g.touch);
-  const sig = g => g.buttons.map(b => b.value > 0.3 ? 1 : 0).join('') + g.axes.map(v => Math.round(v * 4)).join(',');
-  const prev = new Map(before.map(g => [g.index, sig(g)]));
-  if (after.some(g => prev.get(g.index) !== sig(g)) || before.length !== after.length) steamMuteUntil = performance.now() + 250;
+  if (after.length !== before.length) steamLastActive = performance.now();
 }
-const steamMuting = () => { if (IS_ANDROID) return false; sdlPads(); return sdlCache.list.length > 0 && (steamTouch || performance.now() < steamMuteUntil); };
-for (const type of ['keydown', 'mousedown', 'mouseup', 'mousemove', 'wheel', 'contextmenu']) addEventListener(type, e => {
-  if (type === 'keydown' && steamMutedKeys.has(e.code)) { e.stopImmediatePropagation(); e.preventDefault(); return; }
-  if (!steamMuting()) return;
-  if (type === 'keydown') steamMutedKeys.add(e.code);
-  if (type === 'mouseup') return;                                  // (always let a button go - nothing stays stuck down)
-  e.stopImmediatePropagation(); if (type !== 'wheel') e.preventDefault();
+function steamCheck() {                                     // is a Steam Controller connected? (+ notes when it was last in use)
+  if (IS_ANDROID) return false;
+  const list = sdlPads();
+  if (!list.length) return false;
+  const now = performance.now();
+  if (list.some(g => g.touch || g.buttons.some(b => b.value > 0.15) || g.axes.some(v => Math.abs(v) > 0.2))) steamLastActive = now;
+  return true;
+}
+const steamQueue = [], steamReplayed = new WeakSet(), steamLetThrough = new Set();
+let steamPumping = false;
+function steamReplay(e) {
+  const mods = { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, bubbles: true, cancelable: true };
+  let r;
+  if (e.type.startsWith('key')) r = new KeyboardEvent(e.type, { ...mods, key: e.key, code: e.code, location: e.location, repeat: e.repeat });
+  else if (e.type === 'wheel') r = new WheelEvent('wheel', { ...mods, deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode, clientX: e.clientX, clientY: e.clientY });
+  else r = new MouseEvent(e.type, { ...mods, clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY, button: e.button, buttons: e.buttons });
+  steamReplayed.add(r);
+  const t = e.target && e.target.isConnected ? e.target : (e.type.startsWith('key') ? document.body : canvas);
+  t.dispatchEvent(r);
+}
+function steamPump() {
+  steamCheck();
+  const now = performance.now();
+  while (steamQueue.length && now - steamQueue[0].t >= STEAM_GATE.hold) {
+    const { e, t } = steamQueue.shift();
+    const id = (e.type.startsWith('key') ? 'k' : 'm') + (e.code || e.button || 0);
+    const busy = steamLastActive >= t - STEAM_GATE.before;
+    if (e.type === 'keydown' || e.type === 'mousedown') {
+      if (busy) continue;                                   // Steam's copy of a controller press: gone
+      steamLetThrough.add(id); steamReplay(e);
+    } else if (e.type === 'keyup' || e.type === 'mouseup') {
+      if (steamLetThrough.delete(id) || !busy) steamReplay(e);   // (a let-go always follows its press - nothing gets stuck)
+    } else if (!busy) steamReplay(e);                       // mouse moves / the wheel
+  }
+  steamPumping = steamQueue.length > 0;
+  if (steamPumping) setTimeout(steamPump, 8);
+}
+for (const type of ['keydown', 'keyup', 'mousedown', 'mouseup', 'mousemove', 'wheel']) addEventListener(type, e => {
+  if (steamReplayed.has(e)) return;                         // (one we let through)
+  const tg = e.target;
+  if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA')) return;   // (typing a name: never held back)
+  if (!steamQueue.length && !steamCheck()) return;          // no Steam Controller: nothing changes
+  e.stopImmediatePropagation();
+  if (type === 'keydown') e.preventDefault();
+  steamQueue.push({ e, t: performance.now() });
+  if (!steamPumping) { steamPumping = true; setTimeout(steamPump, 8); }
 }, { capture: true, passive: false });
-addEventListener('keyup', e => { steamMutedKeys.delete(e.code); }, { capture: true });
 const btnDown = b => !!b && (b.pressed || b.value > 0.5);
 const isGamecube = gp => !!gp && (gcMaps[gp.id] !== undefined || settings.padType === 'GAMECUBE' || (settings.padType !== 'XBOX' && GC_ID.test(gp.id)));
 function gcLayout(gp) {
@@ -19511,6 +19592,7 @@ function arcadeUpdate(dt) {
   A.t += dt;
   const devs = menuDevices(dt), picks = arcadePicks();
   for (const d of devs) {
+    if (A.phase !== 'pick' && A.dev && d.dev !== A.dev) continue;   // ONE PLAYER: once a run starts, only the device that started it counts
     if (A.phase === 'pick') {
       if (d.tap.left) { A.sel = (A.sel + picks.length - 1) % picks.length; menuSfx('move'); }
       if (d.tap.right) { A.sel = (A.sel + 1) % picks.length; menuSfx('move'); }

@@ -60,6 +60,12 @@ static void added(SDL_JoystickID id) {
     if (slots[s].pad) continue;
     SDL_Gamepad *g = SDL_OpenGamepad(id);
     if (!g) return;
+    // (the same controller seen twice - e.g. by cable AND wirelessly - is only reported once)
+    const char *ser = SDL_GetGamepadSerial(g);
+    if (ser && *ser) for (int o = 0; o < MAX_PADS; o++) {
+      const char *os = slots[o].pad ? SDL_GetGamepadSerial(slots[o].pad) : NULL;
+      if (os && SDL_strcmp(os, ser) == 0) { SDL_CloseGamepad(g); return; }
+    }
     slots[s].id = id; slots[s].pad = g;
     return;
   }
@@ -78,9 +84,13 @@ static void removed(SDL_JoystickID id) {
   }
 }
 
+// (a small dead zone, and steps of 0.02, so a stick resting on the table doesn't count as "in use" with every tiny jitter -
+//  the game ignores Steam's keyboard copy whenever the controller is being used)
 static float axisVal(SDL_Gamepad *g, SDL_GamepadAxis a) {
   float v = SDL_GetGamepadAxis(g, a) / 32767.0f;
-  return v < -1 ? -1 : v > 1 ? 1 : v;
+  v = v < -1 ? -1 : v > 1 ? 1 : v;
+  if (v > -0.08f && v < 0.08f) return 0;
+  return SDL_roundf(v * 50) / 50;
 }
 static void appendf(char *buf, size_t cap, size_t *len, const char *fmt, ...) {
   if (*len >= cap) return;
