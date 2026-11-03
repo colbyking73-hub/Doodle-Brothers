@@ -8755,7 +8755,7 @@ const FLAME_DRAGON = {
   fill: 7.5,                               // how long his body takes to fill with flame (then he's fully ablaze, breathing fire, till the shout)
   speed: 1300, turn: 3.4, steer: 7.5, life: 1.6, r: 60,   // the rush: speed, homing turn rate, PLAYER steering turn rate (rad/s), how long it lasts, bite size
   carry: 0.5, carrySpeed: 700, tickEvery: 0.1,
-  tick: { dmg: 2.2, base: 0, growth: 0, angle: 90, noStop: true },             // burning while it carries them
+  tick: { dmg: 2.2, base: 0, growth: 0, angle: 90, noStop: true, ultHit: true },             // burning while it carries them
   blockChip: 2.6,                          // a BLOCKED rush: shield damage = the explosion's damage x this (about half a full shield)
   parriedLag: 1.1,                         // perfect-blocked: how long he's left staggered after he lands
   final: { dmg: 14, base: 560, growth: 7, angle: 42, ultFinal: true },          // the explosion
@@ -9848,7 +9848,7 @@ function knock(t, h, dirSign, mult, hx, hy) {
     o.damage += dmg * CLONE.link; o.hitFlash = Math.max(o.hitFlash || 0, 0.08);   // (he feels it - but only half of it)
     burst(o.x, o.y - 55, ['#ff1a1a', '#3a0000', '#ffffff'], 6, 0, Math.PI, 220, { grav: 0 });
   }
-  if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + dmg * ULT_GAIN);   // getting hit charges your ultimate (not while transformed)
+  if (!t.transformed && !h.ultFinal && !h.ultHit && !beingUlted(t)) t.ult = Math.min(ULT_MAX, (t.ult || 0) + dmg * ULT_GAIN);   // getting hit charges your ultimate (not while transformed, and not from an ULTIMATE)
   // SUPER ARMOR (Colby's 7-hit string): he takes the damage but can't be knocked out of it
   if (t.action && t.action.type === 'attack' && t.action.move.armor && (t.action.phase !== 'end' || t.action.hit.size > 0)) {
     t.hitFlash = 0.08; shake = Math.max(shake, 4); hitstop = Math.max(hitstop, 0.04);
@@ -11122,7 +11122,7 @@ const RUSH = { dash: 2600, dashTime: 0.24, talk: 5.67, voiceVol: 2.4,
                perHit: 0.7, kickDmg: 4, slamDmg: 5,
                barrage: 0.75, blastEvery: 0.016, blastSpeed: 1450, ballCharge: 0.3, ballSpeed: 1050, ballR: 48, endlag: 0.35,
                riseT: 0.16, barrageH: 430, spread: 0.09,     // he shoots up to barrageH above the stage first; spread = the cone (+- radians either side of the target)
-               blast: { r: 11, dmg: 0.3, base: 110, growth: 0, angle: 75, noStop: true, stun: 0.45, stunColor: KI_YELLOW_HEX } };   // (stun: anyone else a blast hits is stunned for a moment) (dmg 0.3: they almost all land now, ~12% in all)
+               blast: { r: 11, dmg: 0.3, base: 110, growth: 0, angle: 75, noStop: true, ultHit: true, stun: 0.45, stunColor: KI_YELLOW_HEX } };   // (stun: anyone else a blast hits is stunned for a moment) (dmg 0.3: they almost all land now, ~12% in all)
 const KI_YELLOW = '#ffd23f';
 let myTurnBuf = null;
 function loadMyTurnSfx() {
@@ -12185,6 +12185,7 @@ function updateBeam(s, dt) {
       if (s.final.lanceKO && !(s.startDmg || (s.startDmg = new Map())).has(t)) s.startDmg.set(t, t.damage);
       let h = last ? s.final : s.tick;
       if (last && s.final.lanceKO && s.startDmg.get(t) >= KAME_KO_AT) h = { ...s.final, koAt: 0.001 };   // (a one-hit KO only at 130%+)
+      if (o.action && o.action.type === 'ultBeam') h = { ...h, ultHit: true };   // (the ult's beam: no meter for being hit by it)
       if (applyHit(t, h, s.dir, s.mult, s.vdir ? t.x : t.x - s.dir * 10, s.vdir ? t.y - 50 : s.y)) markKi(o, t, s);   // Lance's ki marks them (once per beam)
     }
   }
@@ -12254,7 +12255,7 @@ function updateProjectiles(dt, only = null) {
         if (t === s.owner || allies(s.owner, t) || s.hit.has(t) || t.respawnTimer > 0 || projPhase(t) || cloneShielded(s.owner, t)) continue;
         if (circleHitsFighter(s.x, s.y, s.r, t)) {
           if (s.holdTarget === t && t.action && t.action.downed) {   // Lance's ki barrage on the one he pinned: hurts, doesn't move them
-            const d = s.dmg * s.mult; t.damage += d; if (!t.transformed) t.ult = Math.min(ULT_MAX, (t.ult || 0) + d);
+            const d = s.dmg * s.mult; t.damage += d; if (!t.transformed && !s.ultHit) t.ult = Math.min(ULT_MAX, (t.ult || 0) + d);
             t.hitFlash = 0.06; burst(s.x, s.y, [s.color, '#ffffff'], 6, Math.PI / 2, 1, 320); sfx.hit(0.3);
             s.hit.add(t); if (!s.pierce) { dead = true; break; }
             continue;
@@ -14464,10 +14465,23 @@ function cycleCharacter(f) {
 // GRAB DAMAGE (balance, Nov 2026): every bit of damage taken while GRABBED or being THROWN - pummels, every throw, command
 // grabs - is scaled down. Captain Heel's a bit more, but his throws still hit the hardest in the game.
 const GRAB_DMG = { all: 0.75, AIDEN: 0.95 };
+// NO METER FROM BEING ULTED: getting hit by someone's ULTIMATE (any of its hits, its finisher, its cutscene - incl. Lance's
+// Ultra Instinct beat-down) never charges your own ult meter. Checked here every frame as a safety net (the ult sequences
+// add damage in lots of places), and in knock() for hits marked ultFinal / ultHit.
+function beingUlted(f) {
+  if (ult && ult.target === f) return true;
+  const a = f.action;
+  if (a && (a.type === 'ultVictim' || a.type === 'thrown' && a.holder && a.holder.action && a.holder.action.type === 'shipUlt')) return true;
+  if (projectiles.some(s => s.kind === 'dragon' && s.victim === f)) return true;
+  return fighters.some(o => o !== f && o.action && ((o.action.type === 'uiTransform' || o.action.type === 'ssj2Cut') && o.action.victim === f ||
+                                                    o.action.type === 'kiBarrage' && o.action.target === f));   // (It's My Turn's ki barrage)
+}
 function update(dt) {
+  const meter0 = new Map(fighters.map(v => [v, v.ult || 0])), ulted0 = new Set(fighters.filter(beingUlted));
   const held = [];
   for (const v of fighters) { const a = v.action; if (a && (a.type === 'thrown' || a.type === 'grabbed') && a.holder) held.push([v, v.damage, a.holder]); }
   updateSim(dt);
+  for (const v of fighters) if ((ulted0.has(v) || beingUlted(v)) && meter0.has(v) && (v.ult || 0) > meter0.get(v)) v.ult = meter0.get(v);
   for (const [v, d0, h] of held) {
     if (v.damage > d0) v.damage = d0 + (v.damage - d0) * GRAB_DMG.all * (GRAB_DMG[h.char] || 1);
     // a CLONE that got grabbed: when the grab / throw is over (thrown, let go, broke free) it just vanishes -
