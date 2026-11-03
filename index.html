@@ -1532,12 +1532,14 @@ function startKiCharge(f) {
   ring(f.x, f.y - 45); burst(f.x, f.y - 45, [kiColorNow(f), '#ffffff'], 18, 0, Math.PI, 500, { grav: 0 });
   shake = Math.max(shake, 4);
   stopKiChargeSound(f);
-  if (soundOn && actx && kiChargeBuf) {                       // the power-up: plays through, then loops its back half
-    const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
-    src.buffer = kiChargeBuf; src.loop = true; src.loopStart = KI_CHARGE.loopFrom; src.loopEnd = kiChargeBuf.duration;
-    g.gain.value = KI_CHARGE.vol; src.connect(g).connect(audioOut()); src.start(t);
-    f.kiSnd = { s: src, g };
-  }
+  startKiChargeSound(f);
+}
+function startKiChargeSound(f) {
+  if (f.kiSnd || !(soundOn && actx && kiChargeBuf)) return;    // the power-up: plays through, then loops its back half
+  const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
+  src.buffer = kiChargeBuf; src.loop = true; src.loopStart = KI_CHARGE.loopFrom; src.loopEnd = kiChargeBuf.duration;
+  g.gain.value = KI_CHARGE.vol; src.connect(g).connect(audioOut()); src.start(t);
+  f.kiSnd = { s: src, g };
 }
 function stopKiChargeSound(f) { if (f.kiSnd) { stopBuffer(f.kiSnd, 0.25); f.kiSnd = null; } }
 const kiColorNow = f => f.lanceForm ? '#ffe066' : kiColor(f);     // (gold once he's Super Saiyan)
@@ -9298,6 +9300,32 @@ function hitBits(t, x, y, dirSign, ang, speed, dmg) {
 //  If a file is there, the game plays it instead of the built-in sound. O = sound on/off.
 // =====================================================================
 let soundOn = true;
+// ---- ONLINE (ROLLBACK) SOUNDS ----
+// The other player's presses reach us a moment late, so rollback REPLAYS the last few steps with their real inputs - and
+// replays are silent (the first run already made its sounds). But anything THEY started (a transformation, a song, a
+// voice line, an ult...) often only exists in the replay: it was never played at all. So every sound is labelled with
+// the step it happened on (+ how many of that sound came before it in that step): one that's new in a replay plays now;
+// one that already played when that step first ran is skipped (and hands back what it made, e.g. the song it started).
+let simFrame = 0;                                        // (counts sim steps - part of the rollback snapshot)
+const heardSounds = new Map();                           // key -> { at (real ms), ret }
+let heardFrame = -1; const heardCount = new Map();
+function soundKey(name) {
+  if (heardFrame !== simFrame) { heardFrame = simFrame; heardCount.clear(); }
+  const n = heardCount.get(name) || 0; heardCount.set(name, n + 1);
+  return name + '@' + simFrame + '#' + n;
+}
+function gateSound(name, fn, onSkip) {
+  return function (...args) {
+    if (typeof RB === 'undefined' || typeof netActive !== 'function' || !netActive()) return fn.apply(this, args);   // (offline: just play)
+    const now = performance.now();
+    if (heardSounds.size > 400) for (const [k, v] of heardSounds) if (now - v.at > 6000) heardSounds.delete(k);
+    const key = soundKey(name), seen = heardSounds.get(key);
+    if (seen) { if (onSkip) onSkip(seen.ret, args); return seen.ret; }          // already heard when this step first ran
+    if (!RB.resim) { const r = fn.apply(this, args); heardSounds.set(key, { at: now, ret: r }); return r; }
+    const was = soundOn; soundOn = !!RB.soundWas;                             // NEW in this replay: play it now
+    try { const r = fn.apply(this, args); heardSounds.set(key, { at: now, ret: r }); return r; } finally { soundOn = was; }
+  };
+}
 let actx = null, noiseBuf = null;
 const customSfx = {};
 for (const name of ['hit', 'clash']) {
@@ -9673,8 +9701,10 @@ function loadDeckUltSfx() {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   actx.decodeAudioData(bytes.buffer).then(b => { deckUltBuf = b; }).catch(() => {});
 }
+const stoppingNodes = new WeakSet();
 function stopBuffer(h, fade = 0.12) {
   if (!h || !actx) return;
+  if (h.s) stoppingNodes.add(h.s);
   const t = actx.currentTime;
   h.g.gain.cancelScheduledValues(t); h.g.gain.setValueAtTime(h.g.gain.value, t); h.g.gain.linearRampToValueAtTime(0.0001, t + fade);
   try { h.s.stop(t + fade + 0.02); } catch (e) {}
@@ -9706,6 +9736,36 @@ function syncChidoriSound(f) {
     }
   } else if (f.chidoriSnd) { stopBuffer(f.chidoriSnd, 0.25); chidoriSounds.delete(f.chidoriSnd); f.chidoriSnd = null; }
 }
+// EVERY OTHER HELD SOUND - the loops (ki charge, Kamehameha charge, Hellfire Shot charge) and the long ones (Captain
+// Heel's ship songs, Sevon's Ninth Form, Lance's Super Saiyan 2 song and Ultra Instinct theme) - is kept on its fighter.
+// If that fighter stops holding it (online rollback put back an older copy of him), he's KO'd or gone, the match is over,
+// or (for a loop) what it belongs to has stopped - it's stopped here. Loops also go quiet while the game is paused.
+const HELD_SOUNDS = {
+  kiSnd: f => !!(f.action && f.action.type === 'kiCharge'),
+  kameSnd: f => isKameCharging(f),
+  shotSnd: f => { const a = f.action; return !!(a && a.type === 'attack' && a.move.chargeShot && a.charging && !ult); },
+  shipSong: null, ninthSnd: null, uiSong: null, ssj2Song: null,
+};
+const heldSounds = new Map();                             // audio node -> { h, k }
+function noteHeldSounds() {                              // (remember what every fighter is holding RIGHT NOW)
+  for (const f of fighterPool) for (const k in HELD_SOUNDS) { const h = f[k]; if (h && h.s && !heldSounds.has(h.s)) heldSounds.set(h.s, { h, k }); }
+}
+function sweepHeldSounds() {
+  const refs = new Map();
+  for (const f of fighterPool) for (const k in HELD_SOUNDS) {
+    const h = f[k];
+    if (h && h.s) { refs.set(h.s, { f, k }); if (!heldSounds.has(h.s)) heldSounds.set(h.s, { h, k }); }
+  }
+  for (const [node, e] of heldSounds) {
+    if (stoppingNodes.has(node)) { heldSounds.delete(node); continue; }   // (already being stopped / faded on purpose)
+    const r = refs.get(node), live = HELD_SOUNDS[e.k];
+    let ok = !!r && r.k === e.k && scene === 'fight' && soundOn && fighters.includes(r.f) && r.f.respawnTimer <= 0;
+    if (ok && live) ok = !paused && live(r.f);
+    if (ok) continue;
+    stopBuffer(e.h, 0.2); heldSounds.delete(node);
+    if (r && r.f[e.k] && r.f[e.k].s === node) r.f[e.k] = null;
+  }
+}
 function sweepChidoriSounds() {
   for (const [h, f] of chidoriSounds) {
     const keep = scene === 'fight' && !paused && soundOn && f.chidoriSnd === h && fighters.includes(f) && f.respawnTimer <= 0 && chidoriLive(f);
@@ -9717,6 +9777,7 @@ function sweepChidoriSounds() {
 // Called every frame: charge sound on while charging, off the moment it's fired or interrupted
 function syncKame(f) {
   syncChidoriSound(f);
+  if (f.action && f.action.type === 'kiCharge' && !f.kiSnd && !RB.resim) startKiChargeSound(f);   // (Lance's ki charge)
   if (isKameCharging(f)) startKameCharge(f); else stopKameCharge(f);
   const a = f.action;                                                      // Colbalias's Hellfire Shot
   if (a && a.type === 'attack' && a.move.chargeShot && a.charging && !ult) startShotCharge(f); else stopShotCharge(f);
@@ -9803,7 +9864,7 @@ function noise(filterType, freq, q, dur, vol, at = 0, freqEnd) {
   s.connect(fl).connect(g).connect(audioOut()); s.start(t, realRandom() * 0.5); s.stop(t + dur + 0.02);
 }
 
-const sfx = {
+const sfx_ = {
   // Connected hit: meaty body thump + sharp smack. power 0..1 (bigger hits = deeper and louder)
   hit(power = 0.5) {
     if (!soundOn || !actx) return;
@@ -9887,7 +9948,14 @@ const sfx = {
   snap() { if (!soundOn || !actx) return; noise('highpass', 2600, 0.9, 0.05, 0.6); tone('square', 900, 180, 0.04, 0.2); noise('bandpass', 1100, 3, 0.09, 0.4, 0.03); },
   launch(vol = 0.85) { if (!soundOn || !actx) return; smashClip('launch', vol); },   // thrown / sent flying
   ko() { if (!soundOn || !actx) return; if (smashClip('ko', 1)) return; tone('sine', 90, 25, 0.8, 0.8); noise('lowpass', 900, 0.5, 0.6, 0.5, 0, 150); tone('sawtooth', 300, 60, 0.4, 0.12); },
-};
+};const sfx = {};                                          // (every one goes through the online sound gate - see gateSound)
+for (const k of Object.keys(sfx_)) sfx[k] = typeof sfx_[k] === 'function' ? gateSound('sfx.' + k, sfx_[k]) : sfx_[k];
+playBuffer = gateSound('buf', playBuffer);               // (voice lines, ult songs...)
+playPerfectShield = gateSound('shield', playPerfectShield);
+playTeleport = gateSound('teleport', playTeleport);
+startUiSong = gateSound('uiSong', startUiSong, (h, [f]) => { if (h && f) f.uiSong = h; });          // (Lance's Ultra Instinct theme)
+playSsj2Song = gateSound('ssj2Song', playSsj2Song, (h, [f]) => { if (h && f) f.ssj2Song = h; });    // (Lance's Super Saiyan 2 song)
+
 
 // ---------------- Helpers ----------------
 const approach = (v, target, delta) => v < target ? Math.min(v + delta, target) : Math.max(v - delta, target);
@@ -11577,14 +11645,17 @@ function startSsj2Cut(f) {
   f.ultBuf = 0; f.vx = f.vy = 0;
   f.action = { type: 'ssj2Cut', t: 0, songT: 0 };
   f.ss2Seen = true;
+  playSsj2Song(f);
+}
+function playSsj2Song(f) {
   stopSsj2Song(f);
-  if (soundOn && actx && ssj2SongBuf) {
-    const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
-    src.buffer = ssj2SongBuf; g.gain.value = SSJ2_CUT.vol;
-    g.gain.setValueAtTime(SSJ2_CUT.vol, t + SSJ2_CUT.len - 0.8); g.gain.linearRampToValueAtTime(0.0001, t + SSJ2_CUT.len);
-    src.connect(g).connect(audioOut()); src.start(t);
-    const h = { s: src, g }; f.ssj2Song = h; src.onended = () => { if (f.ssj2Song === h) f.ssj2Song = null; };
-  }
+  if (!(soundOn && actx && ssj2SongBuf)) return null;
+  const t = actx.currentTime, src = actx.createBufferSource(), g = actx.createGain();
+  src.buffer = ssj2SongBuf; g.gain.value = SSJ2_CUT.vol;
+  g.gain.setValueAtTime(SSJ2_CUT.vol, t + SSJ2_CUT.len - 0.8); g.gain.linearRampToValueAtTime(0.0001, t + SSJ2_CUT.len);
+  src.connect(g).connect(audioOut()); src.start(t);
+  const h = { s: src, g }; f.ssj2Song = h; src.onended = () => { if (f.ssj2Song === h) f.ssj2Song = null; };
+  return h;
 }
 function stopSsj2Song(f, fade = 0.4) { if (f && f.ssj2Song) { stopBuffer(f.ssj2Song, fade); f.ssj2Song = null; } }
 function stepSsj2Cut(f, a, dt) {
@@ -11783,6 +11854,7 @@ function startUiSong(f, from = 0) {
   src.connect(g).connect(lim).connect(audioOut()); src.start(t, from);
   const h = { s: src, g };
   f.uiSong = h; src.onended = () => { if (f.uiSong === h) f.uiSong = null; };
+  return h;
 }
 function stopUiSong(f, fade = 1.0) { if (f && f.uiSong) { stopBuffer(f.uiSong, fade); f.uiSong = null; } }
 // game time runs faster than real time (GAME_SPEED / turbo / slow-mo) - the cutscene follows REAL seconds, like the song
@@ -14603,6 +14675,7 @@ function beingUlted(f) {
                                                     o.action.type === 'kiBarrage' && o.action.target === f));   // (It's My Turn's ki barrage)
 }
 function update(dt) {
+  simFrame++;
   const meter0 = new Map(fighters.map(v => [v, v.ult || 0])), ulted0 = new Set(fighters.filter(beingUlted));
   const held = [];
   for (const v of fighters) { const a = v.action; if (a && (a.type === 'thrown' || a.type === 'grabbed') && a.holder) held.push([v, v.damage, a.holder]); }
@@ -20237,7 +20310,7 @@ let last = performance.now(), acc = 0;
 function frame(now) {
   const elapsed = Math.min(0.1, (now - last) / 1000);
   last = now;
-  sweepChidoriSounds();                              // (no Chidori loop is ever left playing)
+  sweepChidoriSounds(); sweepHeldSounds();           // (no loop / song is ever left playing on its own)
   if (scene === 'fight' && hitstop > 0) latchPadTaps();   // (taps during a hit-freeze aren't lost)
   updateMenuMusic(elapsed);                          // menu music: on in menus, fades out for fights
   updateBattleMusic(elapsed);                        // battle music: a random song every fight
@@ -20367,10 +20440,11 @@ function rbSave() {
     pool: fighterPool.map(f => rbClone(f, memo)),
     fighters: rbClone(fighters, memo), projectiles: rbClone(projectiles, memo), scythes: rbClone(scythes, memo), ropeFx: rbClone(ropeFx, memo),
     cam: rbClone(cam, memo), weaponLost: rbClone(weaponLost, memo),
-    g: rbClone({ time, hitstop, slowmo, xray, lastXray, ult, cage, matchOver, camPunch, ultBanner }, memo),
+    g: rbClone({ time, hitstop, slowmo, xray, lastXray, ult, cage, matchOver, camPunch, ultBanner, simFrame }, memo),
   };
 }
 function rbLoad(S) {
+  noteHeldSounds();
   const memo = new Map();
   S.pool.forEach((c, i) => memo.set(c, fighterPool[i]));    // the 4 player fighters stay the SAME objects (the rest of the game holds onto them)
   memo.set(S.fighters, fighters); memo.set(S.projectiles, projectiles); memo.set(S.scythes, scythes); memo.set(S.ropeFx, ropeFx);
@@ -20382,13 +20456,14 @@ function rbLoad(S) {
   fillArr(fighters, S.fighters); fillArr(projectiles, S.projectiles); fillArr(scythes, S.scythes); fillArr(ropeFx, S.ropeFx);
   const g = rbClone(S.g, memo);
   time = g.time; hitstop = g.hitstop; slowmo = g.slowmo; xray = g.xray; lastXray = g.lastXray; ult = g.ult; cage = g.cage;
-  matchOver = g.matchOver; camPunch = g.camPunch; ultBanner = g.ultBanner;
+  matchOver = g.matchOver; camPunch = g.camPunch; ultBanner = g.ultBanner; simFrame = g.simFrame || 0;
+  heardFrame = -1;                                          // (sound labels count from 0 again for the step being replayed)
 }
 // replaying steps: silent, and the sparks / after-images / texts they make are thrown away (they were already shown)
 function rbReplay(fn) {
   const keep = [particles.length, ghosts.length, painTexts.length, auraWaves.length, stains.length, cracks.length, pitCracks.length, koFlashes.length];
   const snd = soundOn, sh = shake, imp = impactFrame;
-  RB.resim = true; soundOn = false;
+  RB.resim = true; RB.soundWas = snd; soundOn = false;
   try { fn(); }
   finally {
     RB.resim = false; soundOn = snd; shake = sh; impactFrame = imp;
