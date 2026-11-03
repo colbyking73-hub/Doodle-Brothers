@@ -355,6 +355,10 @@ function padRaw(i, binds = bindings) {
 // from where it rested when the controller was first seen (a trigger resting at -1 doesn't count as a push).
 // LEFT STICK: past `walk` = moving (walking); past `run` = pushed all the way = RUNNING
 const PAD_STICK = { walk: 0.28, run: 0.86 };
+// STEAM CONTROLLER: with Steam running, a game Steam didn't launch gets the controller as a MOUSE + KEYBOARD (Steam's
+// desktop mode) - the game never sees a controller. Added to Steam as a Non-Steam Game and launched from there, Steam
+// turns it into a normal Xbox-style controller. (Shown wherever "no controller" is - not on Android.)
+const STEAM_PAD_HINT = 'STEAM CONTROLLER? IN STEAM: ADD A GAME > ADD A NON-STEAM GAME > DOODLE BROTHERS, THEN LAUNCH IT FROM STEAM';
 const WALK_SPEED = 0.42;                                  // walking = this much of his normal ground speed
 const padRest = [];
 function rightStick(i, gp) {
@@ -17983,7 +17987,7 @@ function selectClick(p) {
       const pads = getPads().map((g, k) => g && g.connected ? 'pad' + k : null).filter(Boolean);
       const options = ['keyboard', ...pads].filter(dv => dv === q.dev || !players.some(o => o !== q && localHuman(o) && o.dev === dv));
       if (options.length < 2) {
-        selMsg = { text: pads.length ? 'EVERY CONTROLLER IS ALREADY BEING USED' : 'NO CONTROLLER CONNECTED - PLUG ONE IN TO PLAY WITH IT', t: 2 }; menuSfx('back');
+        selMsg = { text: pads.length ? 'EVERY CONTROLLER IS ALREADY BEING USED' : 'NO CONTROLLER CONNECTED - PLUG ONE IN TO PLAY WITH IT', t: pads.length ? 2 : 4, steam: !pads.length && !IS_ANDROID }; menuSfx('back');
         return;
       }
       const d = pt.x < devRect(c).x + devRect(c).w / 2 ? -1 : 1;
@@ -18493,6 +18497,10 @@ function drawSelect() {
     if (idlePad >= 0 && !watchMode && !selMsg && Math.floor(menuTime * 2) % 2 === 0)
       text('CONTROLLER ' + (idlePad + 1) + ' CONNECTED - PRESS A TO JOIN', W / 2, 92, 10, '#a8ecff', 'center');
     if (selMsg) text(selMsg.text, W / 2, 92, 10, '#ffd23f', 'center');
+    if (selMsg && selMsg.steam) {                           // (on a dark strip - it sits over the fighter portraits)
+      sctx.fillStyle = 'rgba(8,6,6,0.88)'; sctx.fillRect(W / 2 - 470, 99, 940, 17);
+      text(STEAM_PAD_HINT, W / 2, 111, 7, '#cfe2f5', 'center', false);
+    }
 
     // READY TO FIGHT banner
     if (allReady()) {
@@ -18748,6 +18756,7 @@ function drawControls() {
     const pads = getPads().filter(g => g && g.connected).length;
     const gcs = getPads().filter(g => g && g.connected && g.gc).length;
     text(pads ? pads + ' CONTROLLER' + (pads > 1 ? 'S' : '') + ' CONNECTED' + (gcs ? ' (' + gcs + ' GAMECUBE)' : '') : 'NO CONTROLLER DETECTED - PLUG ONE IN AND PRESS A BUTTON', 1010, 124, 7, pads ? '#a8ecff' : '#806b5a', 'center', false);
+    if (!pads && !IS_ANDROID) text(STEAM_PAD_HINT, W / 2, 84, 7, '#9fb3c8', 'center', false);   // (between the title and the column headers)
     CTL_ROWS.forEach((row, r) => {
       const y = ctlRowY(r), sel = ctl.row === r;
       if (row === 'preset') {                               // which PRESET you're editing
