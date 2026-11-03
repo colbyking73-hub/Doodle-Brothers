@@ -1,6 +1,6 @@
 {
-    "version":  "0.7.20",
-    "shell":  "2c7f2e991c796adb",
+    "version":  "0.7.21",
+    "shell":  "bb05a71418e02581",
     "android":  "2a63fd61f22e5cba",
     "files":  {
                   "build/icon.png":  {
@@ -8,8 +8,8 @@
                                          "size":  232719
                                      },
                   "index.html":  {
-                                     "hash":  "ef7ecc624a911ed6c3b88de603cc8c35312fde6e84ed0e61aaf9fcac8a8a6541",
-                                     "size":  1385651
+                                     "hash":  "b86ef16797db0ce87c1fb3be326aaa3de96196cd8b9564d71bfd941131bf405e",
+                                     "size":  1388995
                                  },
                   "lib/peerjs.min.js":  {
                                             "hash":  "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5",
