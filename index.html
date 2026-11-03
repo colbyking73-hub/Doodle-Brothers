@@ -14120,7 +14120,9 @@ function aiDecide(f, o, ai, L) {
   if (dragonUlt && f.transformed && f.ult > 0 && adx < 140 && Math.abs(dy) < 40 && f.face === toward && Math.random() < 0.06) { ai.down = true; ai.tapUlt = true; return; }   // (point blank: Ninth Form)
   const ultRange = dragonUlt ? adx < 950 : beamUlt ? (adx < 900 && Math.abs(dy) < 50) || (adx < 80 && dy < -120) : adx < 140 && Math.abs(dy) < 40;
   if (f.transformed && f.ult > 0 && ultRange && (f.face === toward || dragonUlt || beamUlt) &&
-      (f.ult < 25 || Math.random() < 0.08)) {          // mostly fights transformed, cashes the rest in before it runs out
+      (dragonUlt ? (f.ult < 22 || Math.random() < 0.004)  // (SEVON: his dragon reaches from anywhere, so he'd fire it the moment he
+                                                           //  transformed - he fights transformed for a while first, like everyone else)
+                 : (f.ult < 25 || Math.random() < 0.08))) {   // mostly fights transformed, cashes the rest in before it runs out
     ai.tapUlt = true;
     return;
   }
