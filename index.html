@@ -8429,11 +8429,11 @@ function drawKatana(shoulder, pz, f, opts, hold) {
 }
 
 // ---------------- HUNTER, "TRIPLE H" ----------------
-// The biggest fighter in the game: a silent, towering powerhouse with a SLEDGEHAMMER. (ART ONLY for now - his look, size and
+// The biggest fighter in the game: a silent, towering powerhouse. (ART ONLY for now - his look, size and
 // skins. Transforming makes him bigger still. His own moveset comes later.)
 // (hammer angles: sw = 0 points straight down, PI/2 = straight out in front, PI = straight up)
 const HUNTER_SIZE = { tf: 0.15, color: '#ff6a1a' };          // transformed: 15% bigger again
-const HUNTER_IDLE = pose({ lean: -0.04, bob: -8, legA: [0.55, 0.35], legB: [-0.5, 0.15], armA: [0.9, -1.7], armB: [0.4, -1.5], sw: 3.7 });   // hammer resting on his shoulder
+const HUNTER_IDLE = pose({ lean: -0.02, bob: -6, legA: [0.5, 0.25], legB: [-0.48, 0.12], armA: [0.25, 0.3], armB: [-0.2, -0.3] });   // standing tall, arms hanging heavy at his sides
 // (his own moveset comes later: for now he fights with the Stickman's moves, holding his hammer)
 const HUNTER_MOVES = { ...STICKMAN_MOVES, jab: { ...STICKMAN_MOVES.jab, hitboxes: STICKMAN_MOVES.jab.hitboxes.map(h => ({ ...h })) } };
 const CHARACTERS = {
@@ -8557,12 +8557,12 @@ const CHARACTERS = {
     // The biggest, heaviest fighter: slowest on his feet, hardest to launch - and he only gets bigger
     stats: { runSpeed: 560, airSpeed: 450, jumpVel: 1110, doubleJumpVel: 990, weight: 1.28 },
     look: {
-      body: '#3d4552',          // slate
+      body: '#e2a882',          // skin
       muscle: true,             // the huge frame
       scale: 1.3,               // THE BIGGEST in the game (Captain Heel is 1.12) - and rage / transforming grow him more
-      longHair: '#1f1a17',      // a dark, shaggy mane
+      longHair: '#121212',      // a black, shaggy mane
       hunter: true,             // gold ring headband, gold championship belt (blue jewel), gold bracers, torn ring trousers, boots (see drawHunterGear)
-      sledge: true,             // the SLEDGEHAMMER, in both hands (see drawSledge)
+                                // (no weapon - his hands are enough; drawSledge is kept for later)
       grows: true,              // transformed: bigger still (see HUNTER_SIZE)
       transformAura: '#ff6a1a',
       idle: HUNTER_IDLE,
@@ -8607,8 +8607,7 @@ const CHAR_ALTS = {
   SEVON:     { name: 'BLUE RANGER', swatch: '#1f55d6', look: { body: '#1f55d6', haori: false, flameHair: false, ranger: true } },
   COLBY:     { name: 'WHITE', swatch: '#ececec', look: { body: '#ececec' } },
   COLBALIAS: { name: 'BLACK', swatch: '#161616', look: { body: '#161616' } },
-  HUNTER:    [{ name: 'FLESH', swatch: '#e2a882', look: { body: '#e2a882' } },
-              { name: 'YELLOW', swatch: '#f2c230', look: { body: '#f2c230' } }],
+  HUNTER:    { name: 'YELLOW', swatch: '#f2c230', look: { body: '#f2c230' } },
   AIDEN:     { name: 'BLACK BONES', swatch: '#1e1e1e', look: { body: '#1e1e1e', detail: '#6b6b6b', eyepatchColor: '#f4f4f4', beard: '#3a3a3a',
                                                              hat: { main: '#f2f2f2', fold: '#dadada', pipe: '#141414', emblem: '#141414' } } },
 };
@@ -19833,9 +19832,9 @@ const MOVESETS = {
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'No gimmicks - every input does what you\'d expect, which makes him the best character to learn the game with.',
       'Air K has its own set of shots, separate from his ground K.' ] } ] },
-  HUNTER: { blurb: 'Triple H: the biggest fighter in the game - a towering powerhouse with a sledgehammer. (His own moveset is coming - for now he fights with the Stickman\'s moves.)', sections: [
+  HUNTER: { blurb: 'Triple H: the biggest fighter in the game - a towering powerhouse. (His own moveset is coming - for now he fights with the Stickman\'s moves.)', sections: [
     { title: 'COMING SOON', notes: [
-      'Hunter\'s look is in: the biggest frame in the game, the sledgehammer, the gold headband, championship belt and bracers. Transforming makes him bigger still.',
+      'Hunter\'s look is in: the biggest frame in the game, the gold headband, championship belt and bracers. Transforming makes him bigger still.',
       'His own moves are on the way - until then he uses the Stickman\'s.' ] } ] },
   AIDEN: { blurb: 'Captain Heel: a four-armed skeleton pirate wrestler. Slow and heavy, hits like a truck, and a grappler - every hit throws cinders.', sections: [
     { title: 'GROUND J', rows: [
