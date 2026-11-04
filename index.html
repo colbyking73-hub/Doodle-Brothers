@@ -726,9 +726,14 @@ function updateCamera(dt) {
       tx = (u.x + v.x) / 2; ty = Math.min(u.y, v.y) - (talk ? 60 : 90); tz = talk ? 1.55 : 1.0; speed = talk ? 2.5 : 5;
     }
     else if (ult.def.statue && ult.statue) {                // the whole statue AND the victim in view
-      const S = ult.statue; tx = (S.x + v.x) / 2; ty = Math.min(S.y - 300, v.y - 140); tz = 0.62; speed = 3;
+      const S = ult.statue, xs = [S.x, v.x, ...(ult.extras || []).map(e => e.t.x)];
+      tx = (Math.min(...xs) + Math.max(...xs)) / 2; ty = Math.min(S.y - 300, v.y - 140); tz = Math.min(0.62, 1100 / Math.max(1, Math.max(...xs) - Math.min(...xs) + 500)); speed = 3;
     }
     else if (ult.phase === 'cutscene') { tx = (u.x + v.x) / 2; ty = v.y - 70; tz = 1.45; speed = 2.2; }
+    else if (ult.def.legion && ult.extras && ult.extras.length) {   // the clone rush on several of them: pull back to see every fight
+      const xs = [u.x, v.x, ...ult.extras.map(e => e.t.x), ...ult.extras.map(e => e.baseX - e.dir * LEGION.back)];
+      tx = (Math.min(...xs) + Math.max(...xs)) / 2; ty = v.y - 80; tz = Math.min(1.1, 1150 / Math.max(1, Math.max(...xs) - Math.min(...xs) + 300)); speed = 4;
+    }
     else { tx = v.x; ty = v.y - 55; tz = 1.2; speed = 5; }
   }
   const k = 1 - Math.exp(-dt * speed);
@@ -6284,6 +6289,7 @@ function updateLegionUlt(U, dt) {
   }
   if (U.phase === 'summon') {                                    // the hand sign... and the army POOFS in
     U.userPose = handSign; U.victimPose = LV.guard; v.face = -d;
+    for (const e of U.extras || []) { e.t.action.pose = LV.guard; e.t.face = -e.dir; if (U.t >= 0.3 && once('poofX' + e.t.x)) legionPoof(e.baseX - e.dir * LEGION.back, e.baseY); }
     if (U.t >= 0.3 && once('poof')) {
       for (let i = 0; i < 25; i++) burst(u.x - d * (40 + Math.random() * 300), U.baseY - 40 - Math.random() * 40, ['#6e6e78', '#b4b4bb', '#3a0000'], 3, 0, Math.PI, 260, { grav: -60 });
       if (!playClonePoof()) sfx.whoosh(true);
@@ -6306,8 +6312,9 @@ function updateLegionUlt(U, dt) {
         while (E.hitN < E.A.hits.length && at >= E.A.hits[E.hitN][0]) {
           E.hitN++; E.lastHit = E.t;
           const dmg = E.A.small ? LEGION.smallHit : LEGION.perHit;
-          v.damage += dmg * U.power; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + dmg);
+          v.damage += dmg * U.power;
           v.hitFlash = 0.05; U.jolt = 0.07;
+          for (const e of U.extras || []) { e.t.damage += dmg * U.power; e.t.hitFlash = 0.05; e.jolt = 0.07; }   // (the same clone-for-clone fight at each of them)
           for (const c of E.clones) burst(v.x + c.side * d * 14, v.y - 55 - Math.random() * 20, ['#ffffff', '#ff1a1a'], 6, 0, Math.PI, 420, { grav: 0 });
           sfx.hit(E.A.small ? 0.3 : 0.45); shake = Math.max(shake, E.A.small ? 3 : 6);
           if (E.hitN === E.A.hits.length) hitstop = Math.max(hitstop, 0.03);
@@ -6348,6 +6355,7 @@ function updateLegionUlt(U, dt) {
       else U.victimPose = E.C.strikePose || E.own;
       if (E.ctrName === 'spinKick' && E.t >= E.CI) U.victimPose = { ...LV.spinKick, spin: v.face * Math.min(1, (E.t - E.CI) / (E.C.sT * E.s)) * Math.PI * 2 };
     } else U.victimPose = LV.guard;
+    for (const e of U.extras || []) { e.t.action.pose = U.victimPose; e.t.face = v.face * d * e.dir; }   // (the others fight their clones the same way)
     if (U.spent >= LEGION.count && U.ex.every(E => E.done) && !U.debris.length) { U.phase = 'final'; U.t = 0; v.face = -d; U.victimPose = LV.guard; }
     return;
   }
@@ -6359,7 +6367,10 @@ function updateLegionUlt(U, dt) {
       sfx.vanish(1.3);
     }
     U.userPose = pose({ lean: -0.2, bob: -10, legA: [0.9, 0.8], legB: [-0.7, 0.3], armA: [-1.4, -0.6], armB: [0.5, -1.5] });   // fist drawn back
+    for (const e of U.extras || []) { e.t.action.pose = LV.guard; e.t.face = -e.dir; }
     if (U.t >= LEGION.wind) {                                    // ...and the DASH PUNCH to the back of the head
+      U.parried = new Set();                                     // (PERFECT BLOCKED by whoever turned and timed it)
+      for (const tg of [v, ...(U.extras || []).map(e => e.t)]) if (ultFinalParried(U, tg, tg.x, tg.y - 70)) U.parried.add(tg);
       u.x = v.x + d * 34;
       U.userPose = pose({ lean: 0.7, bob: -8, legA: [-0.5, 0.3], legB: [-1.0, 0.4], armA: [1.6, 0], armB: [-1.3, -0.3] });
       hellBurst(v.x, v.y - 70, 30, 700);
@@ -6369,16 +6380,30 @@ function updateLegionUlt(U, dt) {
   }
 }
 function endLegionUlt(U) {
-  const u = U.user, v = U.target, d = U.dir;
+  const u = U.user, v = U.target, d = U.dir, P = U.parried || new Set();
+  const extras = (U.extras || []).slice();
+  releaseUltExtras(U, U.def.final, e => -e.dir, P);
+  for (const e of extras) if (!P.has(e.t)) { e.t.vy = 0; e.t.ground = false; e.t.y -= 3; if (e.t.action && e.t.action.type === 'hitstun') e.t.action.flat = 0.55; }
   ult = null;
   v.action = null; v.x = U.baseX; v.y = U.baseY;
   u.action = { type: 'land', t: 0, dur: 0.35 };
+  if (P.has(v)) return;                                          // (REPELLED: the punch is blocked)
   knock(v, { ...U.def.final, ultFinal: true }, -d, U.power, v.x, v.y - 70);
   // PURELY HORIZONTAL: no lift, and no gravity for a moment - they fly dead flat
   v.vy = 0; v.ground = false; v.y -= 3;
   if (v.action && v.action.type === 'hitstun') v.action.flat = 0.55;
 }
-function drawLegionCrowd(U) {
+function drawLegionCrowd(U, stand) {
+  if (!stand) for (const e of U.extras || []) {                  // THE RAID: the same fight at each of the others...
+    const proxyX = U.phase === 'final' ? e.baseX + e.dir * (U.t >= LEGION.wind ? 34 : 70) : e.baseX - e.dir * LEGION.back;
+    const P = Object.create(U);
+    Object.assign(P, { target: e.t, dir: e.dir, baseX: e.baseX, baseY: e.baseY, user: { ...U.user, x: proxyX, y: e.baseY, face: U.phase === 'final' ? -e.dir : e.dir } });
+    P.mirror = { dx: e.baseX, ref: U.baseX, flip: e.dir * U.dir, dy: e.baseY - U.baseY };
+    drawLegionCrowd(P, true);
+    const fig = figureOf(U.user); fig.x = proxyX; fig.y = e.baseY; fig.face = U.phase === 'final' ? -e.dir : e.dir;   // ...with a SHADOW CLONE in his place
+    fig.pose = { ...(U.userPose || handSign), raw: true };
+    drawFigure(fig, { alpha: 0.95, tint: sketch ? '#333333' : '#140404', eye: '#ff2020' });
+  }
   const u = U.user, d = U.dir, n = Math.min(U.crowd || 0, 40);
   const tint = sketch ? '#333333' : '#140404';
   const drawClone = (x, y, face, pz, alpha = 0.95, spin = 0) => {
@@ -6399,7 +6424,9 @@ function drawLegionCrowd(U) {
       drawClone(P.x, P.y, P.face, P.pose, 0.95 * (P.alpha ?? 1), P.spin || 0);
     }
   }
-  if (U.debris) for (const q of U.debris) drawClone(q.x, q.y, q.face, q.pose, 0.9, q.spin);   // ...and the ones flying off
+  const M = U.mirror;                                              // (at one of the others: the same debris, moved / mirrored to them)
+  if (U.debris) for (const q of U.debris) M ? drawClone(M.dx + (q.x - M.ref) * M.flip, q.y + M.dy, q.face * M.flip, q.pose, 0.9, (q.spin || 0) * M.flip)
+                                          : drawClone(q.x, q.y, q.face, q.pose, 0.9, q.spin);   // ...and the ones flying off
   if (U.phase !== 'final' && U.crowd !== undefined) {
     const fighting = U.ex ? U.ex.reduce((s, E) => s + (E.countered ? 0 : E.clones.length), 0) : 0;
     text('x' + (U.crowd + fighting), u.x - d * 160, (U.baseY || u.y) - 150, 12, '#ff2a2a', 'center');
@@ -6824,9 +6851,10 @@ function stepHellwave(f, a) {
 // startup), a QUARTER as durable (bursts after 25% damage), and takes 1.5x knockback (lighter).
 const CLONE = { max: 2, cd: 0.25, life: 20, delay: 0, dmg: 1, kb: 1, kbTaken: 1.5, hits: 2, slow: 1.3, link: 0.5 };   // link = the share of a clone's damage Colbalias takes   // up to TWO clones at once; each one bursts on its 2nd hit
 // TRANSFORMED Colbalias: one MORE clone out at once, and each one takes one more hit before it bursts
-const cloneMax = owner => CLONE.max + (owner && owner.transformed ? 1 : 0) + (owner && owner.arcadeBoss ? 1 : 0);   // (the ARCADE final boss: +1 more)
+const cloneMax = owner => CLONE.max + (owner && owner.transformed ? 1 : 0) + (owner && owner.arcadeBoss ? 1 : 0)   // (the ARCADE final boss: +1 more)
+                          + Math.max(0, REAL_FIGHTERS - 2);   // (+1 for every player past a 1v1)
 // BIGGER LOBBIES: one more hit per fighter past two (3 in the match = +1, 4 = +2)
-const cloneHitsMax = c => CLONE.hits + (c.owner && c.owner.transformed ? 1 : 0) + Math.max(0, REAL_FIGHTERS - 2);
+const cloneHitsMax = c => CLONE.hits + (c.owner && c.owner.transformed ? 1 : 0) + (REAL_FIGHTERS >= 3 ? 1 : 0);   // (3 or 4 players: +1 hit each)
 // Summoning a clone costs one of his blue Z-vanish dots (they only refill on the ground) - no endless spam
 const cloneStats = () => { const s = { ...DEFAULT_STATS, ...CHARACTERS.COLBALIAS.stats }; s.weight = (s.weight || 1) / CLONE.kbTaken; return s; };
 // While COLBALIAS IS TRANSFORMED his clones turn vicious: faster on their feet, faster attacks, and their
@@ -7086,10 +7114,11 @@ function updateStatueUlt(U, dt) {
   if (T >= T1 && T < T2) {
     U.nextStrike -= dt;
     while (U.nextStrike <= 0) {
-      const near = Math.random() < 0.85 ? d : -d;                  // mostly the arms on their side
+      const L = [v, ...(U.extras || []).map(e => e.t)], tg = L[(U.strikeN = (U.strikeN || 0) + 1) % L.length];   // (round the whole raid)
+      const side = Math.sign(tg.x - S.x) || d, near = Math.random() < 0.85 ? side : -side;   // mostly the arms on their side
       const k = ((Math.random() * STATUE.arms / 2) | 0) * 2 + (near > 0 ? 1 : 0);
-      U.strikes.push({ k, t: 0, dur: 0.13, ox: (Math.random() - 0.5) * 40, oy: -30 - Math.random() * 50 });
-      U.nextStrike += lerp(0.085, 0.028, (T - T1) / STATUE.barrage);
+      U.strikes.push({ k, t: 0, dur: 0.13, ox: (Math.random() - 0.5) * 40, oy: -30 - Math.random() * 50, tg });
+      U.nextStrike += lerp(0.085, 0.028, (T - T1) / STATUE.barrage) / L.length;   // (more of them: more palms, so everyone gets the whole barrage)
       if (once('barrage')) {                                         // the barrage of hits from your clip
         sfx.whoosh(true); U.hitSnd = playBuffer(neteroHitsBuf, 0.55);
         if (U.hitSnd && actx) U.hitSnd.g.gain.linearRampToValueAtTime(0.95, actx.currentTime + 0.9);   // swells up as the voice line finishes
@@ -7103,9 +7132,9 @@ function updateStatueUlt(U, dt) {
     const s = U.strikes[i]; s.t += dt;
     if (s.t >= s.dur && !s.hit) {                                  // THWACK
       s.hit = true;
-      const hx = v.x + s.ox, hy = v.y + s.oy;
-      v.damage += STATUE.palmDmg * U.power; if (!v.transformed) v.ult = Math.min(ULT_MAX, (v.ult || 0) + STATUE.palmDmg);
-      v.hitFlash = 0.05; U.jolt = 0.07;
+      const tg = s.tg || v, hx = tg.x + s.ox, hy = tg.y + s.oy;
+      tg.damage += STATUE.palmDmg * U.power;
+      tg.hitFlash = 0.05; if (tg === v) U.jolt = 0.07; else { const e = U.extras.find(q => q.t === tg); if (e) e.jolt = 0.07; }
       particles.push({ x: hx, y: hy, vx: 0, vy: 0, life: 0.1, max: 0.1, r: 16, type: 'impact', rot: Math.random() * Math.PI });
       burst(hx, hy, [STATUE.goldHi, '#ffffff', '#ff2a2a'], 4, 0, Math.PI, 420, { grav: 0 });
       shake = Math.max(shake, 7); hitstop = Math.max(hitstop, 0.015);
@@ -7129,16 +7158,26 @@ function updateStatueUlt(U, dt) {
     if (once('beam')) {
       impactFrame = 0.12; impactAt = { x: v.x, y: v.y - 50, ang: 0, all: true, focus: true, invert: true };
       hitstop = Math.max(hitstop, 0.12); shake = 26; sfx.beam(1); sfx.clash(true);
+      U.parried = new Set();                                         // PERFECT BLOCKED, by whoever timed it
+      for (const tg of [v, ...(U.extras || []).map(e => e.t)]) if (ultFinalParried(U, tg, tg.x, tg.y - 50)) U.parried.add(tg);
     }
     shake = Math.max(shake, 14);
     U.beamTick -= dt;
     if (U.beamTick <= 0) {
       U.beamTick = 0.08;
-      v.damage += STATUE.beamDmg * U.power; v.hitFlash = 0.06; U.jolt = 0.06;
-      burst(v.x, v.y - 50, ['#ffffff', STATUE.goldHi, '#ff2a2a'], 8, Math.atan2(-(v.y - G.mouth.y), (v.x - G.mouth.x)), 0.6, 700, { grav: 0 });
+      for (const tg of [v, ...(U.extras || []).map(e => e.t)]) {
+        if (U.parried && U.parried.has(tg)) { burst(tg.x, tg.y - 50, ['#ffd23f', '#ffffff'], 4, 0, Math.PI, 400, { grav: 0 }); continue; }   // (it splashes off them)
+        tg.damage += STATUE.beamDmg * U.power; tg.hitFlash = 0.06; if (tg === v) U.jolt = 0.06;
+        burst(tg.x, tg.y - 50, ['#ffffff', STATUE.goldHi, '#ff2a2a'], 8, Math.atan2(-(tg.y - G.mouth.y), (tg.x - G.mouth.x)), 0.6, 700, { grav: 0 });
+      }
     }
   }
-  if (T >= T4) { U.baseX = v.x; endUlt(U); }
+  if (T >= T4) {
+    U.baseX = v.x;
+    releaseUltExtras(U, U.def.final, e => e.dir, U.parried);
+    if (U.parried && U.parried.has(v)) { ult = null; v.action = null; v.x = U.baseX; v.y = U.baseY; u.action = { type: 'land', t: 0, dur: 0.3 }; }   // (repelled: no launch)
+    else endUlt(U);
+  }
 }
 // The statue itself (drawn behind the fighters)
 function drawGuanyin(U) {
@@ -7238,8 +7277,8 @@ function drawGuanyinFront(U) {
   const T3 = STATUE.rise + STATUE.barrage + STATUE.zero, T4 = T3 + STATUE.beam;
   ctx.save(); ctx.lineCap = 'round';
   for (const s of U.strikes || []) {
-    const A = statueArm(S, s.k), P0 = A.hd, k = clamp(s.t / s.dur, 0, 1), e = k * k;
-    const tx = v.x + s.ox, ty = v.y + s.oy;
+    const A = statueArm(S, s.k), P0 = A.hd, k = clamp(s.t / s.dur, 0, 1), e = k * k, tg = s.tg || v;
+    const tx = tg.x + s.ox, ty = tg.y + s.oy;
     const P = { x: lerp(P0.x, tx, e), y: lerp(P0.y, ty, e) };
     const ang = Math.atan2(ty - P0.y, tx - P0.x);
     ctx.globalAlpha = s.hit ? clamp(1 - (s.t - s.dur) / 0.1, 0, 1) : 1;
@@ -7251,17 +7290,20 @@ function drawGuanyinFront(U) {
     drawStatuePalm(P.x, P.y, ang, sc * 1.2, 1);
   }
   ctx.globalAlpha = 1;
-  if (T >= T3 && T < T4) {                                          // ZERO HAND BEAM: mouth -> straight through them
+  if (T >= T3 && T < T4) {                                          // ZERO HAND BEAM: mouth -> straight through them (one at each of them)
     const k = (T - T3) / STATUE.beam, grow = clamp(k / 0.12, 0, 1), fade = k > 0.8 ? (1 - k) / 0.2 : 1;
-    const M = G.mouth, tx = v.x, ty = v.y - 50;
-    const ang = Math.atan2(ty - M.y, tx - M.x), len = Math.hypot(tx - M.x, ty - M.y) * 2.2;
-    const w = (90 + Math.sin(time * 50) * 8) * grow * fade * sc;
-    ctx.save(); ctx.translate(M.x, M.y); ctx.rotate(ang);
-    for (const [ww, col] of [[1, 'rgba(255,180,50,0.5)'], [0.72, 'rgba(255,214,110,0.85)'], [0.45, '#fff3c4'], [0.22, '#ffffff']]) {   // golden light
-      ctx.fillStyle = col;
-      ctx.beginPath(); ctx.moveTo(0, -w * ww * 0.35); ctx.lineTo(len, -w * ww); ctx.lineTo(len, w * ww); ctx.lineTo(0, w * ww * 0.35); ctx.closePath(); ctx.fill();
+    const M = G.mouth, beams = [v, ...(U.extras || []).map(e => e.t)];
+    for (const tg of beams) {
+      const tx = tg.x, ty = tg.y - 50, stop = U.parried && U.parried.has(tg);   // (perfect-blocked: it breaks on them)
+      const ang = Math.atan2(ty - M.y, tx - M.x), len = Math.hypot(tx - M.x, ty - M.y) * (stop ? 0.97 : 2.2);
+      const w = (90 + Math.sin(time * 50) * 8) * grow * fade * sc * (beams.length > 1 ? 0.8 : 1);
+      ctx.save(); ctx.translate(M.x, M.y); ctx.rotate(ang);
+      for (const [ww, col] of [[1, 'rgba(255,180,50,0.5)'], [0.72, 'rgba(255,214,110,0.85)'], [0.45, '#fff3c4'], [0.22, '#ffffff']]) {   // golden light
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.moveTo(0, -w * ww * 0.35); ctx.lineTo(len, -w * ww); ctx.lineTo(len, w * ww); ctx.lineTo(0, w * ww * 0.35); ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
     }
-    ctx.restore();
   }
   ctx.restore();
 }
@@ -8080,6 +8122,7 @@ function stepOdm(f, a, dt, inp) {
         f.action = { type: 'land', t: 0, dur: 0.3 }; return;
       }
       a.phase = 'hits'; a.t0 = a.t; f.vx = f.vy = 0;           // CAUGHT IN THE SPIN
+      a.tx = t.x; a.ty = t.y;                                  // (where they were caught: they're held right THERE - he comes to them)
       hitstop = Math.max(hitstop, 0.06); shake = Math.max(shake, 8);
     }
     if (a.t >= ODM.spinTime) { odmBreak(f); f.action = { type: 'land', t: 0, dur: 0.3 }; }
@@ -8088,7 +8131,8 @@ function stepOdm(f, a, dt, inp) {
   if (a.phase === 'hits') {                                    // the saw-blade slashes...
     f.vx = f.vy = 0;
     a.odmPose = { ...pose({ lean: 0.2, bob: 0, legA: [0.9, 1.4], legB: [0.4, 1.2], armA: [1.6, 0], armB: [1.5, 0.05], sw: 1.6, spin: f.face * a.t * 40 }), raw: true };
-    t.x = f.x + f.face * 40; t.y = f.y + 4; t.vx = t.vy = 0;
+    t.x = a.tx ?? t.x; t.y = a.ty ?? t.y; t.vx = t.vy = 0;          // (held where he caught them - never dragged across to him / off the edge)
+    f.x = t.x - f.face * 40; f.y = t.y - 4;                    // ...he's the one locked onto THEM
     if (t.action && t.action.type === 'hitstun') { t.action.locked = true; t.action.dur = Math.max(t.action.dur, t.action.t + 0.2); }
     const T = a.t - a.t0;
     while (a.n < ODM.hits && T >= a.n * ODM.every) {
@@ -11213,6 +11257,18 @@ function startUltSequence(u, v, def) {
   u.action = { type: 'ultSeq' };
   v.action = { type: 'ultVictim' };
   v.shielding = false; v.vx = v.vy = 0; u.vx = u.vy = 0;
+  // COLBALIAS - THE RAID BOSS: the 100-Type Guanyin and the Shadow Clone Rush take EVERY opponent on screen at once
+  ult.extras = [];
+  if (U.statue || U.legion) {
+    const vb = viewBounds();
+    for (const o of fighters) {
+      if (o === u || o === v || o.minion || allies(u, o) || o.respawnTimer > 0 || o.dead || o.out || o.halo > 0 || isIntangible(o)) continue;
+      if (o.x < vb.l - 20 || o.x > vb.r + 20 || o.y < vb.t - 40 || o.y > vb.b + 40) continue;
+      const pl = o.onPlatform || ((o.x > STAGE.x && o.x < STAGE.x + STAGE.w && o.y <= STAGE.y + 1) ? STAGE : null);
+      ult.extras.push({ t: o, baseX: o.x, baseY: pl ? pl.y : o.y, dir: Math.sign(o.x - u.x) || u.face, jolt: 0 });
+      o.action = { type: 'ultVictim', t: 0, pose: LV.guard }; o.shielding = false; o.vx = o.vy = 0;
+    }
+  }
   hitstop = Math.max(hitstop, 0.12);
   sfx.hit(0.9);
 }
@@ -11263,9 +11319,50 @@ function slashLine(x, y, ang, len, life) {
   particles.push({ x, y, vx: 0, vy: 0, ang, len, life, max: life, type: 'slash' });
 }
 
+// the RAID's other victims: held where they stand (and dropped if they're KO'd some other way)
+function holdUltExtras(U, dt) {
+  if (!U.extras || !U.extras.length) return;
+  U.extras = U.extras.filter(e => fighters.includes(e.t) && e.t.respawnTimer <= 0 && !e.t.dead);
+  for (const e of U.extras) {
+    const t = e.t; e.jolt = Math.max(0, e.jolt - dt);
+    t.x = e.baseX + (e.jolt > 0 ? (Math.random() - 0.5) * 8 : 0); t.y = e.baseY; t.vx = t.vy = 0; t.ground = true;
+    if (!t.action || t.action.type !== 'ultVictim') t.action = { type: 'ultVictim', t: 0, pose: LV.guard };
+    t.anim += dt; t.hitFlash = Math.max(0, t.hitFlash - dt);
+  }
+}
+// PERFECT BLOCKING an ultimate's FINAL hit (Colbalias's Zero Hand beam / the clone rush's punch): players press block just
+// as it comes (we watch their presses all through the ult - they're otherwise frozen); CPUs land it by their level
+function watchUltBlocks(U) {
+  for (const T of [U.target, ...(U.extras || []).map(e => e.t)]) {
+    if (!T || T.controller === 'dummy') continue;
+    const inp = inputFor(T);
+    if (inp && inp.blockTap) T.ultBlockAt = U.t;
+  }
+}
+function ultFinalParried(U, T, x, y) {
+  const ok = T.controller === 'dummy' ? parryRoll(T) : (T.ultBlockAt !== undefined && U.t - T.ultBlockAt >= 0 && U.t - T.ultBlockAt <= 0.25);
+  if (!ok) return false;
+  T.parryFlash = 0.6; if (!playPerfectShield()) sfx.parry(); if (soundOn && actx) smashClip('parry', 0.75);
+  burst(x, y, ['#ffd23f', '#fff3a8', '#ffffff'], 34, 0, Math.PI, 700, { grav: 200 }); ring(T.x, T.y - 40);
+  for (let i = 0; i < 6; i++) bolt(x, y, i / 6 * Math.PI * 2, 60 + Math.random() * 50, 0.18, '#ffd23f');
+  painTexts.push({ x: T.x, y: T.y - 150, t: 0.9, max: 0.9, text: 'REPELLED!', big: true });
+  hitstop = Math.max(hitstop, 0.15);
+  return true;
+}
+// the end of the raid: let the others go (launched like the main one - unless they perfect-blocked the last hit)
+function releaseUltExtras(U, final, dirOf, parried) {
+  for (const e of U.extras || []) {
+    const t = e.t; t.action = null; t.x = e.baseX; t.y = e.baseY;
+    if (parried && parried.has(t)) continue;
+    knock(t, { ...final, ultFinal: true }, dirOf(e), U.power, t.x, t.y - 60);
+  }
+  U.extras = [];
+}
 function updateUlt(dt) {
   const U = ult, u = U.user, v = U.target;
   U.t += dt;
+  holdUltExtras(U, dt);
+  if (U.def.statue || U.def.legion) watchUltBlocks(U);
   if (U.def.wrestle) return updateWrestleUlt(U, dt);         // Aiden: Max Malicious Moonsault
   if (U.def.deck) return updateDeckUlt(U, dt);               // Aiden (from a grab): Dead Man's Deck Match
   if (U.def.statue) return updateStatueUlt(U, dt);           // Colbalias: 100-Type Guanyin Bodhisattva
@@ -14966,7 +15063,7 @@ const GRAB_DMG = { all: 0.75, AIDEN: 0.95 };
 // Ultra Instinct beat-down) never charges your own ult meter. Checked here every frame as a safety net (the ult sequences
 // add damage in lots of places), and in knock() for hits marked ultFinal / ultHit.
 function beingUlted(f) {
-  if (ult && ult.target === f) return true;
+  if (ult && (ult.target === f || (ult.extras && ult.extras.some(e => e.t === f)))) return true;
   const a = f.action;
   if (a && (a.type === 'ultVictim' || a.type === 'thrown' && a.holder && a.holder.action && a.holder.action.type === 'shipUlt')) return true;
   if (projectiles.some(s => s.kind === 'dragon' && s.victim === f)) return true;
