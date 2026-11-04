@@ -1939,7 +1939,7 @@ function drawAuraWaves() {
 // A purple aura bursts out of him. Anyone it touches is FROZEN IN TIME: they can't move, and hits on them
 // do their damage right away but the knockback piles up and is released all at once when time resumes.
 // How long they stay frozen depends on his TIME meter (filled by landing hits); using it empties the meter.
-const TIME_STOP = { base: 0.6, perMeter: 0.024, radius: 165, gain: 6, cooldown: 2.5, color: '#b39dff' };
+const TIME_STOP = { base: 0.6, perMeter: 0.016, radius: 165, gain: 15, cooldown: 2.5, color: '#b39dff' };   // (gain: per hit landed - ~7 hits to fill; a full one freezes them 2.2s)
 function startTimeStopAura(f, a) {
   if ((f.tsCD || 0) > 0) {                                   // still recharging: just a fizzle
     burst(f.x, f.y - 50, ['#6e6e78', TIME_STOP.color], 8, 0, Math.PI, 200, { grav: 0 }); a.tsDur = 0; return;
@@ -7607,8 +7607,8 @@ const SEVON_MOVES = {
   // out, a ring of blade-light round him, cutting everything around him over and over - the last cut sends them flying.
   // (In TOTAL CONCENTRATION the spin throws off a whirl of flame.)
   nair: { name: 'Levi Spin', startup: 0.06, active: 0.32, endlag: 0.16, landLag: 0.12, flip: true, flipTurns: 4, leviSpin: true,
-    hitboxes: [0, 1, 2, 3].map(i => ({ x: 0, y: -50, r: 62, dmg: 2, base: 60, growth: 0, angle: 70, noStop: true, from: i * 0.06, to: i * 0.06 + 0.05, group: i }))
-      .concat([{ x: 0, y: -50, r: 66, dmg: 5.5, base: 440, growth: 5.8, angle: 45, from: 0.26, to: 0.32, group: 4 }]),
+    hitboxes: [0, 1, 2, 3].map(i => ({ x: 0, y: -50, r: 78, dmg: 2, base: 60, growth: 0, angle: 70, noStop: true, from: i * 0.06, to: i * 0.06 + 0.05, group: i }))
+      .concat([{ x: 0, y: -50, r: 82, dmg: 5.5, base: 440, growth: 5.8, angle: 45, from: 0.26, to: 0.32, group: 4 }]),
     wind: pose({ lean: 0.2, legA: [0.9, 1.4], legB: [0.4, 1.2], armA: [1.2, 0.1], armB: [1.1, 0.2], sw: 1.3 }),
     strike: pose({ lean: 0.2, legA: [0.9, 1.4], legB: [0.4, 1.2], armA: [1.6, 0], armB: [1.5, 0.05], sw: 1.6 }),
     fire(f, mult, c, a) { a.caught = []; sfx.whoosh(true); sfx.whoosh(false); },
@@ -7821,7 +7821,7 @@ for (const k of ['jab', 'jab2', 'jab3', 'sideGround', 'upGround', 'downGround', 
 //  - but the breathing strains his body: he takes TC.drain % damage every second
 // He CAN'T go into it at TC.maxEnter % or more. Out of it, every one of his basic (J) attacks that lands HEALS him
 // TC.heal % - so he can fight his way back down under the limit and go into it again.
-const TC = { dealt: 1.12, speed: 1.18, startup: 0.85, drain: 1.5, maxEnter: 200, heal: 0.5, color: '#ff7a1a' };
+const TC = { dealt: 1.35, speed: 1.18, startup: 0.85, drain: 3.5, maxEnter: 200, heal: 0.5, color: '#ff7a1a' };   // (+35% damage dealt, but it costs him 3.5% a second)
 function tcSpeed(f, k) {                                   // (scales his movement - and his saved pre-transform stats too)
   for (const s of [f.stats, f.baseStats]) if (s) { s.runSpeed *= k; s.airSpeed *= k; }
   if (f.baseStats) f.baseStats = { ...f.baseStats };
@@ -11132,7 +11132,7 @@ function stepUltStart(f, a, dt) {
     const hx = f.x + f.face * 40, hy = f.y - 60;
     for (const t of fighters) {
       if (t === f || allies(f, t) || t.respawnTimer > 0 || t.halo > 0 || isIntangible(t) || t.dead || t.poofT > 0) continue;
-      if (circleHitsFighter(hx, hy, 52, t)) { startUltSequence(f, t, def); return; }
+      if (circleHitsFighter(hx, hy, 52, t)) { if (!dashUltParried(f, t, hx, hy)) startUltSequence(f, t, def); return; }   // (a perfect block repels it)
     }
     return;
   }
@@ -11181,6 +11181,14 @@ function stepUltStart(f, a, dt) {
   }
 }
 
+// A DASH ULT (It's My Turn, Ultra Instinct) that runs into a PERFECT BLOCK is repelled: no ult, and the one who dashed
+// in is left staggered (an ordinary shield doesn't stop them - only the perfect one)
+function dashUltParried(f, t, hx, hy) {
+  if (!(t.shielding && t.shieldAge <= PARRY_WINDOW && parryRoll(t))) return false;
+  perfectBlock(t, { fighter: f }, hx, hy);
+  painTexts.push({ x: t.x, y: t.y - 150, t: 0.8, max: 0.8, text: 'REPELLED!', big: true });
+  return true;
+}
 function startUltSequence(u, v, def) {
   const U = def || CHARACTERS[u.char].ult;
   ult = { def: U, user: u, target: v, phase: 'flurry', t: 0, strikeT: 0, n: 0, dir: u.face, power: u.ultPower || 1,
@@ -11876,7 +11884,7 @@ function spikyAuraPathOn(c, cx, cy, w, h, n, ph) {
 function lanceTransform(f) {
   const next = Math.min(3, (f.lanceForm || 0) + 1);
   f.ultBuf = 0;
-  if (next >= 3) { startUltraInstinct(f); return; }          // the third: ULTRA INSTINCT (the cutscene)
+  if (next >= 3) { startUiDash(f); return; }                 // the third: ULTRA INSTINCT - a dash he has to land (see startUiDash)
   if (next === 2 && !f.ss2Seen) { startSsj2Cut(f); return; }   // the second: SUPER SAIYAN 2 - its cutscene plays the FIRST time each match only (after that: an instant power-up, keeps the match moving)
   setLanceForm(f, next);
   f.transformed = true;                                      // (a full meter to spend on his ultimates)
@@ -11951,11 +11959,46 @@ function startUiSong(f, from = 0) {
 function stopUiSong(f, fade = 1.0) { if (f && f.uiSong) { stopBuffer(f.uiSong, fade); f.uiSong = null; } }
 // game time runs faster than real time (GAME_SPEED / turbo / slow-mo) - the cutscene follows REAL seconds, like the song
 const uiRealRate = () => GAME_SPEED * timeScale * ((netActive() ? netTurbo : turbo) ? TURBO_SPEED : 1) * (slowmo > 0 ? SLOWMO_HIT_SCALE : 1);
-function startUltraInstinct(f) {
+// ULTRA INSTINCT is a DASH now: a beat to gather himself, then he blurs forward. If it CATCHES someone, the whole
+// awakening plays out on them (the beat-down, the scream, the beating). If it misses (or they Z vanish through it), he
+// still awakens - just a quick scream, no beating. A PERFECT BLOCK repels it: no Ultra Instinct, he's left staggered and
+// half his meter's gone.
+const UI_DASH = { wind: 0.22, speed: 2500, time: 0.27, r: 52 };
+function startUiDash(f) {
+  f.ultBuf = 0; f.shielding = false;
+  f.action = { type: 'uiDash', t: 0 };
+  ultBanner = { t: 1.0, title: 'ULTIMATE', name: 'ULTRA INSTINCT', color: UI.color, who: f };
+  hitstop = Math.max(hitstop, 0.2); sfx.parry();
+  burst(f.x, f.y - 50, ['#ffffff', UI.color, UI.glow], 20, 0, Math.PI, 420, { grav: 0 });
+}
+function stepUiDash(f, a, dt) {
+  if (!f.ground) f.vy = Math.min(f.vy, 0) * 0.5;
+  if (a.t < UI_DASH.wind) {                                   // gathering himself: silver sparks
+    f.vx = approach(f.vx, 0, FRICTION * dt);
+    if (realRandom() < dt * 40) bolt(f.x, f.y - 50, realRandom() * Math.PI * 2, 40 + realRandom() * 30, 0.08, realRandom() < 0.5 ? '#ffffff' : UI.glow);
+    return;
+  }
+  if (!a.went) { a.went = true; f.vx = f.face * UI_DASH.speed; sfx.vanish(0.9); sfx.whoosh(true); }
+  if (!f.ground) f.vy = 0;
+  if (a.t > UI_DASH.wind + UI_DASH.time) {                   // MISSED: he awakens anyway - no beating
+    f.vx = 0; startUltraInstinct(f, null); return;
+  }
+  f.vx = f.face * UI_DASH.speed;
+  ghosts.push({ fig: figureOf(f), life: 0.18, max: 0.18, color: UI.color });
+  const hx = f.x + f.face * 40, hy = f.y - 60;
+  for (const t of fighters) {
+    if (t === f || t.minion || allies(f, t) || t.respawnTimer > 0 || t.halo > 0 || isIntangible(t) || t.dead || t.poofT > 0 || t.out) continue;
+    if (!circleHitsFighter(hx, hy, UI_DASH.r, t)) continue;
+    if (dashUltParried(f, t, hx, hy)) { f.ult = Math.min(f.ult || 0, ULT_MAX / 2); return; }   // REPELLED
+    f.vx = 0; startUltraInstinct(f, t); return;                // CAUGHT: the awakening, on them
+  }
+}
+function startUltraInstinct(f, target) {
   f.ultBuf = 0;
-  // the one it's all against: the nearest REAL fighter (not a clone)
+  // the one it's all against: whoever his dash caught (null = it missed: no one). (Left out: the nearest real fighter.)
   let v = null, bd = Infinity;
-  for (const o of fighters) {
+  if (target !== undefined) v = target;
+  else for (const o of fighters) {
     if (o === f || o.minion || allies(f, o) || o.respawnTimer > 0 || o.dead || o.out) continue;
     const d = Math.hypot(o.x - f.x, o.y - f.y); if (d < bd) { bd = d; v = o; }
   }
@@ -13182,6 +13225,7 @@ function stepAction(f, inp, dt) {
   if (a.type === 'timeStop') return stepTimeStop(f, a, dt);
   if (a.type === 'ultBeam') return stepUltBeam(f, a, dt, inp);
   if (a.type === 'flameDragon') return stepFlameDragon(f, a, dt);
+  if (a.type === 'uiDash') return stepUiDash(f, a, dt);          // Lance: the Ultra Instinct dash
   if (a.type === 'kiCharge') return stepKiCharge(f, a, inp, dt);   // Lance: holding down K - the ki charge
   if (a.type === 'uiTransform') return stepUiTransform(f, a, dt);
   if (a.type === 'ssj2Cut') return stepSsj2Cut(f, a, dt);   // Lance: the Super Saiyan 2 cutscene   // Lance: Ultra Instinct awakening + teleport combo   // Sevon: summoning / releasing the Flame Dragon
@@ -14392,7 +14436,8 @@ function aiDecide(f, o, ai, L) {
     if (f.transformed && left > 0 && adx < 700 && (left < 12 || Math.random() < 0.05)) { if (Math.random() < 0.5) ai.down = true; ai.tapUlt = true; return; }
   }
   // TRANSFORM as soon as the meter is full
-  else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5) { ai.tapUlt = true; return; }
+  else if (!f.transformed && f.ult >= ULT_MAX && Math.random() < 0.5 &&
+           !(f.char === 'LANCE' && (f.lanceForm || 0) >= 2 && !(adx < 520 && Math.abs(dy) < 60 && f.face === toward))) { ai.tapUlt = true; return; }   // (Lance's Ultra Instinct is a dash: lined up first)
   // COLBY: his second ultimate (God Speed: Lightning Blade) is a fast rush - when they're lined up in front of him
   const alt = CHARACTERS[f.char].altUlt;
   if (alt && alt.godChidori && f.transformed && f.ult > 0 && adx < 520 && Math.abs(dy) < 50 && f.face === toward &&
@@ -15814,6 +15859,9 @@ function basePose(p) {
     const w = Math.sin(p.anim * 14) * 0.15;
     return pose({ lean: -0.55 + w, bob: -2, legA: [0.5, 0.4], legB: [-0.45, 0.2], armA: [-2.4, 0.3], armB: [2.5, -0.3] });
   }
+  if (a && a.type === 'uiDash') return a.went                    // LANCE'S ULTRA INSTINCT DASH: gathering himself... then a blur, fist first
+    ? pose({ lean: 0.85, bob: -6, legA: [1.2, 0.3], legB: [-1.1, 0.4], armA: [1.6, 0], armB: [-1.4, -0.3] })
+    : pose({ lean: 0.3, bob: -14, legA: [0.9, 0.9], legB: [-0.7, 0.4], armA: [-0.6, -1.4], armB: [0.4, -1.6] });
   if (a && a.type === 'land') return pose({ bob: -10, lean: 0.3, legA: [0.75, 1.5], legB: [0.55, 1.3] });
   if (a && a.type === 'taunt') return tauntPose(p, a);
   if (a && a.type === 'spot') return pose({ lean: 0.35, bob: -10, legA: [0.75, 1.5], legB: [0.55, 1.3], armA: [0.9, -1.9], armB: [0.5, -1.9] });
@@ -19304,7 +19352,7 @@ const COLBY_SECTIONS = {
     ['AIR J / FWD / BACK / UP / DOWN', 'Split Kick Spin / Air Dash Kick / Back Spin Kick / Dragon Bicycle / Meteor Punch', 'His bare-handed airs - Meteor Punch spikes.'],
     ['SIDE K', 'Annihilator', 'A charged rush punch - hold K to wind it up. Charging (any bare-handed punch) adds damage, not knockback.'],
     ['UP K', 'Rising Uppercut', 'His bare-handed recovery.'],
-    ['DOWN K', 'Time Stop / Dash Chokeslam', 'With a FULL time meter: a purple aura that freezes anyone it touches in time (knockback piles up and lands all at once). Otherwise a dashing chokeslam.'],
+    ['DOWN K', 'Time Stop / Dash Chokeslam', 'Bare-handed, with a FULL time meter (fills fast - about 7 landed hits): a purple aura that freezes anyone it touches in time, up to 2.2 seconds (knockback piles up and lands all at once). Otherwise a dashing chokeslam.'],
     ['K (NEAR THE SCYTHE)', 'Pick Up', 'Picks his scythe (or ANY weapon lying on the floor) back up.'] ] },
 };
 const MOVESETS = {
@@ -19364,9 +19412,9 @@ const MOVESETS = {
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out - and through KOs.'],
       ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'A full cutscene to Day of Fate (the red line, the lava sea of ki) - then lightning crackles round his aura: +20% damage, +32% move speed, attacks 32% faster. Also stays on when the meter runs out, and through KOs.'],
-      ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
+      ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A blurring DASH - it has to catch someone (a perfect block repels it and staggers him; a miss still transforms him, with no beating). Then a 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage. Quick to charge, and you can AIM it up, left or right (down too in the air). A one-hit KO on anyone already at 130%+ - below that it is a big hit.'],
-      ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush.'] ] },
+      ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush. A perfect block repels it.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'KI MARKS: every separate ki attack that hits marks them (up to 3 marks, they last 6 seconds).',
       'MARK TELEPORT: Z VANISH in the air with someone marked = INSTANT TRANSMISSION right behind them. Each teleport uses ONE mark - let go of the shield between teleports.',
@@ -19519,7 +19567,7 @@ const MOVESETS = {
       ['I (TRANSFORMED)', 'Ninth Form: Rengoku', 'He sinks into his stance and breathes in as a DRAGON OF FLAME coils round him - then on the shout he RUSHES THEM DOWN as the dragon, riding at its head with his blade out - it flies wherever you point (any way, behind him too) and homes in on the nearest enemy if you let go. It catches them, drives on through them in its jaws and EXPLODES in a sea of flame. Everyone freezes for the wind-up, then it can be BLOCKED (heavy shield damage), PERFECT-BLOCKED (repelled, he staggers) or dodged.'],
       ['DOWN + I (TRANSFORMED)', 'Fifth Form: Flame Tiger', 'A lunge into a flurry of flaming slashes ending in a roaring fire tiger.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
-      'TOTAL CONCENTRATION (down K): +12% damage, +18% speed, quicker attacks, and flames on every windup and hit - but it strains him: 1.5% damage every second.',
+      'TOTAL CONCENTRATION (down K): +35% damage, +18% speed, quicker attacks, and flames on every windup and hit - but it strains him hard: 3.5% damage every second.',
       'He CAN\'T enter Total Concentration at 200% or more.',
       'Out of it, every J hit that lands HEALS him 0.5% - fight your way back under 200% and go in again.',
       'The ODM cable snaps if he gets hit, if it times out (4s), or if they get too far apart.',
