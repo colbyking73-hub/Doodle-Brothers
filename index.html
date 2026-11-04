@@ -8428,6 +8428,14 @@ function drawKatana(shoulder, pz, f, opts, hold) {
   ctx.restore();
 }
 
+// ---------------- HUNTER, "TRIPLE H" ----------------
+// The biggest fighter in the game: a silent, towering powerhouse with a SLEDGEHAMMER. (ART ONLY for now - his look, size and
+// skins. Transforming makes him bigger still. His own moveset comes later.)
+// (hammer angles: sw = 0 points straight down, PI/2 = straight out in front, PI = straight up)
+const HUNTER_SIZE = { tf: 0.15, color: '#ff6a1a' };          // transformed: 15% bigger again
+const HUNTER_IDLE = pose({ lean: -0.04, bob: -8, legA: [0.55, 0.35], legB: [-0.5, 0.15], armA: [0.9, -1.7], armB: [0.4, -1.5], sw: 3.7 });   // hammer resting on his shoulder
+// (his own moveset comes later: for now he fights with the Stickman's moves, holding his hammer)
+const HUNTER_MOVES = { ...STICKMAN_MOVES, jab: { ...STICKMAN_MOVES.jab, hitboxes: STICKMAN_MOVES.jab.hitboxes.map(h => ({ ...h })) } };
 const CHARACTERS = {
   COLBY: {
     moves: COLBY_MOVES,
@@ -8544,6 +8552,23 @@ const CHARACTERS = {
     },
     transformName: 'TRUE DEMON',
   },
+  HUNTER: {
+    moves: HUNTER_MOVES,
+    // The biggest, heaviest fighter: slowest on his feet, hardest to launch - and he only gets bigger
+    stats: { runSpeed: 560, airSpeed: 450, jumpVel: 1110, doubleJumpVel: 990, weight: 1.28 },
+    look: {
+      body: '#3d4552',          // slate
+      muscle: true,             // the huge frame
+      scale: 1.3,               // THE BIGGEST in the game (Captain Heel is 1.12) - and rage / transforming grow him more
+      longHair: '#1f1a17',      // a dark, shaggy mane
+      hunter: true,             // gold ring headband, gold championship belt (blue jewel), gold bracers, torn ring trousers, boots (see drawHunterGear)
+      sledge: true,             // the SLEDGEHAMMER, in both hands (see drawSledge)
+      grows: true,              // transformed: bigger still (see HUNTER_SIZE)
+      transformAura: '#ff6a1a',
+      idle: HUNTER_IDLE,
+    },
+    transformName: 'BERSERKER',
+  },
   AIDEN: {
     moves: AIDEN_MOVES,
     // The heavyweight: slowest on the ground and in the air, lowest jumps, but very hard to launch
@@ -8582,14 +8607,18 @@ const CHAR_ALTS = {
   SEVON:     { name: 'BLUE RANGER', swatch: '#1f55d6', look: { body: '#1f55d6', haori: false, flameHair: false, ranger: true } },
   COLBY:     { name: 'WHITE', swatch: '#ececec', look: { body: '#ececec' } },
   COLBALIAS: { name: 'BLACK', swatch: '#161616', look: { body: '#161616' } },
+  HUNTER:    [{ name: 'FLESH', swatch: '#e2a882', look: { body: '#e2a882' } },
+              { name: 'YELLOW', swatch: '#f2c230', look: { body: '#f2c230' } }],
   AIDEN:     { name: 'BLACK BONES', swatch: '#1e1e1e', look: { body: '#1e1e1e', detail: '#6b6b6b', eyepatchColor: '#f4f4f4', beard: '#3a3a3a',
                                                              hat: { main: '#f2f2f2', fold: '#dadada', pipe: '#141414', emblem: '#141414' } } },
 };
 const altLooks = {};
+const altList = ch => { const a = CHAR_ALTS[ch]; return !a ? [] : Array.isArray(a) ? a : [a]; };   // (a fighter can have SEVERAL alt skins)
 function lookFor(ch, alt) {
-  const c = CHARACTERS[ch];
-  if (!alt || !CHAR_ALTS[ch]) return c.look || {};
-  return altLooks[ch] || (altLooks[ch] = { ...c.look, ...CHAR_ALTS[ch].look });
+  const c = CHARACTERS[ch], A = altList(ch)[(alt | 0) - 1];
+  if (!alt || !A) return c.look || {};
+  const key = ch + ':' + alt;
+  return altLooks[key] || (altLooks[key] = { ...c.look, ...A.look });
 }
 
 // ---------------- CHARGEABLE FIRST JAB (everyone - Falcon Punch style) ----------------
@@ -8998,7 +9027,8 @@ CHARACTERS.SEVON.altUlt = {
 // which takes a beating), PERFECT-BLOCK it (repelled - he's left staggered) or Z vanish through it.
 // (The wind-up runs in REAL seconds so the rush always leaves on the shout in the clip.)
 CHARACTERS.SEVON.ult = { name: 'NINTH FORM: RENGOKU', dragon: true };
-CHARACTERS.SEVON.look.swordShield = true;                  // his block: a circle of flaming sword cuts (see drawFighter)
+CHARACTERS.SEVON.look.swordShield = true;
+                  // his block: a circle of flaming sword cuts (see drawFighter)
 let ninthFormBuf = null;
 const NINTH_POSE = {
   stance: pose({ lean: 0.35, bob: -24, legA: [1.15, 1.2], legB: [-0.95, 0.4], armA: [2.6, 0.5], armB: [2.4, 0.6], sw: 3.0 }),   // low, blade raised beside his head
@@ -9289,13 +9319,13 @@ function drawDragon(s) {
     done.add(m); m.startup *= 0.65; m.endlag *= 0.85;
   }
 }
-CHARACTERS.STICKMAN.ult = {
+CHARACTERS.STICKMAN.ult = (CHARACTERS.HUNTER.ult = {
   name: 'OVERDRIVE',
   slashes: [STICKMAN_MOVES.jab.strike, STICKMAN_MOVES.counter.strike, STICKMAN_MOVES.sideGround.strike],
   kicks:   [STICKMAN_MOVES.fair.strike, STICKMAN_MOVES.nair.strike, STICKMAN_MOVES.bair.strike],
   finalWind: STICKMAN_MOVES.upGround.wind, finalStrike: STICKMAN_MOVES.upGround.strike,
   perHit: 1.0, final: { dmg: 12, base: 480, growth: 6, angle: 80 }, cutscene: false,
-};
+});   // (Hunter borrows it until his own)
 
 // ---------------- Fighters ----------------
 function makeFighter(o) {
@@ -9310,7 +9340,7 @@ function setCharacter(f, charName, alt = 0) {
   f.char = charName;
   f.moveset = c.moves;
   f.stats = { ...DEFAULT_STATS, ...c.stats };
-  f.alt = alt && CHAR_ALTS[charName] ? 1 : 0;
+  f.alt = Math.max(0, Math.min(alt | 0, altList(charName).length));
   f.look = lookFor(charName, f.alt);                          // (the ALT SKIN, if they picked it)
   f.w = 26 * (f.look.scale || 1); f.h = 90 * (f.look.scale || 1);   // bigger characters = bigger hurtbox
   f.transformed = false; f.baseStats = null; f.kaioken = false; f.tc = false; f.noScythe = false; f.ui = false; f.lanceForm = 0; f.formBase = null; stopUiSong(f);
@@ -11368,7 +11398,7 @@ function updateUlt(dt) {
   if (U.def.statue) return updateStatueUlt(U, dt);           // Colbalias: 100-Type Guanyin Bodhisattva
   if (U.def.legion) return updateLegionUlt(U, dt);           // Colbalias (DOWN + ult): Hundred Clone Rush
   if (U.def.godChidori) return updateGodChidoriUlt(U, dt);    // Colby (DOWN + ult): God Speed: Lightning Blade
-  if (U.def.greatsword) return updateSwordUlt(U, dt);        // Colten: Warlord's Judgment
+  if (U.def.greatsword || U.def.tripleThreat) return updateSwordUlt(U, dt);   // Colten: Warlord's Judgment / Hunter: Triple Threat
   if (U.def.rush) return updateRushUlt(U, dt);               // Lance: It's My Turn
   U.jolt = Math.max(0, U.jolt - dt);
   v.vx = v.vy = 0; v.x = U.baseX; v.y = U.baseY;
@@ -11477,9 +11507,10 @@ function updateSwordUlt(U, dt) {
     if (U.t >= t) { done = k + 1; if (!U.events.has('s' + k)) { U.events.add('s' + k); swordUltSwing(U, k); } }
   });
   const last = SWORD_ULT_TIMES[done - 1] ?? -9;
-  U.userPose = done > 0 && U.t - last < 0.28 ? COLTEN_ULT_SWINGS[done - 1].strike          // just swung
-             : COLTEN_ULT_SWINGS[Math.min(done, 2)].wind;                                  // winding up the next one
-  if (Math.random() < dt * 30) bolt(u.x, u.y - 60, Math.random() * Math.PI * 2, 50, 0.08, AURA_ARMOR.color);
+  const SWS = U.def.swings || COLTEN_ULT_SWINGS, COL = U.def.color || AURA_ARMOR.color;
+  U.userPose = done > 0 && U.t - last < 0.28 ? SWS[done - 1].strike          // just swung
+             : SWS[Math.min(done, 2)].wind;                                  // winding up the next one
+  if (Math.random() < dt * 30) bolt(u.x, u.y - 60, Math.random() * Math.PI * 2, 50, 0.08, COL);
   if (U.t >= SWORD_ULT_END) endUlt(U);
 }
 function swordUltSwing(U, k) {
@@ -11489,10 +11520,11 @@ function swordUltSwing(U, k) {
   v.hitFlash = 0.1; U.jolt = 0.16;
   slashLine(hx, hy, k === 1 ? -0.5 : k === 2 ? 0.3 : -1.0, 420, 0.4);
   slashLine(hx, hy, k === 1 ? -0.45 : k === 2 ? 0.35 : -0.95, 320, 0.3);
-  burst(hx, hy, ['#ffffff', AURA_ARMOR.color, '#ffd23f'], 30, 0, Math.PI, 800, { grav: 0 });
+  burst(hx, hy, ['#ffffff', U.def.color || AURA_ARMOR.color, '#ffd23f'], 30, 0, Math.PI, 800, { grav: 0 });
+  if (U.def.tripleThreat && k === 2) { dust(v.x, U.baseY, 30, 3.4); ring(v.x, U.baseY - 10); cracks.push({ x: v.x, y: U.baseY, life: 3, max: 3, seed: v.x + 3, size: 2.4 }); sfx.huge(); }   // (the third cracks the stage)
   if (gore) burst(hx, hy, BLOOD, 18, realRandom() * Math.PI * 2, 1.2, 520, { stain: true });
   particles.push({ x: hx, y: hy, vx: 0, vy: 0, life: 0.16, max: 0.16, r: 40, type: 'impact' });
-  painTexts.push({ x: v.x, y: v.y - 150 - k * 22, t: 0.8, max: 0.8, text: 'CRITICAL!', big: true });
+  painTexts.push({ x: v.x, y: v.y - 150 - k * 22, t: 0.8, max: 0.8, text: U.def.callout || 'CRITICAL!', big: true });
   impactFrame = Math.max(impactFrame, 0.12); impactAt = { x: hx, y: hy, ang: 0, all: true, focus: true, invert: k % 2 === 1 };
   hitstop = Math.max(hitstop, 0.2); shake = Math.max(shake, 24); camPunch = 1;
   dust(v.x, v.y, 10, 2);
@@ -15073,10 +15105,15 @@ function beingUlted(f) {
 function update(dt) {
   simFrame++;
   const meter0 = new Map(fighters.map(v => [v, v.ult || 0])), ulted0 = new Set(fighters.filter(beingUlted));
+  const dmg0 = new Map(fighters.map(v => [v, v.damage]));
   const held = [];
   for (const v of fighters) { const a = v.action; if (a && (a.type === 'thrown' || a.type === 'grabbed') && a.holder) held.push([v, v.damage, a.holder]); }
   updateSim(dt);
   for (const v of fighters) if ((ulted0.has(v) || beingUlted(v)) && meter0.has(v) && (v.ult || 0) > meter0.get(v)) v.ult = meter0.get(v);
+  for (const v of fighters) if (v.look && v.look.grows && !v.minion) {   // HUNTER: transformed = bigger still (drawn, hit and reach)
+    v.sizeMul = 1 + (v.transformed ? HUNTER_SIZE.tf : 0);
+    const sc = (v.look.scale || 1) * v.sizeMul; v.w = 26 * sc; v.h = 90 * sc;
+  }
   for (const v of fighters) if (v.ultNerfT > 0) {           // AFTER AN ULTIMATE: half meter gain (the clock runs once he's out of his transformation)
     const g = (v.ult || 0) - (meter0.get(v) ?? (v.ult || 0));
     if (g > 0) v.ult -= g * (1 - ULT_NERF.gain);
@@ -15224,13 +15261,13 @@ function updateSim(dt) {
     const boxes = a.powered && a.move.chargedHit ? a.move.chargedHit.hitboxes : a.move.hitboxes;   // power jab = its own big hitbox
     hitLoop:
     for (const h of boxes) {
-      const hx = f.x + h.x * f.face, hy = f.y + h.y;
+      const SM = f.sizeMul || 1, hx = f.x + h.x * f.face * SM, hy = f.y + h.y * SM;   // (Hunter's reach grows with him)
       for (const t of fighters) {
         // Multi-hit moves: each hitbox can have its own time window and "group" (each group hits once)
         if (h.from !== undefined && (a.t < h.from || a.t > h.to)) continue;
         const key = fighters.indexOf(t) + ':' + (h.group || 0);
         if (t === f || a.hit.has(key) || allies(f, t) || t.dead || t.poofT > 0) continue;   // (Colbalias and his clones never hit each other)
-        if (!circleHitsFighter(hx, hy, h.r, t)) continue;
+        if (!circleHitsFighter(hx, hy, h.r * SM, t)) continue;
         if (cloneShielded(f, t)) continue;                    // (Colbalias's clones can't break up his grabs / clashes)
         // Darkest Lariat loses to PHYSICAL attacks: someone in the middle of a J attack is passed over (their hit wins)
         if (a.move.losesToPhysical && h.group !== 5 && t.action && t.action.type === 'attack' && t.action.btn === 'atk' && t.action.phase !== 'end') continue;
@@ -16171,7 +16208,7 @@ function tickPose(f, dt) {
 
 function figureOf(p) {
   return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, face: p.face, pose: p.disp || getPose(p), squash: p.squash,
-           color: bodyColorOf(p), ink: inkOf(p), look: p.look, transformed: !!p.transformed, noScythe: !!p.noScythe || p.spareSwordT > 0, ui: !!p.ui, lanceForm: p.lanceForm || 0, odmGas: p.odmGas };
+           color: bodyColorOf(p), ink: inkOf(p), look: p.look, transformed: !!p.transformed, noScythe: !!p.noScythe || p.spareSwordT > 0, ui: !!p.ui, lanceForm: p.lanceForm || 0, odmGas: p.odmGas, sizeMul: p.sizeMul || 1 };
 }
 
 // Characters can have their own body color (Colby is red). If both players pick the same character,
@@ -16269,7 +16306,7 @@ function drawFigure(fig, opts = {}) {
   ctx.save();
   ctx.globalAlpha = opts.alpha ?? 1;
   ctx.translate(snap(fig.x), snap(fig.y));
-  if (look.scale) ctx.scale(look.scale, look.scale);         // (Aiden is a bigger guy)
+  { const S = (look.scale || 1) * (fig.sizeMul || 1); if (S !== 1) ctx.scale(S, S); }   // (Aiden is a bigger guy; Hunter grows with his rage)
   if (turnX !== 1) ctx.scale(Math.max(0.22, Math.abs(turnX)), 1);   // corkscrew spin: squeezed side-on
   ctx.scale(1 + sq * 0.5, 1 - sq * 0.5);
 
@@ -16385,6 +16422,7 @@ function drawFigure(fig, opts = {}) {
   if (look.oneArm) { /* only one arm (Future Gohan) - nothing on the far side */ }
   else if (grip) ikArm(shoulder, { x: grip.x - f * 3, y: grip.y + 7 });
   else if (S && (S.hands === 2 || S.hands === 'B')) ikArm(shoulder, S.at(S.hb));
+  else if (look.sledge && !grip) ikArm(shoulder, swordSecondHand(shoulder, pz, f, 18), AL, AL2);   // HUNTER: both hands on the sledgehammer's handle
   else if (look.greatsword && !fig.noScythe && !look.dualKatana) ikArm(shoulder, swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9));   // both hands on the greatsword (Colten / a borrowed katana: spaced along the grip)
   else if (MUS) muscleLimb(shoulder, pz.armB, AL, AL2, f, ARM_W, back, null);
   else limb(shoulder, pz.armB, 16, 15, f);
@@ -16845,6 +16883,7 @@ function drawFigure(fig, opts = {}) {
   }
   if (look.flameHair) drawFlameHair(head, f, opts, main, fig);   // SEVON: swept-back ginger hair, orange tips
   if (look.ranger) drawRangerSuit(hip, shoulder, head, pz, f, opts);
+  if (look.hunter) drawHunterGear(hip, shoulder, head, pz, f, opts, fig);
   if (look.knight) drawKnightArmor(hip, shoulder, head, pz, f, opts, look.knight);   // COLTEN: plate armor, tabard and great helm   // SEVON's alt: the BLUE RANGER - helmet, chest diamonds, belt, boots
   // COLTEN: rectangle reading glasses
   if (look.glasses && !opts.tint) {
@@ -16881,9 +16920,82 @@ function drawFigure(fig, opts = {}) {
   else if (MUS) muscleLimb(shoulder, pz.armA, AL, AL2, f, ARM_W, main, EDGE);
   else limb(shoulder, pz.armA, 16, 15, f);
   if (look.greatsword && !grip && !fig.noScythe) (look.katana ? drawKatana : drawGreatsword)(shoulder, pz, f, opts);   // the greatsword (Sevon: katana), in his front hand
+  if (look.sledge && !grip) drawSledge(shoulder, pz, f, opts, look);      // HUNTER: the sledgehammer
   if (look.auraArmor && fig.transformed && !opts.tint && !sketch) drawAuraArmor(hip, shoulder, head, f);
   if (look.ranger && !opts.tint) drawRangerGloves(shoulder, pz, f, look);
   if (look.knight && !opts.tint) { const h = swordHold(shoulder, pz, f).hand; ctx.fillStyle = sketch ? main : look.knight.dark; ctx.beginPath(); ctx.arc(h.x, h.y, 5, 0, Math.PI * 2); ctx.fill(); }   // (his gauntlet)   // (white gloves, over his hands on the hilt)
+  ctx.restore();
+}
+// HUNTER'S SLEDGEHAMMER: a long wooden handle (taped grip) and a big steel head with a gold band - held in his front hand,
+// angle from the pose's "sw" (like the greatsword)
+function drawSledge(shoulder, pz, f, opts, look) {
+  const { hand, ux, uy } = swordHold(shoulder, pz, f);
+  const nx = -uy, ny = ux, P = (al, ac) => ({ x: hand.x + ux * al + nx * ac, y: hand.y + uy * al + ny * ac });
+  ctx.save(); ctx.lineCap = 'round';
+  const a = P(-30, 0), b = P(66, 0);
+  ctx.strokeStyle = opts.tint || (sketch ? '#333' : '#6b4a2a'); ctx.lineWidth = 6 + (opts.outline || 0);
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  if (!opts.tint && !sketch) { ctx.strokeStyle = '#1e1e22'; ctx.lineWidth = 6.5; const g0 = P(-30, 0), g1 = P(-6, 0); ctx.beginPath(); ctx.moveTo(g0.x, g0.y); ctx.lineTo(g1.x, g1.y); ctx.stroke(); }   // taped grip
+  const head = [P(58, -24), P(86, -24), P(86, 24), P(58, 24)];                 // the steel head, across the handle's end
+  ctx.fillStyle = opts.tint || (sketch ? PAPER : '#7c838e');
+  ctx.beginPath(); head.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+  if (!opts.tint) {
+    ctx.strokeStyle = sketch ? '#222' : '#2c3036'; ctx.lineWidth = 2; ctx.stroke();
+    if (!sketch) {
+      ctx.fillStyle = '#a7aeb8'; const hl = [P(60, -22), P(84, -22), P(84, -14), P(60, -14)]; ctx.beginPath(); hl.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();   // shine
+      ctx.strokeStyle = '#e0b030'; ctx.lineWidth = 4; const g0 = P(72, -24), g1 = P(72, 24); ctx.beginPath(); ctx.moveTo(g0.x, g0.y); ctx.lineTo(g1.x, g1.y); ctx.stroke();   // gold band
+    }
+  }
+  ctx.restore();
+}
+// HUNTER'S GEAR: a plain gold ring headband, a big gold championship belt with a blue jewel on the plate, gold bracers on
+// both forearms, torn charcoal ring trousers and black boots with gold laces. Transformed: glowing orange veins.
+function drawHunterGear(hip, shoulder, head, pz, f, opts, fig) {
+  if (opts.tint) return;
+  const GOLD = sketch ? '#ffffff' : '#e0b030', GOLD_D = sketch ? '#222' : '#9a7414';
+  const ux = (shoulder.x - hip.x) / TORSO, uy = (shoulder.y - hip.y) / TORSO, nx = -uy, ny = ux;
+  ctx.save(); ctx.lineCap = 'round';
+  // trousers + boots (over the legs)
+  const leg = L => { const [th, bend] = L; const mid = { x: hip.x + Math.sin(th) * LEG_UP * f, y: hip.y + Math.cos(th) * LEG_UP };
+    const a2 = th - bend; return { mid, end: { x: mid.x + Math.sin(a2) * LEG_LOW * f, y: mid.y + Math.cos(a2) * LEG_LOW } }; };
+  for (const L of [pz.legB, pz.legA]) {
+    const g = leg(L);
+    ctx.strokeStyle = sketch ? '#ffffff' : '#2b2b31'; ctx.lineWidth = 11;
+    ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(g.mid.x, g.mid.y); ctx.lineTo(lerp(g.mid.x, g.end.x, 0.62), lerp(g.mid.y, g.end.y, 0.62)); ctx.stroke();
+    ctx.strokeStyle = sketch ? '#222' : '#121214'; ctx.lineWidth = 10;                  // boot
+    ctx.beginPath(); ctx.moveTo(lerp(g.mid.x, g.end.x, 0.6), lerp(g.mid.y, g.end.y, 0.6)); ctx.lineTo(g.end.x, g.end.y); ctx.stroke();
+    if (!sketch) { ctx.strokeStyle = GOLD; ctx.lineWidth = 1.4; const k = lerp(g.mid.y, g.end.y, 0.75); ctx.beginPath(); ctx.moveTo(lerp(g.mid.x, g.end.x, 0.75) - 4, k); ctx.lineTo(lerp(g.mid.x, g.end.x, 0.75) + 4, k); ctx.stroke(); }
+  }
+  // the championship belt: a gold band round his waist, a big plate in front with a blue jewel
+  const bx = hip.x + ux * 4, by = hip.y + uy * 4;
+  ctx.strokeStyle = GOLD; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(bx - nx * 9, by - ny * 9); ctx.lineTo(bx + nx * 9, by + ny * 9); ctx.stroke();
+  const px = bx + f * 4, py = by;
+  ctx.fillStyle = GOLD; ctx.beginPath(); ctx.ellipse(px, py, 8, 6.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = GOLD_D; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.fillStyle = sketch ? '#222' : '#2f7fe8'; ctx.beginPath(); ctx.ellipse(px, py, 3.4, 3, 0, 0, Math.PI * 2); ctx.fill();
+  if (!sketch) { ctx.fillStyle = '#bfe0ff'; ctx.beginPath(); ctx.arc(px - 1, py - 1, 1.1, 0, Math.PI * 2); ctx.fill(); }
+  // gold bracers on both forearms
+  const AL = 19, AL2 = 17;
+  for (const A of [pz.armB, pz.armA]) {
+    const [th, bend] = A, mid = { x: shoulder.x + Math.sin(th) * AL * f, y: shoulder.y + Math.cos(th) * AL };
+    const a2 = th - bend, h1 = { x: mid.x + Math.sin(a2) * AL2 * 0.45 * f, y: mid.y + Math.cos(a2) * AL2 * 0.45 }, h2 = { x: mid.x + Math.sin(a2) * AL2 * 0.85 * f, y: mid.y + Math.cos(a2) * AL2 * 0.85 };
+    ctx.strokeStyle = GOLD; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();
+    if (!sketch) { ctx.strokeStyle = GOLD_D; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke(); }
+  }
+  // the headband: a plain gold ring round his brow
+  ctx.strokeStyle = GOLD; ctx.lineWidth = 3.4;
+  ctx.beginPath(); ctx.arc(head.x, head.y, 12.4, Math.PI * (f > 0 ? 1.08 : -0.08), Math.PI * (f > 0 ? 1.9 : 0.92) * (f > 0 ? 1 : 1), f < 0); ctx.stroke();
+  // TRANSFORMED: glowing orange veins up his chest, and burning eyes
+  const lv = fig && fig.transformed ? 2 : 0;
+  if (lv > 0 && !sketch) {
+    ctx.strokeStyle = HUNTER_SIZE.color; ctx.globalAlpha = 0.35 + 0.2 * lv + 0.15 * Math.sin(time * 12); ctx.lineWidth = 1.4;
+    for (const s2 of [-1, 1]) { const c0 = { x: hip.x + ux * 10 + nx * s2 * 4, y: hip.y + uy * 10 + ny * s2 * 4 }, c1 = { x: shoulder.x - ux * 4 + nx * s2 * 6, y: shoulder.y - uy * 4 + ny * s2 * 6 };
+      ctx.beginPath(); ctx.moveTo(c0.x, c0.y); ctx.lineTo((c0.x + c1.x) / 2 + nx * s2 * 3, (c0.y + c1.y) / 2 + ny * s2 * 3); ctx.lineTo(c1.x, c1.y); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    // eyes burning
+    ctx.fillStyle = '#ffb36b'; ctx.beginPath(); ctx.arc(head.x + f * 5, head.y - 2, 1.8, 0, Math.PI * 2); ctx.fill();
+  }
   ctx.restore();
 }
 // BLUE RANGER (Sevon's alt skin): the blue suit with the white diamond band across the chest, a silver belt with the
@@ -18489,7 +18601,7 @@ addEventListener('pointerdown', unlockAudio);
 // ---------------- CHARACTER SELECT ----------------
 // Roster grid (Smash-style face tiles): fill the nulls in as new characters are made (null = "coming soon").
 // The last tile after these is RANDOM.
-const ROSTER = ['COLBY', 'LANCE', 'STICKMAN', 'AIDEN', 'COLBALIAS', 'COLTEN', 'SEVON', null, null];
+const ROSTER = ['COLBY', 'LANCE', 'STICKMAN', 'AIDEN', 'COLBALIAS', 'COLTEN', 'SEVON', 'HUNTER', null];
 const RANDOM_TILE = ROSTER.length;                 // tile index of the RANDOM tile
 const GRID_TILES = ROSTER.length + 1;
 const CHAR_INFO = {
@@ -18500,6 +18612,7 @@ const CHAR_INFO = {
   COLBY:    { title: 'THE REAPER',   a: '#7e1c1c', b: '#1a0b0b' },
   LANCE:    { title: 'LAST STAND',   a: '#1f5fa8', b: '#0b1626' },
   STICKMAN: { title: 'THE ORIGINAL', a: '#52525c', b: '#141418' },
+  HUNTER:   { title: 'TRIPLE H', a: '#8a4a12', b: '#1a0c04' },
 };
 // The name a fighter is SHOWN by (their id - AIDEN, COLBY... - never changes, so saves and online play aren't affected)
 const charName = c => (c && CHAR_INFO[c] && CHAR_INFO[c].name) || c;
@@ -18658,8 +18771,8 @@ function selectClick(p) {
     }
     if (q.char && CHAR_ALTS[q.char] && inRect(pt, skinRect(c))) {   // ALT SKIN: flip between the normal look and the alt
       if (q.cpu && netGuest()) { hostOnly(); return; }
-      q.alt = q.alt ? 0 : 1; menuSfx('pick');
-      selMsg = { text: charName(q.char) + ': ' + (q.alt ? CHAR_ALTS[q.char].name : 'CLASSIC'), t: 1.0 };
+      const AL = altList(q.char); q.alt = ((q.alt | 0) + 1) % (AL.length + 1); menuSfx('pick');   // (cycles: classic -> each alt -> classic)
+      selMsg = { text: charName(q.char) + ': ' + (q.alt ? AL[q.alt - 1].name : 'CLASSIC'), t: 1.0 };
       return;
     }
     if (gameOptions.teams && inRect(pt, teamRect(c))) {  // next team
@@ -19173,11 +19286,11 @@ function drawSelect() {
       if (q.char && CHAR_ALTS[q.char]) {                       // ALT SKIN switch: two swatches, the one in use is lit
         const sr = skinRect(c), sh = players.some(p => localHuman(p) && inRect(p.cur, sr));
         sctx.fillStyle = sh ? '#ffffff' : 'rgba(0,0,0,0.65)'; sctx.fillRect(sr.x, sr.y, sr.w, sr.h);
-        const sw = [CHARACTERS[q.char].look.body || col.main, CHAR_ALTS[q.char].swatch];
+        const sw = [CHARACTERS[q.char].look.body || col.main, ...altList(q.char).map(A => A.swatch)], gap = sw.length > 2 ? 17 : 24, rr = sw.length > 2 ? 0.75 : 1;
         sw.forEach((cc, k) => {
-          const bx = sr.x + 15 + k * 24, by = sr.y + sr.h / 2, on = (q.alt || 0) === k;
-          sctx.fillStyle = on ? '#ffd23f' : '#3a3a3a'; sctx.beginPath(); sctx.arc(bx, by, on ? 10 : 8, 0, Math.PI * 2); sctx.fill();
-          sctx.fillStyle = cc; sctx.beginPath(); sctx.arc(bx, by, on ? 7.5 : 6, 0, Math.PI * 2); sctx.fill();
+          const bx = sr.x + (sw.length > 2 ? 10 : 15) + k * gap, by = sr.y + sr.h / 2, on = (q.alt || 0) === k;
+          sctx.fillStyle = on ? '#ffd23f' : '#3a3a3a'; sctx.beginPath(); sctx.arc(bx, by, (on ? 10 : 8) * rr, 0, Math.PI * 2); sctx.fill();
+          sctx.fillStyle = cc; sctx.beginPath(); sctx.arc(bx, by, (on ? 7.5 : 6) * rr, 0, Math.PI * 2); sctx.fill();
         });
         text('SKIN', sr.x + sr.w / 2, sr.y - 4, 6, '#ffffff', 'center', false);
       }
@@ -19720,6 +19833,10 @@ const MOVESETS = {
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
       'No gimmicks - every input does what you\'d expect, which makes him the best character to learn the game with.',
       'Air K has its own set of shots, separate from his ground K.' ] } ] },
+  HUNTER: { blurb: 'Triple H: the biggest fighter in the game - a towering powerhouse with a sledgehammer. (His own moveset is coming - for now he fights with the Stickman\'s moves.)', sections: [
+    { title: 'COMING SOON', notes: [
+      'Hunter\'s look is in: the biggest frame in the game, the sledgehammer, the gold headband, championship belt and bracers. Transforming makes him bigger still.',
+      'His own moves are on the way - until then he uses the Stickman\'s.' ] } ] },
   AIDEN: { blurb: 'Captain Heel: a four-armed skeleton pirate wrestler. Slow and heavy, hits like a truck, and a grappler - every hit throws cinders.', sections: [
     { title: 'GROUND J', rows: [
       ['J J J', 'Left Double Hammer > Right Double Hammer > Gigantic Headbutt', 'His lower arms clamp on and drag you in while the upper arms do the damage - the whole string connects.'],
