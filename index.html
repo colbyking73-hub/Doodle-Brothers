@@ -16425,6 +16425,7 @@ function drawFigure(fig, opts = {}) {
   else if (look.greatsword && !fig.noScythe && !look.dualKatana) ikArm(shoulder, swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9));   // both hands on the greatsword (Colten / a borrowed katana: spaced along the grip)
   else if (MUS) muscleLimb(shoulder, pz.armB, AL, AL2, f, ARM_W, back, null);
   else limb(shoulder, pz.armB, 16, 15, f);
+  if (look.hunter && !grip) drawHunterBracer(shoulder, pz.armB, f, opts);   // (the far arm's bracer, on that arm)
   if (look.dualKatana && !grip && !fig.noScythe) drawKatana(shoulder, pz, f, { ...opts, trailKey: 'bladeTrail2' }, swordHoldB(shoulder, pz, f));   // SEVON: the second katana, in his back hand
   if (four) {                                                 // far LOWER arm
     ctx.strokeStyle = back; ctx.lineWidth = ARM_W;
@@ -16918,6 +16919,7 @@ function drawFigure(fig, opts = {}) {
   else if (S && S.hands === 2) ikArm(shoulder, S.g);
   else if (MUS) muscleLimb(shoulder, pz.armA, AL, AL2, f, ARM_W, main, EDGE);
   else limb(shoulder, pz.armA, 16, 15, f);
+  if (look.hunter && !grip) drawHunterBracer(shoulder, pz.armA, f, opts);   // (the near arm's bracer, on top of it)
   if (look.greatsword && !grip && !fig.noScythe) (look.katana ? drawKatana : drawGreatsword)(shoulder, pz, f, opts);   // the greatsword (Sevon: katana), in his front hand
   if (look.sledge && !grip) drawSledge(shoulder, pz, f, opts, look);      // HUNTER: the sledgehammer
   if (look.auraArmor && fig.transformed && !opts.tint && !sketch) drawAuraArmor(hip, shoulder, head, f);
@@ -16984,19 +16986,6 @@ function drawHunterGear(hip, shoulder, head, pz, f, opts, fig) {
   ctx.beginPath(); ctx.ellipse(px, py, 7, 5.4, 0, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = sketch ? '#222' : '#d8261e'; ctx.beginPath(); ctx.ellipse(px, py, 3.2, 2.8, 0, 0, Math.PI * 2); ctx.fill();
   if (!sketch) { ctx.fillStyle = '#ffc0b8'; ctx.beginPath(); ctx.arc(px - 1, py - 1, 1, 0, Math.PI * 2); ctx.fill(); }
-  // gold bracers on both forearms
-  const AL = 19, AL2 = 17;
-  for (const A of [pz.armB, pz.armA]) {
-    const [th, bend] = A, mid = { x: shoulder.x + Math.sin(th) * AL * f, y: shoulder.y + Math.cos(th) * AL };
-    const a2 = th - bend, h1 = { x: mid.x + Math.sin(a2) * AL2 * 0.3 * f, y: mid.y + Math.cos(a2) * AL2 * 0.3 }, h2 = { x: mid.x + Math.sin(a2) * AL2 * 0.9 * f, y: mid.y + Math.cos(a2) * AL2 * 0.9 };
-    ctx.strokeStyle = GOLD_D; ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();   // big, chunky GOLD BRACERS
-    ctx.strokeStyle = GOLD; ctx.lineWidth = 11; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();
-    if (!sketch) {
-      ctx.strokeStyle = '#fff0a8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lerp(h1.x, h2.x, 0.1), lerp(h1.y, h2.y, 0.1) - 3); ctx.lineTo(lerp(h1.x, h2.x, 0.9), lerp(h1.y, h2.y, 0.9) - 3); ctx.stroke();   // shine
-      ctx.strokeStyle = GOLD_D; ctx.lineWidth = 1.4;
-      for (const u of [0.15, 0.85]) { const q = { x: lerp(h1.x, h2.x, u), y: lerp(h1.y, h2.y, u) }; ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2); ctx.stroke(); }   // rims
-    }
-  }
   // TRANSFORMED: glowing orange veins up his chest, and burning eyes
   const lv = fig && fig.transformed ? 2 : 0;
   if (lv > 0 && !sketch) {
@@ -17006,6 +16995,23 @@ function drawHunterGear(hip, shoulder, head, pz, f, opts, fig) {
     ctx.globalAlpha = 1;
     // eyes burning
     ctx.fillStyle = '#ffb36b'; ctx.beginPath(); ctx.arc(head.x + f * 5, head.y - 2, 1.8, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+// HUNTER'S GOLD BRACERS: drawn straight after each arm, so each one sits on top of its own arm
+function drawHunterBracer(shoulder, A, f, opts) {
+  if (opts.tint) return;
+  const GOLD = sketch ? '#ffffff' : '#e0b030', GOLD_D = sketch ? '#222' : '#9a7414';
+  const AL = sketch ? 16 : 19, AL2 = sketch ? 15 : 17;
+  const [th, bend] = A, mid = { x: shoulder.x + Math.sin(th) * AL * f, y: shoulder.y + Math.cos(th) * AL };
+  const a2 = th - bend, h1 = { x: mid.x + Math.sin(a2) * AL2 * 0.3 * f, y: mid.y + Math.cos(a2) * AL2 * 0.3 }, h2 = { x: mid.x + Math.sin(a2) * AL2 * 0.9 * f, y: mid.y + Math.cos(a2) * AL2 * 0.9 };
+  ctx.save(); ctx.lineCap = 'round';
+  ctx.strokeStyle = GOLD_D; ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();   // big, chunky GOLD BRACERS
+  ctx.strokeStyle = GOLD; ctx.lineWidth = 11; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();
+  if (!sketch) {
+    ctx.strokeStyle = '#fff0a8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lerp(h1.x, h2.x, 0.1), lerp(h1.y, h2.y, 0.1) - 3); ctx.lineTo(lerp(h1.x, h2.x, 0.9), lerp(h1.y, h2.y, 0.9) - 3); ctx.stroke();   // shine
+    ctx.strokeStyle = GOLD_D; ctx.lineWidth = 1.4;
+    for (const u of [0.15, 0.85]) { const q = { x: lerp(h1.x, h2.x, u), y: lerp(h1.y, h2.y, u) }; ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2); ctx.stroke(); }   // rims
   }
   ctx.restore();
 }
