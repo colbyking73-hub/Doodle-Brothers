@@ -7518,6 +7518,9 @@ const AURA_ARMOR = { threshold: 900, kb: 0.85, color: '#7dffb0' };
 const SEVON_FIRE = ['#ff5a1a', '#ffb02e', '#ffe066', '#e0301e'];
 const flameSlash = (f, x, y, n = 10) => burst(f.x + f.face * x, f.y + y, SEVON_FIRE, n, Math.PI / 2, 1.3, 380, { grav: -300 });
 const RISE = { vy: 1450, vx: 200, window: 0.55 };   // Sevon's up K: the lift, and how long after it K = Sky Flame Slash
+// DUAL KATANAS: hand a swing over to his BACK blade - the back arm takes the striking arm's angles (and the blade its
+// angle), while the front arm draws back, its blade held ready behind him for the next hit. So his strings alternate blades.
+const backBlade = (pz, restArm = [-0.7, -0.5], restSw = -2.2) => ({ ...pz, armA: restArm, armB: pz.armA, sw: restSw, sw2: pz.sw });
 const SEVON_MOVES = {
   counter: STICKMAN_MOVES.counter,
   // ---------- J on the ground: FLAME CUTS (J J J) ----------
@@ -7533,15 +7536,15 @@ const SEVON_MOVES = {
     hitboxes: [{ x: 62, y: -28, r: 30, dmg: 3, base: 150, growth: 0.4, angle: 80, from: 0, to: 0.04 },
                { x: 62, y: -84, r: 32, dmg: 3, base: 150, growth: 0.4, angle: 80, from: 0.03, to: 0.07 },
                { x: 28, y: -132, r: 30, dmg: 3, base: 150, growth: 0.4, angle: 80, from: 0.06, to: 0.1 }],
-    wind: pose({ lean: 0.25, bob: -14, legA: [0.95, 0.8], legB: [-0.6, 0.3], armA: [0.7, 0.2], armB: [0.6, 0.3], sw: 0.6 }),     // blade low in front
-    strike: pose({ lean: -0.15, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.7, 0.1], armB: [2.5, 0.2], sw: 3.0 }),    // swept up over his head
+    wind: backBlade(pose({ lean: 0.25, bob: -14, legA: [0.95, 0.8], legB: [-0.6, 0.3], armA: [0.7, 0.2], armB: [0.6, 0.3], sw: 0.6 })),     // (the BACK blade this time) low in front
+    strike: backBlade(pose({ lean: -0.15, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.7, 0.1], armB: [2.5, 0.2], sw: 3.0 })),    // swept up over his head
     fire(f) { flameSlash(f, 50, -90, 7); sfx.slash && sfx.slash(); } },
   jab3: { name: 'Flame Crash', startup: 0.05, active: 0.1, endlag: 0.24, lunge: 300, lungeFriction: 0.4, sweep: true,
     hitboxes: [{ x: 34, y: -130, r: 32, dmg: 6, base: 380, growth: 4.8, angle: 40, from: 0, to: 0.04 },
                { x: 74, y: -80, r: 38, dmg: 6, base: 380, growth: 4.8, angle: 40, from: 0.03, to: 0.07 },
                { x: 80, y: -30, r: 38, dmg: 6, base: 380, growth: 4.8, angle: 40, from: 0.06, to: 0.1 }],
-    wind: pose({ lean: -0.15, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.7, 0.1], armB: [2.5, 0.2], sw: 3.0 }),     // (still up there from the swipe)
-    strike: pose({ lean: 0.5, bob: -14, legA: [1.0, 0.8], legB: [-0.8, 0.1], armA: [1.2, 0.1], armB: [1.05, 0.2], sw: 0.95 }),   // brought straight down in front
+    wind: pose({ lean: -0.15, bob: -4, legA: [0.6, 0.4], legB: [-0.6, 0.2], armA: [2.8, 0.1], armB: [2.4, 0.3], sw: 3.0, sw2: 2.6 }),   // the FRONT blade raised now, the back one still up from the swipe
+    strike: pose({ lean: 0.5, bob: -14, legA: [1.0, 0.8], legB: [-0.8, 0.1], armA: [1.2, 0.1], armB: [-0.6, -0.4], sw: 0.95, sw2: -2.2 }),   // front blade brought straight down, back one swept away behind
     fire(f) { flameSlash(f, 70, -50, 14); shake = Math.max(shake, 6); sfx.slash && sfx.slash(); } },
   // ---------- J + direction ----------
   // SIDE J: FLAME SLASH - one wide cut, and the flames off the blade ROLL OUTWARD: the hit reaches further and further
@@ -7635,8 +7638,8 @@ const SEVON_MOVES = {
     fire(f) { flameSlash(f, 60, -56, 10); } },
   bair: { name: 'Reverse Flame', startup: 0.08, active: 0.08, endlag: 0.2, landLag: 0.12,
     hitboxes: [{ x: -66, y: -60, r: 34, dmg: 10, base: 430, growth: 6.8, angle: 145 }, { x: -30, y: -60, r: 28, dmg: 10, base: 430, growth: 6.8, angle: 145 }],
-    wind: pose({ lean: 0.2, legA: [0.8, 1.7], legB: [0.4, 1.3], armA: [1.3, -0.3], armB: [1.2, -0.2], sw: 1.4 }),
-    strike: pose({ lean: 0.5, legA: [0.6, 1.4], legB: [0.2, 1.1], armA: [-1.5, -0.2], armB: [-1.4, -0.1], sw: -1.5 }),
+    wind: backBlade(pose({ lean: 0.2, legA: [0.8, 1.7], legB: [0.4, 1.3], armA: [1.3, -0.3], armB: [1.2, -0.2], sw: 1.4 }), [1.4, 0.2], 1.5),   // (the BACK blade - the front one held out ahead)
+    strike: backBlade(pose({ lean: 0.5, legA: [0.6, 1.4], legB: [0.2, 1.1], armA: [-1.5, -0.2], armB: [-1.4, -0.1], sw: -1.5 }), [1.4, 0.2], 1.5),
     fire(f) { flameSlash(f, -60, -60, 10); } },
   uair: { name: 'Sky Flame', startup: 0.06, active: 0.1, endlag: 0.16, landLag: 0.1,
     hitboxes: [{ x: 10, y: -118, r: 38, dmg: 8, base: 360, growth: 5.4, angle: 88 }, { x: 30, y: -86, r: 30, dmg: 8, base: 360, growth: 5.4, angle: 82 }],
@@ -8306,10 +8309,10 @@ function drawOdmGear(hip, f, opts, fig) {
 // SWORD TRAIL: while one of his sword moves is out, the blade leaves a short-lived crescent of flame behind it
 // (each drawn frame records the blade's tip and a point near the hilt; the band between them fades out fast)
 const KATANA_TRAIL = { life: 0.13 };
-function katanaTrail(p, tip, base) {
+function katanaTrail(p, tip, base, key = 'bladeTrail') {
   const now = performance.now() / 1000, a = p.action;
   const swinging = a && a.type === 'attack' && (a.phase === 'active' || (a.phase === 'startup' && a.t > a.move.startup * 0.45)) && a.move && a.move.strike && a.move.strike.sw !== undefined && a.move !== p.moveset.neutralRanged;
-  const tr = p.bladeTrail || (p.bladeTrail = []);
+  const tr = p[key] || (p[key] = []);
   if (swinging) tr.unshift({ tx: tip.x, ty: tip.y, bx: base.x, by: base.y, t: now });
   while (tr.length && now - tr[tr.length - 1].t > KATANA_TRAIL.life) tr.pop();
   if (tr.length < 2 || sketch) return;
@@ -8340,7 +8343,7 @@ function drawKatana(shoulder, pz, f, opts, hold) {
   const fs = f < 0 ? -1 : 1, nx = -uy * fs, ny = ux * fs;   // (mirrored with him: facing left the edge and curve stay the same way round, never upside down)
   const P = (along, across) => { const c = along > 0 ? -0.0016 * along * along : 0; return { x: hand.x + ux * along + nx * (across + c), y: hand.y + uy * along + ny * (across + c) }; };   // (curve: the edge side is the inside)
   const outline = opts.outline || 0, G = KATANA.grip, B = KATANA.blade;
-  if (opts.bladeOf && !opts.tint) katanaTrail(opts.bladeOf, P(B + 6, 0), P(B * 0.45, 0));   // the flaming arc his swings leave
+  if (opts.bladeOf && !opts.tint) katanaTrail(opts.bladeOf, P(B + 6, 0), P(B * 0.45, 0), opts.trailKey);   // the flaming arc his swings leave (each blade its own)
   ctx.save();
   ctx.lineCap = 'round';
   if (opts.tint) {
@@ -15592,6 +15595,11 @@ function lerpPose(a, b, k, wrap = false) {
   if (a.sc && b.sc) out.sc = lerpSc(a.sc, b.sc, k, wrap);
   else if (a.sc || b.sc) out.sc = b.sc || a.sc;
   if (a.sw !== undefined || b.sw !== undefined) out.sw = lerpAng(a.sw ?? b.sw, b.sw ?? a.sw, k, wrap);   // Colten's greatsword angle
+  if (a.sw2 !== undefined || b.sw2 !== undefined) {         // Sevon's second katana (a pose without one: fanned just off the first)
+    const s2 = q => q.sw2 !== undefined ? q.sw2 : q.sw !== undefined ? q.sw + 0.42 : undefined;
+    const from = s2(a), to = s2(b);
+    if (to !== undefined) out.sw2 = lerpAng(from ?? to, to, k, wrap);
+  }
   // Four-armed fighters: the lower pair of arms (poses without them get a default that follows the upper arms)
   if (a.armC || b.armC) out.armC = L(a.armC || lowerArm(a.armA), b.armC || lowerArm(b.armA));
   if (a.armD || b.armD) out.armD = L(a.armD || lowerArm(a.armB), b.armD || lowerArm(b.armB));
@@ -16129,7 +16137,7 @@ function drawFigure(fig, opts = {}) {
   else if (look.greatsword && !fig.noScythe && !look.dualKatana) ikArm(shoulder, swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9));   // both hands on the greatsword (Colten / a borrowed katana: spaced along the grip)
   else if (MUS) muscleLimb(shoulder, pz.armB, AL, AL2, f, ARM_W, back, null);
   else limb(shoulder, pz.armB, 16, 15, f);
-  if (look.dualKatana && !grip && !fig.noScythe) drawKatana(shoulder, pz, f, { ...opts, bladeOf: null }, swordHoldB(shoulder, pz, f));   // SEVON: the second katana, in his back hand
+  if (look.dualKatana && !grip && !fig.noScythe) drawKatana(shoulder, pz, f, { ...opts, trailKey: 'bladeTrail2' }, swordHoldB(shoulder, pz, f));   // SEVON: the second katana, in his back hand
   if (four) {                                                 // far LOWER arm
     ctx.strokeStyle = back; ctx.lineWidth = ARM_W;
     if (lowGrip) ikArm(lowSh, { x: grip.x - f * 4, y: grip.y + 28 }, 15, 14);
