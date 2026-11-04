@@ -4691,7 +4691,7 @@ function heldVictim(f) {                // whoever f has hold of right now (grab
 function startDeckUlt(f, v) {
   const def = CHARACTERS[f.char].grabUlt, a0 = f.action;      // (a0: the throw he's in the middle of, if any)
   f.ultPower = 0.5 + 0.5 * clamp((f.ult || 0) / ULT_MAX, 0, 1);
-  f.ult = 0; f.ultBuf = 0; f.atkBuf = f.spcBuf = f.grabBuf = 0; f.shielding = false;
+  f.ult = 0; f.ultBuf = 0; f.atkBuf = f.spcBuf = f.grabBuf = 0; f.shielding = false; f.ultNerfT = ULT_NERF.time;   // (half meter gain for a while - see ULT_NERF)
   if (cage && cage.owner === f) breakCage();
   heelSay(f, 'roar');
   ultBanner = { t: 1.1, name: def.name, color: f.color, who: f };
@@ -10074,6 +10074,7 @@ const projPhase = t => !!(t.char === 'AIDEN' && t.action && t.action.type === 'a
 function isIntangible(f) {
   if (f.invuln > 0) return true;
   const a = f.action;
+  if (a && a.type === 'uiDash' && a.phase === 'vanish') return true;   // (vanished: nothing can touch him)
   if (a && ['thrown', 'ultSeq', 'ultVictim', 'ultBeam', 'flameDragon', 'uiTransform', 'ssj2Cut', 'shipUlt', 'gazeSwap', 'swapped'].includes(a.type)) return true;   // nothing else can hit you mid-throw / ultimate (a CLASH can be broken up, though)
   return !!a && (a.type === 'spot' || a.type === 'roll' || a.type === 'air') && a.t >= a.iStart && a.t <= a.iEnd;
 }
@@ -11098,7 +11099,10 @@ function stepClash(f, a, dt, inp) {
 //  Activation lunge -> if it connects: teleporting FLURRY -> FINAL slash -> (Colby) CUTSCENE -> launch.
 // =====================================================================
 const ULT_MAX = 100, ULT_PASSIVE = 0.5;   // passive: 0.5 per second = 1% every 2 seconds
-const ULT_GAIN = 1;                         // meter gained per 1% of damage taken (lower = ultimates come less often)
+const ULT_GAIN = 1;
+// AFTER AN ULTIMATE: for ULT_NERF.time seconds (counted once he's out of his transformation) every bit of ult meter he gains
+// is halved - so ultimates can't come round again straight away (see the update() wrapper)
+const ULT_NERF = { time: 15, gain: 0.5 };                         // meter gained per 1% of damage taken (lower = ultimates come less often)
 const FLURRY_TIME = 2.3, FINAL_TIME = 0.8, CUT_TIME = 3.4;
 let ult = null;          // the running ultimate sequence (the rest of the game pauses while it plays)
 let ultBanner = null;    // big "ULTIMATE" banner when one is activated
@@ -11115,7 +11119,7 @@ function startUltimate(f, alt = false) {          // alt = DOWN was held: the ch
     f.ultPower = 0.5 + 0.5 * clamp(((f.ult || 0) - fl) / (ULT_MAX / 2), 0, 1); f.ult = fl;
   } else f.ult = 0;
   f.ultBuf = 0; f.atkBuf = f.spcBuf = f.grabBuf = 0;
-  f.shielding = false;
+  f.shielding = false; f.ultNerfT = ULT_NERF.time;           // (half meter gain for a while - see ULT_NERF)
   const C = CHARACTERS[f.char], def = (alt && C.altUlt) || C.ult || {};
   if (cage && cage.owner === f && !def.ship) breakCage();   // (Aiden's cage comes down when he goes for an ultimate - except the
                                                             //  PIRATE SHIP SLAM: it stays, so everyone caged is a guaranteed hit)
@@ -11785,7 +11789,7 @@ function stepSsj2Cut(f, a, dt) {
     // ...and straight into IT'S MY TURN on whoever's nearest (like Ultra Instinct's awakening: the transform comes with a beating)
     const v = nearestFoe(f);
     if (v && v.respawnTimer <= 0 && !v.dead && !isIntangible(v) && !(v.halo > 0)) {
-      f.face = Math.sign(v.x - f.x) || f.face; f.ultPower = 1;
+      f.face = Math.sign(v.x - f.x) || f.face; f.ultPower = 1; f.ultNerfT = ULT_NERF.time;
       ultBanner = { t: 1.1, name: CHARACTERS.LANCE.altUlt.name, color: '#ffe066', who: f };
       startUltSequence(f, v, CHARACTERS.LANCE.altUlt);
     } else f.action = { type: 'land', t: 0, dur: 0.1 };
@@ -11976,34 +11980,62 @@ const uiRealRate = () => GAME_SPEED * timeScale * ((netActive() ? netTurbo : tur
 // awakening plays out on them (the beat-down, the scream, the beating). If it misses (or they Z vanish through it), he
 // still awakens - just a quick scream, no beating. A PERFECT BLOCK repels it: no Ultra Instinct, he's left staggered and
 // half his meter's gone.
-const UI_DASH = { wind: 0.22, speed: 2500, time: 0.27, r: 52 };
+// (inspired by UI Goku's EMBODIED LIGHT in FighterZ): a beat to gather himself... then he VANISHES - a streak of silver light,
+// untouchable - and reappears right on top of whoever's ahead of him, SMASHING them down into the stage. It has to land: if
+// nobody's there (or they Z vanish as he strikes) he just reappears and lands. A PERFECT BLOCK repels it.
+const UI_DASH = { wind: 0.2, vanish: 0.2, reach: 650, reachY: 220, miss: 420, tell: 0.07, smashR: 80 };
 function startUiDash(f) {
-  f.ultBuf = 0; f.shielding = false;
-  f.action = { type: 'uiDash', t: 0 };
+  f.ultBuf = 0; f.shielding = false; f.ultNerfT = ULT_NERF.time;
+  f.action = { type: 'uiDash', t: 0, phase: 'wind' };
   ultBanner = { t: 1.0, title: 'ULTIMATE', name: 'ULTRA INSTINCT', color: UI.color, who: f };
   hitstop = Math.max(hitstop, 0.2); sfx.parry();
   burst(f.x, f.y - 50, ['#ffffff', UI.color, UI.glow], 20, 0, Math.PI, 420, { grav: 0 });
 }
+function uiDashFoes(f) { return fighters.filter(t => !(t === f || t.minion || allies(f, t) || t.respawnTimer > 0 || t.halo > 0 || t.dead || t.poofT > 0 || t.out)); }
 function stepUiDash(f, a, dt) {
-  if (!f.ground) f.vy = Math.min(f.vy, 0) * 0.5;
-  if (a.t < UI_DASH.wind) {                                   // gathering himself: silver sparks
+  if (a.phase === 'wind') {                                   // gathering himself: silver sparks
+    if (!f.ground) f.vy = Math.min(f.vy, 0) * 0.5;
     f.vx = approach(f.vx, 0, FRICTION * dt);
     if (realRandom() < dt * 40) bolt(f.x, f.y - 50, realRandom() * Math.PI * 2, 40 + realRandom() * 30, 0.08, realRandom() < 0.5 ? '#ffffff' : UI.glow);
+    if (a.t >= UI_DASH.wind) {                                // ...VANISH: who's ahead of him?
+      const ahead = uiDashFoes(f).filter(t => (t.x - f.x) * f.face > -10 && (t.x - f.x) * f.face < UI_DASH.reach && Math.abs(t.y - f.y) < UI_DASH.reachY)
+        .sort((p, q) => Math.abs(p.x - f.x) - Math.abs(q.x - f.x))[0];
+      a.phase = 'vanish'; a.t0 = a.t; a.target = ahead || null; a.x0 = f.x; a.y0 = f.y;
+      a.x1 = ahead ? ahead.x : f.x + f.face * UI_DASH.miss; a.y1 = ahead ? ahead.y : f.y;
+      ghosts.push({ fig: figureOf(f), life: 0.3, max: 0.3, color: '#ffffff' });
+      burst(f.x, f.y - 50, ['#ffffff', UI.glow], 18, 0, Math.PI, 520, { grav: 0 }); if (sfx.vanish) sfx.vanish(1.0);
+    }
     return;
   }
-  if (!a.went) { a.went = true; f.vx = f.face * UI_DASH.speed; sfx.vanish(0.9); sfx.whoosh(true); }
-  if (!f.ground) f.vy = 0;
-  if (a.t > UI_DASH.wind + UI_DASH.time) {                   // MISSED: he awakens anyway - no beating
-    f.vx = 0; startUltraInstinct(f, null); return;
+  if (a.phase === 'vanish') {                                 // GONE: a streak of light toward them (untouchable - see isIntangible)
+    const T = a.target, q = clamp((a.t - a.t0) / UI_DASH.vanish, 0, 1);
+    if (T && fighters.includes(T)) { a.x1 = T.x; a.y1 = T.y; }
+    f.x = lerp(a.x0, a.x1 - f.face * 40, q); f.y = lerp(a.y0, a.y1, q) - Math.sin(q * Math.PI) * 60; f.vx = f.vy = 0;
+    if (realRandom() < dt * 60) particles.push({ x: f.x + (realRandom() - 0.5) * 20, y: f.y - 50 + (realRandom() - 0.5) * 40, vx: -f.face * 300, vy: 0, life: 0.18, max: 0.18, size: 2, color: realRandom() < 0.5 ? '#ffffff' : UI.glow, type: 'bit', grav: 0 });
+    if (q >= 1) {                                             // ...REAPPEARS right over them, fist raised
+      a.phase = 'smash'; a.t0 = a.t;
+      f.x = a.x1 - f.face * 34; f.y = Math.min(a.y1 - 70, STAGE.y - 70); f.ground = false; f.vx = f.vy = 0;
+      burst(f.x, f.y - 50, ['#ffffff', UI.glow], 16, 0, Math.PI, 420, { grav: 0 }); ring(f.x, f.y - 50); if (sfx.vanish) sfx.vanish(0.8);
+    }
+    return;
   }
-  f.vx = f.face * UI_DASH.speed;
-  ghosts.push({ fig: figureOf(f), life: 0.18, max: 0.18, color: UI.color });
-  const hx = f.x + f.face * 40, hy = f.y - 60;
-  for (const t of fighters) {
-    if (t === f || t.minion || allies(f, t) || t.respawnTimer > 0 || t.halo > 0 || isIntangible(t) || t.dead || t.poofT > 0 || t.out) continue;
-    if (!circleHitsFighter(hx, hy, UI_DASH.r, t)) continue;
-    if (dashUltParried(f, t, hx, hy)) { f.ult = Math.min(f.ult || 0, ULT_MAX / 2); return; }   // REPELLED
-    f.vx = 0; startUltraInstinct(f, t); return;                // CAUGHT: the awakening, on them
+  if (a.phase === 'smash') {                                  // THE SMASH: driven down into the stage
+    f.vx = 0; f.vy = 0;
+    if (a.t - a.t0 < UI_DASH.tell) return;                    // (the flash of him appearing - the moment to Z vanish / perfect block)
+    const hx = f.x + f.face * 34, hy = f.y + 20;
+    for (const t of uiDashFoes(f)) {
+      if (Math.hypot(t.x - hx, (t.y - 45) - hy) > UI_DASH.smashR) continue;
+      if (isIntangible(t)) { t.dodgedFlash = 0.35; continue; }    // slipped it
+      if (dashUltParried(f, t, hx, hy)) { f.ult = Math.min(f.ult || 0, ULT_MAX / 2); return; }   // REPELLED
+      uiHitFx(t, t.x, t.y - 60, true, UI.glow); dust(t.x, STAGE.y, 18, 2.4); ring(t.x, STAGE.y - 10); shake = Math.max(shake, 20);
+      impactFrame = Math.max(impactFrame, 0.08); impactAt = { x: t.x, y: t.y - 60, ang: Math.PI / 2, all: true, focus: true, invert: true };
+      startUltraInstinct(f, t); return;                       // CAUGHT: the awakening, on them
+    }
+    a.phase = 'whiff'; a.t0 = a.t; f.vy = 300;                // MISSED: nothing there - he drops
+    return;
+  }
+  if (a.phase === 'whiff' && (f.ground || a.t - a.t0 > 0.5)) {   // ...lands - and awakens anyway, no beating
+    dust(f.x, f.y, 12, 1.8); f.vx = 0; startUltraInstinct(f, null);
   }
 }
 function startUltraInstinct(f, target) {
@@ -12184,7 +12216,9 @@ function stepUiTransform(f, a, dt) {
         uiDamage(f, v, UI.dmg.kick * 0.5); uiHitFx(v, st.from.x, st.from.y - 55, true, UI.glow); uiNote(0.5);
       }
     }
-    if (st.type === 'combo') {                               // a teleport flurry right where they are
+    if (st.type === 'combo' && st.style) {                   // one of his STRINGS (see uiString)
+      uiString(f, a, v, st, i, k, rdt, once, gy);
+    } else if (st.type === 'combo') {                        // a teleport flurry right where they are
       v.x = st.from.x; v.y = st.from.y;
       a.blinkT -= rdt; a.bigT -= rdt;
       if (a.blinkT <= 0) { a.blinkT += 0.11; const big = a.bigT <= 0; if (big) a.bigT = 1.1; uiBlinkStrike(f, a, v, big); }
@@ -12359,23 +12393,134 @@ function stepUiTransform(f, a, dt) {
 // THE CHAIN (the middle of the Ultra Instinct cutscene): kicked across the stage, teleport-CAUGHT, combo'd, kicked up,
 // spiked into the floor, bounced, combo'd... a different place and a different hit every time. Positions are relative to
 // the scene's middle (cx, gy = the floor). The flurries stretch to fill the time so it always ends on the beat.
+// The COMBO steps are each a different STRING now (see uiString) - the kicks, slams, the grab and the speed blitz between
+// them are untouched.
 const UI_CHAIN = [
-  { type: 'combo', dur: 1.2 },
+  { type: 'combo', dur: 1.2, style: 'kneeChop' },      // knee to the gut... they double over... a chop to the back of the head
   { type: 'kick', dur: 0.45, to: [250, -240], pose: 'highKick', arc: 60, catch: true },
-  { type: 'combo', dur: 1.2 },
+  { type: 'combo', dur: 1.2, style: 'airPunch' },      // punches thrown from a distance, landing like ki blasts... teleport AXE KICK into the stage
   { type: 'slam', dur: 0.8, to: [120, 0] },
-  { type: 'combo', dur: 1.0, low: true },
+  { type: 'combo', dur: 1.0, low: true, style: 'palmRush' },   // a storm of palm strikes, then both palms
   { type: 'kick', dur: 0.45, to: [-300, -110], pose: 'kick2', arc: 40, catch: true },
   { type: 'kick', dur: 0.4, to: [-260, -420], pose: 'uair', arc: 0, catch: true },
   { type: 'grab', dur: 1.5, to: [-110, 0] },          // grabbed in the air, swung round and round, HURLED into the stage
-  { type: 'combo', dur: 1.0, low: true },
+  { type: 'combo', dur: 1.0, low: true, style: 'spinChain' },  // spinning back elbow - backfist - roundhouse
   { type: 'blitz', dur: 1.5, to: [0, -230] },          // kicked up - then SPEED BLITZED from one side of the stage to the other
   { type: 'kick', dur: 0.5, to: [190, -60], pose: 'dashAttack', arc: 30, catch: true },
-  { type: 'combo', dur: 1.2 },
+  { type: 'combo', dur: 1.2, style: 'uppercuts' },     // rising uppercuts lift them... a hammer fist brings them down
   { type: 'kick', dur: 0.45, to: [160, -380], pose: 'upRanged', arc: 0, catch: true },
   { type: 'slam', dur: 0.8, to: [40, 0] },
-  { type: 'combo', dur: 1.3, low: true },
+  { type: 'combo', dur: 1.3, low: true, style: 'airPunch', side: -1 },   // the air punches again - from the other side
 ];
+// ONE STRING (k = 0..1 through the step). The victim's home spot for it is st.from; strings move them about, but always
+// leave them back near it so the next move (a kick / slam...) picks them up from there.
+const uiStrike = (pz) => pose(pz);
+function uiString(f, a, v, st, i, k, rdt, once, gy) {
+  const H = st.from, S = st.side || 1, small = UI.dmg.flurry, big = UI.dmg.flurry * 7;
+  const hit = (key, dmg, x, y, isBig) => { if (once(key)) { uiDamage(f, v, dmg); uiHitFx(v, x, y, isBig, UI.glow); if (isBig) uiNote(0.5); } };
+  const blink = key => { if (once(key)) { ghosts.push({ fig: figureOf(f), life: 0.22, max: 0.22, color: UI.color }); if (sfx.vanish) sfx.vanish(0.5); } };
+  v.x = H.x; v.y = H.y;
+  if (st.style === 'kneeChop') {
+    if (k < 0.42) {                                          // THE KNEE, driven up into the gut
+      blink('kc0' + i);
+      f.x = H.x - S * 34; f.y = H.y; f.face = S;
+      const up = clamp(k / 0.12, 0, 1);
+      a.pose = uiStrike({ lean: -0.15, bob: -4, legA: [lerp(0.3, 1.75, up), lerp(0.4, 2.5, up)], legB: [-0.25, 0.2], armA: [0.9, -1.7], armB: [0.5, -1.9] });
+      if (k >= 0.12) hit('kc1' + i, big, H.x - S * 6, H.y - 45, true);
+      if (k >= 0.12) {                                       // ...they fold round it, wincing
+        v.y = H.y - (k < 0.2 ? (k - 0.12) * 260 : 20);
+        v.action.pose = pose({ lean: 0.95, bob: -8, legA: [0.35, 0.6], legB: [-0.2, 0.7], armA: [0.5, -1.6], armB: [0.3, -1.7] });
+        if (realRandom() < rdt * 30) burst(v.x + S * 8, v.y - 70, ['#ffffff'], 1, -Math.PI / 2, 0.5, 120, { grav: 200 });   // (spit)
+      }
+    } else if (k < 0.62) {                                   // ...he blinks up behind them, hand raised
+      blink('kc2' + i);
+      v.y = H.y - 20; v.action.pose = pose({ lean: 0.95, bob: -8, legA: [0.35, 0.6], legB: [-0.2, 0.7], armA: [0.5, -1.6], armB: [0.3, -1.7] });
+      f.x = H.x + S * 26; f.y = H.y - 70; f.face = -S;
+      a.pose = uiStrike({ lean: -0.3, bob: -2, legA: [0.7, 1.4], legB: [0.2, 1.0], armA: [3.0, 0.15], armB: [-1.0, -0.4] });
+    } else {                                                 // THE CHOP to the back of the head: driven down and away
+      const q = clamp((k - 0.62) / 0.38, 0, 1);
+      f.x = H.x + S * 26; f.y = H.y - 70; f.face = -S;
+      a.pose = uiStrike({ lean: 0.6, bob: -2, legA: [0.7, 1.4], legB: [0.2, 1.0], armA: [1.1, 0.05], armB: [-1.0, -0.4] });
+      hit('kc3' + i, big * 1.3, H.x, H.y - 85, true);
+      if (once('kc3s' + i)) { shake = Math.max(shake, 14); impactFrame = Math.max(impactFrame, 0.05); impactAt = { x: H.x, y: H.y - 85, ang: Math.PI / 2, all: false, focus: true }; }
+      v.x = H.x - S * 40 * Math.sin(q * Math.PI * 0.5); v.y = H.y + 26 * Math.sin(q * Math.PI);   // pitched forward... toward his next spot
+      v.action.pose = uiFlyPose(-S * (0.6 + q * 1.4));
+    }
+  } else if (st.style === 'airPunch') {
+    const D = 210;
+    if (k < 0.62) {                                          // PRESSURE PUNCHES from range: each one lands like a ki blast
+      f.x = H.x - S * D; f.y = Math.min(H.y + 20, gy); f.face = S;
+      const n = Math.floor(k / 0.1), ph = (k % 0.1) / 0.1;
+      a.pose = n % 2 ? LANCE_MOVES.jab2.strike : LANCE_MOVES.jab.strike;
+      if (ph < 0.4) a.pose = n % 2 ? LANCE_MOVES.jab.strike : LANCE_MOVES.jab2.strike;
+      if (once('ap' + i + '_' + n)) {
+        const fx = f.x + S * 30, fy = f.y - 62;
+        slashLine((fx + H.x) / 2, fy, 0, D - 30, 0.1);                                       // the punch's shockwave streaking across...
+        auraWaves.push({ x: fx, y: fy, t: 0, dur: 0.18, max: 34, color: '#ffffff' });
+        uiDamage(f, v, small * 2.5); uiHitFx(v, H.x - S * 8, H.y - 55 + (n % 3 - 1) * 14, n % 3 === 2, UI.glow);   // ...and landing
+        if (sfx.vanish && n % 2) sfx.vanish(0.25);
+      }
+      v.x = H.x + S * Math.sin(k * 60) * 4; v.action.pose = uiHurtPose((k * 7) % 1);
+    } else if (k < 0.78) {                                   // ...BLINK - right above them, a leg raised to the sky
+      blink('ap1' + i);
+      f.x = H.x - S * 6; f.y = H.y - 120; f.face = S;
+      a.pose = { ...pose({ lean: -0.4, legA: [2.9, 0.02], legB: [0.3, 0.9], armA: [-1.2, -0.3], armB: [1.0, -0.4] }), raw: true };
+      v.action.pose = uiHurtPose(0.7);
+    } else {                                                 // ...THE AXE KICK: down onto the stage - and they bounce back up into his next move
+      const q = clamp((k - 0.78) / 0.22, 0, 1);
+      f.x = H.x - S * 6; f.y = H.y - 120 + q * 60; f.face = S;
+      a.pose = { ...pose({ lean: 0.3, legA: [0.5, 0.02], legB: [0.3, 0.9], armA: [-1.6, -0.2], armB: [1.2, -0.4] }), raw: true };
+      if (once('ap2' + i)) {
+        uiDamage(f, v, big * 1.4); uiHitFx(v, H.x, H.y - 70, true, UI.glow);
+        dust(H.x, gy, 20, 2.6); ring(H.x, gy - 10); cracks.push({ x: H.x, y: gy, life: 3, max: 3, seed: H.x * 3 + i, size: 1.4 }); shake = Math.max(shake, 18); sfx.slam && sfx.slam();
+      }
+      const fall = Math.min(1, q * 2.5), up = Math.max(0, (q - 0.4) / 0.6);
+      v.y = up > 0 ? lerp(gy, H.y, easeOut(up)) : lerp(H.y, gy, fall); v.action.pose = uiFlyPose(Math.PI * 0.5 + q * 2);
+    }
+  } else if (st.style === 'palmRush') {                      // A STORM OF PALMS from the front... then both palms at once
+    f.x = H.x - S * 46; f.y = H.y + 4; f.face = S;
+    if (k < 0.8) {
+      const n = Math.floor(k / 0.06);
+      a.pose = uiStrike({ lean: 0.35, bob: -10, legA: [1.0, 0.7], legB: [-0.8, 0.3], armA: n % 2 ? [1.65, 0] : [0.6, -1.4], armB: n % 2 ? [0.5, -1.4] : [1.55, 0] });
+      if (once('pr' + i + '_' + n)) { uiDamage(f, v, small); uiHitFx(v, H.x - S * 6, H.y - 50 - (n % 3) * 12, false, UI.glow); for (let g = 0; g < 2; g++) { const gf = figureOf(f); gf.x += (realRandom() - 0.5) * 20; ghosts.push({ fig: gf, life: 0.1, max: 0.1, color: '#ffffff' }); } }
+      v.x = H.x + S * Math.min(30, k * 40); v.action.pose = uiHurtPose((n * 0.37) % 1);
+    } else {
+      a.pose = uiStrike({ lean: 0.55, bob: -12, legA: [1.1, 0.6], legB: [-0.9, 0.2], armA: [1.6, 0], armB: [1.5, 0.05] });
+      hit('pr2' + i, big * 1.2, H.x, H.y - 55, true);
+      const q = (k - 0.8) / 0.2; v.x = H.x + S * (30 - 30 * q); v.action.pose = uiFlyPose(S * q);
+    }
+  } else if (st.style === 'spinChain') {                     // SPINNING BACK ELBOW - BACKFIST - ROUNDHOUSE, each from a new side
+    const n = Math.min(2, Math.floor(k / 0.33)), side = n === 1 ? -S : S;
+    blink('sc' + i + '_' + n);
+    f.x = H.x - side * 50; f.y = H.y + 4; f.face = side;
+    const q = (k - n * 0.33) / 0.33;
+    const P = [ { lean: -0.1, bob: -6, legA: [0.6, 0.4], legB: [-0.5, 0.3], armA: [-0.4, -2.4], armB: [0.4, -1.8], spin: side * Math.PI * 2 * Math.min(1, q * 2) },   // the elbow, spun into
+                { lean: 0.2, bob: -6, legA: [0.8, 0.5], legB: [-0.6, 0.2], armA: [1.6, -0.2], armB: [0.5, -1.6] },                                                    // backfist
+                { lean: -0.45, bob: 0, legA: [2.0, 0.1], legB: [-0.3, 0.2], armA: [-0.8, -0.6], armB: [0.8, -0.8] } ][n];                                             // roundhouse
+    a.pose = { ...pose(P), raw: true };
+    if (q > 0.45) hit('sch' + i + '_' + n, n === 2 ? big * 1.3 : big * 0.8, H.x - side * 8, H.y - (n === 2 ? 70 : 55), n !== 1);
+    v.x = H.x + side * (q > 0.45 ? 12 : 0); v.action.pose = uiHurtPose(n * 0.4);
+  } else if (st.style === 'uppercuts') {                     // RISING UPPERCUTS lift them... then a HAMMER FIST
+    if (k < 0.7) {
+      const n = Math.floor(k / 0.175), side = n % 2 ? -S : S;
+      blink('uc' + i + '_' + n);
+      const lift = Math.min(1, k / 0.7) * 110;
+      v.y = H.y - lift; v.action.pose = uiFlyPose(-side * 0.4);
+      f.x = H.x - side * 40; f.y = v.y + 30; f.face = side;
+      a.pose = uiStrike({ lean: -0.2, bob: -4, legA: [0.8, 1.2], legB: [0.3, 0.9], armA: [2.7, 0.1], armB: [0.4, -1.6] });
+      hit('ucH' + i + '_' + n, big * 0.7, H.x, v.y - 60, n === 3);
+    } else {
+      const q = (k - 0.7) / 0.3;
+      blink('uc4' + i);
+      f.x = H.x + S * 10; f.y = H.y - 110 - 50; f.face = -S;
+      a.pose = uiStrike({ lean: 0.5, bob: 0, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: q < 0.3 ? [3.0, 0.2] : [1.0, 0.1], armB: q < 0.3 ? [2.8, 0.3] : [0.9, 0.2] });   // both fists clasped... and down
+      if (q >= 0.3) { hit('uc5' + i, big * 1.4, H.x, H.y - 160, true); v.y = lerp(H.y - 110, H.y, Math.min(1, (q - 0.3) / 0.4)); v.action.pose = uiFlyPose(Math.PI * 0.5); }
+      else v.y = H.y - 110;
+    }
+  }
+  a.cam = { x: (f.x + v.x) / 2, y: Math.min(f.y, v.y) - 70, z: st.style === 'airPunch' ? 1.2 : 1.4, speed: 5 };
+}
+
 function uiBuildChain(cx, gy, t0, t1) {
   const fixed = UI_CHAIN.reduce((s, st) => s + (st.type === 'combo' ? 0 : st.dur), 0);
   const comboBase = UI_CHAIN.reduce((s, st) => s + (st.type === 'combo' ? st.dur : 0), 0);
@@ -14835,6 +14980,11 @@ function update(dt) {
   for (const v of fighters) { const a = v.action; if (a && (a.type === 'thrown' || a.type === 'grabbed') && a.holder) held.push([v, v.damage, a.holder]); }
   updateSim(dt);
   for (const v of fighters) if ((ulted0.has(v) || beingUlted(v)) && meter0.has(v) && (v.ult || 0) > meter0.get(v)) v.ult = meter0.get(v);
+  for (const v of fighters) if (v.ultNerfT > 0) {           // AFTER AN ULTIMATE: half meter gain (the clock runs once he's out of his transformation)
+    const g = (v.ult || 0) - (meter0.get(v) ?? (v.ult || 0));
+    if (g > 0) v.ult -= g * (1 - ULT_NERF.gain);
+    if (!v.transformed && !ultRunning()) v.ultNerfT = Math.max(0, v.ultNerfT - dt);
+  }
   for (const [v, d0, h] of held) {
     if (v.damage > d0) v.damage = d0 + (v.damage - d0) * GRAB_DMG.all * (GRAB_DMG[h.char] || 1);
     // a CLONE that got grabbed: when the grab / throw is over (thrown, let go, broke free) it just vanishes -
@@ -15879,9 +16029,13 @@ function basePose(p) {
     const w = Math.sin(p.anim * 14) * 0.15;
     return pose({ lean: -0.55 + w, bob: -2, legA: [0.5, 0.4], legB: [-0.45, 0.2], armA: [-2.4, 0.3], armB: [2.5, -0.3] });
   }
-  if (a && a.type === 'uiDash') return a.went                    // LANCE'S ULTRA INSTINCT DASH: gathering himself... then a blur, fist first
-    ? pose({ lean: 0.85, bob: -6, legA: [1.2, 0.3], legB: [-1.1, 0.4], armA: [1.6, 0], armB: [-1.4, -0.3] })
-    : pose({ lean: 0.3, bob: -14, legA: [0.9, 0.9], legB: [-0.7, 0.4], armA: [-0.6, -1.4], armB: [0.4, -1.6] });
+  if (a && a.type === 'uiDash') {                               // LANCE'S ULTRA INSTINCT DASH: gather... blur... LEAP into a double axe kick
+    if (a.phase === 'smash') return { ...pose(a.t - a.t0 < UI_DASH.tell                               // reappeared over them: fist raised...
+      ? { lean: -0.3, bob: -2, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [3.0, 0.15], armB: [-1.0, -0.4] }
+      : { lean: 0.7, bob: -2, legA: [0.8, 1.4], legB: [0.3, 1.0], armA: [0.6, 0.05], armB: [-1.2, -0.4] }), raw: true };   // ...and SMASHED down
+    if (a.phase === 'whiff') return pose({ lean: 0.4, bob: -4, legA: [0.8, 1.2], legB: [0.3, 0.9], armA: [0.6, 0.05], armB: [-1.2, -0.4] });
+    return pose({ lean: 0.3, bob: -14, legA: [0.9, 0.9], legB: [-0.7, 0.4], armA: [-0.6, -1.4], armB: [0.4, -1.6] });
+  }
   if (a && a.type === 'land') return pose({ bob: -10, lean: 0.3, legA: [0.75, 1.5], legB: [0.55, 1.3] });
   if (a && a.type === 'taunt') return tauntPose(p, a);
   if (a && a.type === 'spot') return pose({ lean: 0.35, bob: -10, legA: [0.75, 1.5], legB: [0.55, 1.3], armA: [0.9, -1.9], armB: [0.5, -1.9] });
@@ -16902,6 +17056,7 @@ function drawSmear(p) {
 
 function drawFighter(p) {
   const a = p.action;
+  if (a && a.type === 'uiDash' && a.phase === 'vanish') return;   // (Lance mid-Embodied-Light: gone - just the streak of light)
   if (a && a.type === 'taunt' && p.look && p.look.pirateHat) {         // Captain Heel's taunt skits: barrel / anchor / bones
     drawHeelTauntProps(p, a);
     if (a.bones) { drawBonePile(p, a); return; }
@@ -19433,7 +19588,7 @@ const MOVESETS = {
     { title: 'TRANSFORM + ULTIMATES (I)', rows: [
       ['I (FULL METER) #1', 'SUPER SAIYAN', 'Golden hair and aura: +10% damage, +18% move speed, attacks 18% faster. It STAYS ON when the meter runs out - and through KOs.'],
       ['I (FULL METER) #2', 'SUPER SAIYAN 2', 'A full cutscene to Day of Fate (the red line, the lava sea of ki) - then lightning crackles round his aura: +20% damage, +32% move speed, attacks 32% faster. Also stays on when the meter runs out, and through KOs.'],
-      ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. A blurring DASH - it has to catch someone (a perfect block repels it and staggers him; a miss still transforms him, with no beating). Then a 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
+      ['I (FULL METER) #3', 'ULTRA INSTINCT', 'Only from Super Saiyan 2. He VANISHES (untouchable) and reappears right over whoever is ahead of him, smashing them down - it has to land (Z vanish it as he strikes, or a perfect block repels it and staggers him; a miss still transforms him, with no beating). Then a 44-second cutscene everyone watches, timed to his theme: beaten and bleeding, he says "REF, I DIDN\'T HEAR NO BELL" - then SCREAMS and transforms, weaves their barrage, walks past as the hits land, combos them across the sky, slams them into the stage, weaves their last swing and Kamehamehas them. In it he keeps Super Saiyan 2\'s buffs, +1 Z vanish dot and AUTO DODGE. When its meter runs out (the ONLY thing that resets him) he drops back to base and climbs again.'],
       ['I (TRANSFORMED)', 'Final Kamehameha', 'A full-power beam fired straight ahead across the whole stage. Quick to charge, and you can AIM it up, left or right (down too in the air). A one-hit KO on anyone already at 130%+ - below that it is a big hit.'],
       ['DOWN + I (TRANSFORMED)', "It's My Turn", 'A mach-speed dash punch - whoever it hits is pulled into a brutal rush. A perfect block repels it.'] ] },
     { title: 'WHAT MAKES HIM UNIQUE', notes: [
