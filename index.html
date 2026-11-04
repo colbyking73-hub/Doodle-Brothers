@@ -8561,7 +8561,7 @@ const CHARACTERS = {
       muscle: true,             // the huge frame
       scale: 1.3,               // THE BIGGEST in the game (Captain Heel is 1.12) - and rage / transforming grow him more
       longHair: '#121212',      // a black, shaggy mane
-      hunter: true,             // gold ring headband, gold championship belt (blue jewel), gold bracers, torn ring trousers, boots (see drawHunterGear)
+      hunter: true,             // gold championship belt (ruby), big gold bracers, white gi pants, boots (see drawHunterGear)
                                 // (no weapon - his hands are enough; drawSledge is kept for later)
       grows: true,              // transformed: bigger still (see HUNTER_SIZE)
       transformAura: '#ff6a1a',
@@ -16947,8 +16947,8 @@ function drawSledge(shoulder, pz, f, opts, look) {
   }
   ctx.restore();
 }
-// HUNTER'S GEAR: a plain gold ring headband, a big gold championship belt with a blue jewel on the plate, gold bracers on
-// both forearms, torn charcoal ring trousers and black boots with gold laces. Transformed: glowing orange veins.
+// HUNTER'S GEAR: a big gold championship belt (centre plate, side plates, a ruby), gold bracers on
+// both forearms, plain white gi pants and black boots with gold laces. Transformed: glowing orange veins.
 function drawHunterGear(hip, shoulder, head, pz, f, opts, fig) {
   if (opts.tint) return;
   const GOLD = sketch ? '#ffffff' : '#e0b030', GOLD_D = sketch ? '#222' : '#9a7414';
@@ -16959,8 +16959,15 @@ function drawHunterGear(hip, shoulder, head, pz, f, opts, fig) {
     const a2 = th - bend; return { mid, end: { x: mid.x + Math.sin(a2) * LEG_LOW * f, y: mid.y + Math.cos(a2) * LEG_LOW } }; };
   for (const L of [pz.legB, pz.legA]) {
     const g = leg(L);
-    ctx.strokeStyle = sketch ? '#ffffff' : '#2b2b31'; ctx.lineWidth = 11;
+    // WHITE GI PANTS: loose and baggy, a soft shade down the back of each leg, tucked into the boots
+    ctx.strokeStyle = sketch ? '#ffffff' : '#f2efe6'; ctx.lineWidth = 13;
     ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(g.mid.x, g.mid.y); ctx.lineTo(lerp(g.mid.x, g.end.x, 0.62), lerp(g.mid.y, g.end.y, 0.62)); ctx.stroke();
+    if (!sketch) {
+      ctx.strokeStyle = 'rgba(120,110,95,0.35)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(hip.x - f * 3, hip.y + 2); ctx.lineTo(g.mid.x - f * 4, g.mid.y); ctx.lineTo(lerp(g.mid.x, g.end.x, 0.58) - f * 4, lerp(g.mid.y, g.end.y, 0.58)); ctx.stroke();
+      const cuff = { x: lerp(g.mid.x, g.end.x, 0.6), y: lerp(g.mid.y, g.end.y, 0.6) };   // the baggy cuff spilling over the boot top
+      ctx.fillStyle = '#f2efe6'; ctx.beginPath(); ctx.ellipse(cuff.x, cuff.y, 8, 5, 0, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.strokeStyle = sketch ? '#222' : '#121214'; ctx.lineWidth = 10;                  // boot
     ctx.beginPath(); ctx.moveTo(lerp(g.mid.x, g.end.x, 0.6), lerp(g.mid.y, g.end.y, 0.6)); ctx.lineTo(g.end.x, g.end.y); ctx.stroke();
     if (!sketch) { ctx.strokeStyle = GOLD; ctx.lineWidth = 1.4; const k = lerp(g.mid.y, g.end.y, 0.75); ctx.beginPath(); ctx.moveTo(lerp(g.mid.x, g.end.x, 0.75) - 4, k); ctx.lineTo(lerp(g.mid.x, g.end.x, 0.75) + 4, k); ctx.stroke(); }
@@ -16969,22 +16976,27 @@ function drawHunterGear(hip, shoulder, head, pz, f, opts, fig) {
   const bx = hip.x + ux * 4, by = hip.y + uy * 4;
   ctx.strokeStyle = GOLD; ctx.lineWidth = 7;
   ctx.beginPath(); ctx.moveTo(bx - nx * 9, by - ny * 9); ctx.lineTo(bx + nx * 9, by + ny * 9); ctx.stroke();
-  const px = bx + f * 4, py = by;
-  ctx.fillStyle = GOLD; ctx.beginPath(); ctx.ellipse(px, py, 8, 6.5, 0, 0, Math.PI * 2); ctx.fill();
+  const px = bx + f * 4, py = by;                                 // a wrestling CHAMPIONSHIP plate: big centre plate, side plates, a ruby
+  ctx.fillStyle = GOLD;
+  for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(px + sd * 9, py, 4, 4.5, 0, 0, Math.PI * 2); ctx.fill(); }
+  ctx.beginPath(); ctx.ellipse(px, py, 10, 8, 0, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = GOLD_D; ctx.lineWidth = 1.2; ctx.stroke();
-  ctx.fillStyle = sketch ? '#222' : '#2f7fe8'; ctx.beginPath(); ctx.ellipse(px, py, 3.4, 3, 0, 0, Math.PI * 2); ctx.fill();
-  if (!sketch) { ctx.fillStyle = '#bfe0ff'; ctx.beginPath(); ctx.arc(px - 1, py - 1, 1.1, 0, Math.PI * 2); ctx.fill(); }
+  ctx.beginPath(); ctx.ellipse(px, py, 7, 5.4, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = sketch ? '#222' : '#d8261e'; ctx.beginPath(); ctx.ellipse(px, py, 3.2, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+  if (!sketch) { ctx.fillStyle = '#ffc0b8'; ctx.beginPath(); ctx.arc(px - 1, py - 1, 1, 0, Math.PI * 2); ctx.fill(); }
   // gold bracers on both forearms
   const AL = 19, AL2 = 17;
   for (const A of [pz.armB, pz.armA]) {
     const [th, bend] = A, mid = { x: shoulder.x + Math.sin(th) * AL * f, y: shoulder.y + Math.cos(th) * AL };
-    const a2 = th - bend, h1 = { x: mid.x + Math.sin(a2) * AL2 * 0.45 * f, y: mid.y + Math.cos(a2) * AL2 * 0.45 }, h2 = { x: mid.x + Math.sin(a2) * AL2 * 0.85 * f, y: mid.y + Math.cos(a2) * AL2 * 0.85 };
-    ctx.strokeStyle = GOLD; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();
-    if (!sketch) { ctx.strokeStyle = GOLD_D; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke(); }
+    const a2 = th - bend, h1 = { x: mid.x + Math.sin(a2) * AL2 * 0.3 * f, y: mid.y + Math.cos(a2) * AL2 * 0.3 }, h2 = { x: mid.x + Math.sin(a2) * AL2 * 0.9 * f, y: mid.y + Math.cos(a2) * AL2 * 0.9 };
+    ctx.strokeStyle = GOLD_D; ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();   // big, chunky GOLD BRACERS
+    ctx.strokeStyle = GOLD; ctx.lineWidth = 11; ctx.beginPath(); ctx.moveTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y); ctx.stroke();
+    if (!sketch) {
+      ctx.strokeStyle = '#fff0a8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lerp(h1.x, h2.x, 0.1), lerp(h1.y, h2.y, 0.1) - 3); ctx.lineTo(lerp(h1.x, h2.x, 0.9), lerp(h1.y, h2.y, 0.9) - 3); ctx.stroke();   // shine
+      ctx.strokeStyle = GOLD_D; ctx.lineWidth = 1.4;
+      for (const u of [0.15, 0.85]) { const q = { x: lerp(h1.x, h2.x, u), y: lerp(h1.y, h2.y, u) }; ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2); ctx.stroke(); }   // rims
+    }
   }
-  // the headband: a plain gold ring round his brow
-  ctx.strokeStyle = GOLD; ctx.lineWidth = 3.4;
-  ctx.beginPath(); ctx.arc(head.x, head.y, 12.4, Math.PI * (f > 0 ? 1.08 : -0.08), Math.PI * (f > 0 ? 1.9 : 0.92) * (f > 0 ? 1 : 1), f < 0); ctx.stroke();
   // TRANSFORMED: glowing orange veins up his chest, and burning eyes
   const lv = fig && fig.transformed ? 2 : 0;
   if (lv > 0 && !sketch) {
@@ -19834,7 +19846,7 @@ const MOVESETS = {
       'Air K has its own set of shots, separate from his ground K.' ] } ] },
   HUNTER: { blurb: 'Triple H: the biggest fighter in the game - a towering powerhouse. (His own moveset is coming - for now he fights with the Stickman\'s moves.)', sections: [
     { title: 'COMING SOON', notes: [
-      'Hunter\'s look is in: the biggest frame in the game, the gold headband, championship belt and bracers. Transforming makes him bigger still.',
+      'Hunter\'s look is in: the biggest frame in the game, a gold championship belt and big gold bracers. Transforming makes him bigger still.',
       'His own moves are on the way - until then he uses the Stickman\'s.' ] } ] },
   AIDEN: { blurb: 'Captain Heel: a four-armed skeleton pirate wrestler. Slow and heavy, hits like a truck, and a grappler - every hit throws cinders.', sections: [
     { title: 'GROUND J', rows: [
