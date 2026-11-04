@@ -8326,8 +8326,17 @@ function katanaTrail(p, tip, base) {
 // THE KATANA: a proper nichirin blade, shorter than before - long two-hand grip (wrapped, with diamonds), a flame
 // tsuba, a gold habaki collar, a gently curved blade with a wavy HAMON line and the burning red-orange edge
 const KATANA = { grip: 22, blade: 74 };
-function drawKatana(shoulder, pz, f, opts) {
-  const { hand, ux, uy } = swordHold(shoulder, pz, f);
+// SEVON DUAL-WIELDS: his second katana is in his BACK hand - fanned a little off the first (or at pz.sw2 if a pose sets it)
+function swordHoldB(shoulder, pz, f) {
+  const [th, bend] = pz.armB;
+  const mid = { x: shoulder.x + Math.sin(th) * 16 * f, y: shoulder.y + Math.cos(th) * 16 };
+  const a2 = th - bend;
+  const hand = { x: mid.x + Math.sin(a2) * 15 * f, y: mid.y + Math.cos(a2) * 15 };
+  const ang = pz.sw2 !== undefined ? pz.sw2 : pz.sw !== undefined ? pz.sw + 0.42 : a2;
+  return { hand, ux: Math.sin(ang) * f, uy: Math.cos(ang) };
+}
+function drawKatana(shoulder, pz, f, opts, hold) {
+  const { hand, ux, uy } = hold || swordHold(shoulder, pz, f);
   const fs = f < 0 ? -1 : 1, nx = -uy * fs, ny = ux * fs;   // (mirrored with him: facing left the edge and curve stay the same way round, never upside down)
   const P = (along, across) => { const c = along > 0 ? -0.0016 * along * along : 0; return { x: hand.x + ux * along + nx * (across + c), y: hand.y + uy * along + ny * (across + c) }; };   // (curve: the edge side is the inside)
   const outline = opts.outline || 0, G = KATANA.grip, B = KATANA.blade;
@@ -8379,7 +8388,7 @@ const CHARACTERS = {
     look: {
       body: '#c4271f',        // red
       longHair: '#f2f2f2',    // long white hair, swept back
-      timeStop: true,         // builds a TIME meter by landing hits (bare-handed down K = Time Stop)
+      timeStop: true,         // builds a TIME meter by landing hits (down K with a full meter = Time Stop - scythe or not)
       bleed: true,            // scythe hits stack BLEED on them (see BLEED)
       weapon: 'scythe',       // his own weapon (Colten's is the greatsword) - see WEAPONS
       scythe3d: true,
@@ -8451,6 +8460,7 @@ const CHARACTERS = {
       flameHair: true,          // ginger haircut with orange tips (see drawFlameHair)
       greatsword: true,         // (the sword system: drawn in his hands, two-handed grip)...
       katana: true,             // ...but it's a KATANA (see drawKatana)
+      dualKatana: true,         // ...TWO of them: the second in his back hand (see swordHoldB)
       odm: true,                // ODM gear on his hips + the grapple (see ODM)
       fireHits: true,           // his hits burst into flames
       totalConc: true,          // down K = TOTAL CONCENTRATION (see TC)
@@ -12781,6 +12791,8 @@ function startAttack(f, inp, btn) {
     else if (moveUsesScythe(move)) move = STICKMAN_MOVES[key] || STICKMAN_MOVES.sideGround;
     // down K: TIME STOP only once the TIME meter is full - until then it's the DASH CHOKESLAM
     if (key === 'downRanged' && move.timeStop && bare && bare.dashChoke && (f.timeMeter || 0) < 100) move = bare.dashChoke;
+  } else if (key === 'downRanged' && f.look && f.look.timeStop && (f.timeMeter || 0) >= 100 && CHARACTERS[f.char].bareMoves) {
+    move = CHARACTERS[f.char].bareMoves.downRanged;     // COLBY WITH HIS SCYTHE: a full TIME meter turns down K into TIME STOP too (otherwise Reaper Whirl)
   }
   f.atkBuf = 0; f.spcBuf = 0; f.jumpBuf = 0; f.flip = 0; f.comboTimer = 0;
   f.action = { type: 'attack', key, move, btn, phase: 'startup', t: 0,
@@ -16114,9 +16126,10 @@ function drawFigure(fig, opts = {}) {
   if (look.oneArm) { /* only one arm (Future Gohan) - nothing on the far side */ }
   else if (grip) ikArm(shoulder, { x: grip.x - f * 3, y: grip.y + 7 });
   else if (S && (S.hands === 2 || S.hands === 'B')) ikArm(shoulder, S.at(S.hb));
-  else if (look.greatsword && !fig.noScythe) ikArm(shoulder, swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9));   // both hands on the greatsword (Sevon: spaced along the katana grip)
+  else if (look.greatsword && !fig.noScythe && !look.dualKatana) ikArm(shoulder, swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9));   // both hands on the greatsword (Colten / a borrowed katana: spaced along the grip)
   else if (MUS) muscleLimb(shoulder, pz.armB, AL, AL2, f, ARM_W, back, null);
   else limb(shoulder, pz.armB, 16, 15, f);
+  if (look.dualKatana && !grip && !fig.noScythe) drawKatana(shoulder, pz, f, { ...opts, bladeOf: null }, swordHoldB(shoulder, pz, f));   // SEVON: the second katana, in his back hand
   if (four) {                                                 // far LOWER arm
     ctx.strokeStyle = back; ctx.lineWidth = ARM_W;
     if (lowGrip) ikArm(lowSh, { x: grip.x - f * 4, y: grip.y + 28 }, 15, 14);
@@ -16678,7 +16691,7 @@ function drawKnightArmor(hip, shoulder, head, pz, f, opts, K) {
   ctx.lineCap = 'round';
 }
 function drawRangerGloves(shoulder, pz, f, look) {
-  const h1 = swordHold(shoulder, pz, f).hand, h2 = look.greatsword ? swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9) : null;
+  const h1 = swordHold(shoulder, pz, f).hand, h2 = look.dualKatana ? swordHoldB(shoulder, pz, f).hand : look.greatsword ? swordSecondHand(shoulder, pz, f, look.katana ? 13 : 9) : null;
   ctx.fillStyle = sketch ? '#ffffff' : '#f6f6f6';
   for (const h of [h1, h2]) if (h) { ctx.beginPath(); ctx.arc(h.x, h.y, 4.6, 0, Math.PI * 2); ctx.fill(); }
 }
@@ -19352,7 +19365,7 @@ const COLBY_SECTIONS = {
     ['AIR J / FWD / BACK / UP / DOWN', 'Split Kick Spin / Air Dash Kick / Back Spin Kick / Dragon Bicycle / Meteor Punch', 'His bare-handed airs - Meteor Punch spikes.'],
     ['SIDE K', 'Annihilator', 'A charged rush punch - hold K to wind it up. Charging (any bare-handed punch) adds damage, not knockback.'],
     ['UP K', 'Rising Uppercut', 'His bare-handed recovery.'],
-    ['DOWN K', 'Time Stop / Dash Chokeslam', 'Bare-handed, with a FULL time meter (fills fast - about 7 landed hits): a purple aura that freezes anyone it touches in time, up to 2.2 seconds (knockback piles up and lands all at once). Otherwise a dashing chokeslam.'],
+    ['DOWN K', 'Time Stop / Dash Chokeslam', 'With a FULL time meter - scythe or bare-handed (fills fast - about 7 landed hits): a purple aura that freezes anyone it touches in time, up to 2.2 seconds (knockback piles up and lands all at once). Otherwise a dashing chokeslam.'],
     ['K (NEAR THE SCYTHE)', 'Pick Up', 'Picks his scythe (or ANY weapon lying on the floor) back up.'] ] },
 };
 const MOVESETS = {
